@@ -198,14 +198,18 @@ private struct DoseCard: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            cardContent(now: context.date)
+        }
+    }
+
+    private func cardContent(now: Date) -> some View {
         VStack(spacing: 15) {
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(alignment: .top, spacing: 12) {
                         MedicationGlyph(medication: medication)
-                        Text(dose.date, style: .time)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.primary)
+                        timeBlock(now: now)
                         Spacer(minLength: 0)
                     }
                     Text(medication.displayName)
@@ -230,9 +234,7 @@ private struct DoseCard: View {
                     }
                     .layoutPriority(1)
                     Spacer(minLength: 8)
-                    Text(dose.date, style: .time)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
+                    timeBlock(now: now)
                 }
             }
 
@@ -271,6 +273,53 @@ private struct DoseCard: View {
         .padding(17)
         .cardSurface()
         .accessibilityElement(children: .contain)
+    }
+
+    private func timeBlock(now: Date) -> some View {
+        VStack(alignment: .trailing, spacing: 3) {
+            Text(dose.date, style: .time)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
+            if status == nil {
+                Label(timingTitle(now: now), systemImage: timingSymbol(now: now))
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(timingColor(now: now))
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func timingState(now: Date) -> DoseTimingState {
+#if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-force-overdue-dose-state") {
+            return .overdue
+        }
+#endif
+        return ScheduleEngine.timingState(for: dose.date, now: now)
+    }
+
+    private func timingTitle(now: Date) -> String {
+        switch timingState(now: now) {
+        case .upcoming: "Upcoming"
+        case .due: "Due"
+        case .overdue: "Overdue"
+        }
+    }
+
+    private func timingSymbol(now: Date) -> String {
+        switch timingState(now: now) {
+        case .upcoming: "clock"
+        case .due: "clock.fill"
+        case .overdue: "exclamationmark.circle.fill"
+        }
+    }
+
+    private func timingColor(now: Date) -> Color {
+        switch timingState(now: now) {
+        case .upcoming: .secondary
+        case .due: AppTheme.accent
+        case .overdue: .orange
+        }
     }
 
     private var doseLine: String {

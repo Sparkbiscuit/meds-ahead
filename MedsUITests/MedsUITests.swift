@@ -55,4 +55,21 @@ final class MedsUITests: XCTestCase {
             .trait
         ])
     }
+
+    func testOverdueDoseStateIsVisibleAndAccessible() {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-ui-testing",
+            "-skip-onboarding",
+            "-seed-demo-data",
+            "-force-overdue-dose-state"
+        ]
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+        let overdueState = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label CONTAINS[c] %@", "Overdue")
+        ).firstMatch
+        XCTAssertTrue(overdueState.waitForExistence(timeout: 3))
+    }
 }

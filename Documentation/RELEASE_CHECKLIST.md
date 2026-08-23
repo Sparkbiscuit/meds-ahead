@@ -4,8 +4,8 @@
 
 - [x] Debug build passes for iOS Simulator
 - [x] Release build passes for iOS Simulator and generic iOS device
-- [x] Seventeen unit tests pass
-- [x] Three UI tests pass, including an automated accessibility audit
+- [x] Twenty unit tests pass
+- [x] Four UI tests pass, including automated accessibility and overdue-state coverage
 - [x] Static analysis passes for the Release app target
 - [x] No source/compiler warnings; Xcode 26 emits only its no-AppIntents metadata-skip message
 - [x] Privacy manifest is present in the archived app
@@ -25,28 +25,30 @@
 - [x] Automated labels, hit regions, traits, clipping, and element-detection audit
 - [ ] Hands-on VoiceOver navigation order and rotor review
 - [x] Empty, populated, low-supply, and unknown-forecast states
-- [ ] Explicit overdue-dose state review
+- [x] Explicit overdue-dose state review
 
 ## Physical-device gates
 
 - [x] Development-signed app installs and launches on iPhone 16 Pro
 - [x] Isolated manual-entry → save → supply critical-flow UI test passes on iPhone 16 Pro
 - [x] Automated Today-screen accessibility audit passes on iPhone 16 Pro
-- [ ] Live camera scan on a supported iPhone
+- [x] Live camera label scan on iPhone 16 Pro returns useful results
 - [x] The four original still images return useful local Vision text/barcode results
-- [ ] Notification delivery and actions on a locked iPhone
+- [x] Refill-alert delivery confirmed on iPhone 16 Pro
+- [ ] Notification actions on a locked iPhone
 - [ ] Energy and thermal behavior during a five-minute scan session
 
 ## App Store Connect gates
 
 - [ ] Reserve the final store name
 - [x] Select local development team and confirm development signing
-- [ ] Confirm App Store Distribution certificate/profile
+- [x] Confirm App Store Distribution signing and store provisioning profile
 - [ ] Create the App Store Connect record and bundle identifier
 - [x] Publish support and privacy-policy URLs
 - [ ] Enter support and privacy-policy URLs in App Store Connect
 - [ ] Complete age rating and App Privacy answers
 - [x] Prepare three accepted-size, no-alpha 6.9-inch screenshots
 - [ ] Upload screenshots
-- [ ] Archive and validate the App Store-distribution-signed build
+- [x] Export an App Store-distribution-signed IPA and verify its signature, profile, privacy manifest, and ZIP integrity
+- [ ] Upload and complete App Store Connect server-side build validation
 - [ ] Submit review notes and test instructions

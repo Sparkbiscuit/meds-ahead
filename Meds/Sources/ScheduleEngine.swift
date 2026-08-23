@@ -16,7 +16,27 @@ struct ScheduledDose: Identifiable, Equatable {
     }
 }
 
+enum DoseTimingState: Equatable {
+    case upcoming
+    case due
+    case overdue
+}
+
 enum ScheduleEngine {
+    static func timingState(
+        for scheduledAt: Date,
+        now: Date = .now,
+        dueWindow: TimeInterval = 30 * 60
+    ) -> DoseTimingState {
+        if scheduledAt < now.addingTimeInterval(-dueWindow) {
+            return .overdue
+        }
+        if scheduledAt <= now.addingTimeInterval(dueWindow) {
+            return .due
+        }
+        return .upcoming
+    }
+
     static func isActive(
         _ schedule: DoseSchedule,
         on day: Date,

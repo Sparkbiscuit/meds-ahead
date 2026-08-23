@@ -2,6 +2,27 @@ import XCTest
 @testable import Meds
 
 final class ScheduleEngineTests: XCTestCase {
+    func testDoseTimingStateBoundaries() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+
+        XCTAssertEqual(
+            ScheduleEngine.timingState(for: now.addingTimeInterval(31 * 60), now: now),
+            .upcoming
+        )
+        XCTAssertEqual(
+            ScheduleEngine.timingState(for: now.addingTimeInterval(30 * 60), now: now),
+            .due
+        )
+        XCTAssertEqual(
+            ScheduleEngine.timingState(for: now.addingTimeInterval(-30 * 60), now: now),
+            .due
+        )
+        XCTAssertEqual(
+            ScheduleEngine.timingState(for: now.addingTimeInterval(-31 * 60), now: now),
+            .overdue
+        )
+    }
+
     func testWeekdayMaskOnlyCreatesSelectedDays() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!

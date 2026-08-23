@@ -46,4 +46,26 @@ final class ScanParserTests: XCTestCase {
         let evidence = [ScanEvidence(kind: .text, value: "No refills left")]
         XCTAssertEqual(ScanParser.parse(evidence).refillsRemaining, 0)
     }
+
+    func testLowConfidenceFragmentDoesNotOverrideMedicationName() {
+        let evidence = [
+            ScanEvidence(kind: .text, value: "Fur0 random", confidence: 0.31),
+            ScanEvidence(kind: .text, value: "Furosemide", confidence: 0.94),
+            ScanEvidence(kind: .text, value: "20 mg", confidence: 0.97)
+        ]
+
+        let draft = ScanParser.parse(evidence)
+
+        XCTAssertEqual(draft.name, "Furosemide")
+        XCTAssertEqual(draft.strength.lowercased(), "20 mg")
+        XCTAssertEqual(draft.evidence.count, 3, "Raw evidence remains available for human review")
+    }
+
+    func testLowConfidenceContextCanStillSupplyExplicitField() {
+        let evidence = [
+            ScanEvidence(kind: .text, value: "Qty 30", confidence: 0.34)
+        ]
+
+        XCTAssertEqual(ScanParser.parse(evidence).currentSupply, 30)
+    }
 }

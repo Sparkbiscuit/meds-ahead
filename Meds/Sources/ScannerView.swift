@@ -158,8 +158,13 @@ struct ScannerScreen: View {
     }
 
     private func merge(_ additions: [ScanEvidence]) {
-        for item in additions where !evidence.contains(where: { $0.kind == item.kind && $0.value == item.value }) {
-            evidence.append(item)
+        for item in additions where ScanEvidenceQuality.isUsefulForAutofill(item) {
+            let key = ScanEvidenceQuality.deduplicationKey(for: item)
+            if let index = evidence.firstIndex(where: { ScanEvidenceQuality.deduplicationKey(for: $0) == key }) {
+                if item.confidence > evidence[index].confidence { evidence[index] = item }
+            } else {
+                evidence.append(item)
+            }
         }
         if !additions.isEmpty {
             UIImpactFeedbackGenerator(style: .soft).impactOccurred()
@@ -230,9 +235,13 @@ private struct LiveDataScanner: UIViewControllerRepresentable {
                 @unknown default:
                     found = nil
                 }
-                guard let found,
-                      !parent.evidence.contains(where: { $0.kind == found.kind && $0.value == found.value }) else { continue }
-                parent.evidence.append(found)
+                guard let found, ScanEvidenceQuality.isUsefulForAutofill(found) else { continue }
+                let key = ScanEvidenceQuality.deduplicationKey(for: found)
+                if let index = parent.evidence.firstIndex(where: { ScanEvidenceQuality.deduplicationKey(for: $0) == key }) {
+                    if found.confidence > parent.evidence[index].confidence { parent.evidence[index] = found }
+                } else {
+                    parent.evidence.append(found)
+                }
             }
         }
     }
@@ -252,7 +261,7 @@ private enum StillImageRecognizer {
                     var results: [ScanEvidence] = []
                     for observation in textRequest.results ?? [] {
                         guard let candidate = observation.topCandidates(1).first,
-                              candidate.confidence >= 0.25 else { continue }
+                              candidate.confidence >= 0.30 else { continue }
                         results.append(ScanEvidence(kind: .text, value: candidate.string, confidence: Double(candidate.confidence)))
                     }
                     for observation in barcodeRequest.results ?? [] {
