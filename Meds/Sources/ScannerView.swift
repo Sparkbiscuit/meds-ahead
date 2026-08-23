@@ -158,15 +158,9 @@ struct ScannerScreen: View {
     }
 
     private func merge(_ additions: [ScanEvidence]) {
-        for item in additions where ScanEvidenceQuality.isUsefulForAutofill(item) {
-            let key = ScanEvidenceQuality.deduplicationKey(for: item)
-            if let index = evidence.firstIndex(where: { ScanEvidenceQuality.deduplicationKey(for: $0) == key }) {
-                if item.confidence > evidence[index].confidence { evidence[index] = item }
-            } else {
-                evidence.append(item)
-            }
-        }
-        if !additions.isEmpty {
+        let merged = ScanEvidenceQuality.mergingBest(existing: evidence, additions: additions)
+        if merged != evidence {
+            evidence = merged
             UIImpactFeedbackGenerator(style: .soft).impactOccurred()
         }
     }
@@ -204,6 +198,8 @@ private struct LiveDataScanner: UIViewControllerRepresentable {
 
     final class Coordinator: NSObject, DataScannerViewControllerDelegate {
         var parent: LiveDataScanner
+        private var liveEvidenceByItemID: [RecognizedItem.ID: ScanEvidence] = [:]
+        private var publishedLiveEvidenceIDs: Set<UUID> = []
 
         init(parent: LiveDataScanner) {
             self.parent = parent
@@ -235,14 +231,20 @@ private struct LiveDataScanner: UIViewControllerRepresentable {
                 @unknown default:
                     found = nil
                 }
-                guard let found, ScanEvidenceQuality.isUsefulForAutofill(found) else { continue }
-                let key = ScanEvidenceQuality.deduplicationKey(for: found)
-                if let index = parent.evidence.firstIndex(where: { ScanEvidenceQuality.deduplicationKey(for: $0) == key }) {
-                    if found.confidence > parent.evidence[index].confidence { parent.evidence[index] = found }
+                if let found, ScanEvidenceQuality.isUsefulForAutofill(found) {
+                    liveEvidenceByItemID[item.id] = found
                 } else {
-                    parent.evidence.append(found)
+                    liveEvidenceByItemID.removeValue(forKey: item.id)
                 }
             }
+
+            let nonLiveEvidence = parent.evidence.filter { !publishedLiveEvidenceIDs.contains($0.id) }
+            let currentLiveEvidence = Array(liveEvidenceByItemID.values)
+            publishedLiveEvidenceIDs = Set(currentLiveEvidence.map(\.id))
+            parent.evidence = ScanEvidenceQuality.mergingBest(
+                existing: nonLiveEvidence,
+                additions: currentLiveEvidence
+            )
         }
     }
 }

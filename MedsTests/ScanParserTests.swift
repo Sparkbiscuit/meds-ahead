@@ -68,4 +68,14 @@ final class ScanParserTests: XCTestCase {
 
         XCTAssertEqual(ScanParser.parse(evidence).currentSupply, 30)
     }
+
+    func testEvidenceMergeKeepsBestConfidenceForEquivalentReading() throws {
+        let earlier = ScanEvidence(kind: .text, value: "FUROSEMIDE", confidence: 0.62)
+        let corrected = ScanEvidence(kind: .text, value: "  furosemide. ", confidence: 0.96)
+
+        let merged = ScanEvidenceQuality.mergingBest(existing: [earlier], additions: [corrected])
+
+        XCTAssertEqual(merged.count, 1)
+        XCTAssertEqual(try XCTUnwrap(merged.first).id, corrected.id)
+    }
 }

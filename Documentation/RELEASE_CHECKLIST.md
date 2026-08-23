@@ -4,7 +4,7 @@
 
 - [x] Debug build passes for iOS Simulator
 - [x] Release build passes for iOS Simulator and generic iOS device
-- [x] Twenty unit tests pass
+- [x] Twenty-one unit tests pass
 - [x] Four UI tests pass, including automated accessibility and overdue-state coverage
 - [x] Static analysis passes for the Release app target
 - [x] No source/compiler warnings; Xcode 26 emits only its no-AppIntents metadata-skip message

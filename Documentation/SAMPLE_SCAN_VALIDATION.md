@@ -11,6 +11,6 @@ The four supplied HEIC images were evaluated locally with the same Apple Vision 
 
 Regression tests cover the recognized dimethyl fumarate and melatonin fields, the no-refills wording, and preference for a non-URL barcode when a label also contains a QR web address.
 
-The confidence-aware autofill pass was checked against all four samples. Of 39 text observations, 37 were above the strong-confidence threshold; the remaining two remained eligible when they contained explicit medication-field context. This preserves useful label content while preventing unstable low-confidence fragments from silently becoming a medication name.
+The confidence-aware autofill pass was checked against all four samples. Of 39 text observations, 37 were above the strong-confidence threshold; the remaining two remained eligible when they contained explicit medication-field context. Live observations are also replaced by VisionKit item identity as focus improves, and equivalent readings keep their strongest version. This preserves useful label content while preventing unstable fragments from accumulating or silently becoming a medication name.
 
 Useful live camera recognition and refill-alert delivery were subsequently confirmed on an iPhone 16 Pro. A five-minute thermal check remains outstanding because VisionKit live scanning is unavailable in the simulator.

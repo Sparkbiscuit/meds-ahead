@@ -16,6 +16,22 @@ enum ScanEvidenceQuality {
         "\(evidence.kind.rawValue):\(normalized(evidence.value))"
     }
 
+    static func mergingBest(
+        existing: [ScanEvidence],
+        additions: [ScanEvidence]
+    ) -> [ScanEvidence] {
+        var result = existing.filter(isUsefulForAutofill)
+        for item in additions where isUsefulForAutofill(item) {
+            let key = deduplicationKey(for: item)
+            if let index = result.firstIndex(where: { deduplicationKey(for: $0) == key }) {
+                if item.confidence > result[index].confidence { result[index] = item }
+            } else {
+                result.append(item)
+            }
+        }
+        return result
+    }
+
     private static func normalized(_ value: String) -> String {
         value
             .lowercased()
