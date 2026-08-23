@@ -22,7 +22,7 @@ Release: 1.0 (build 1)
 - 4 UI tests: onboarding, manual medication critical flow, automated accessibility audit, and accessible overdue-dose state
 - Physical-device critical-flow and automated accessibility-audit passes on iPhone 16 Pro
 - Useful live label scanning and refill-alert delivery confirmed on iPhone 16 Pro
-- Light and dark appearance on 6.1-inch and 6.9-inch simulators
+- Light and dark appearance on 6.1-inch, 6.3-inch, and 6.9-inch simulators
 - Largest accessibility text size with adaptive Today and Supply layouts
 - Reduce Motion, Reduce Transparency, and Increase Contrast simulator review
 - 6.9-inch App Store screenshots: 1320 by 2868 JPEG, no alpha

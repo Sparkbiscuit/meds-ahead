@@ -17,7 +17,7 @@
 ## Simulator review
 
 - [x] iPhone 17e light and dark mode
-- [ ] iPhone 17 Pro light and dark mode
+- [x] iPhone 17 Pro light and dark mode
 - [x] iPhone 17 Pro Max light and dark mode
 - [x] Largest accessibility text size; Today and Supply switch to stacked layouts
 - [x] Reduce Motion
