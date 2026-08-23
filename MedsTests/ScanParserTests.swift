@@ -78,4 +78,37 @@ final class ScanParserTests: XCTestCase {
         XCTAssertEqual(merged.count, 1)
         XCTAssertEqual(try XCTUnwrap(merged.first).id, corrected.id)
     }
+
+    func testNameOnStrengthLineDropsDosageFormWords() {
+        let evidence = [
+            ScanEvidence(kind: .text, value: "FUROSEMIDE 20 MG TABLETS", confidence: 0.92),
+            ScanEvidence(kind: .text, value: "TAKE ONE TABLET DAILY", confidence: 0.97)
+        ]
+
+        let draft = ScanParser.parse(evidence)
+
+        XCTAssertEqual(draft.name, "Furosemide")
+        XCTAssertEqual(draft.strength.lowercased(), "20 mg")
+    }
+
+    func testPatientNameIsNotChosenAsMedicationName() {
+        let evidence = [
+            ScanEvidence(kind: .text, value: "Patient", confidence: 0.99),
+            ScanEvidence(kind: .text, value: "Alex Morgan", confidence: 0.99),
+            ScanEvidence(kind: .text, value: "Furosemide", confidence: 0.86)
+        ]
+
+        XCTAssertEqual(ScanParser.parse(evidence).name, "Furosemide")
+    }
+
+    func testPrintedNDCIsUsedWhenNoBarcodeDecodes() {
+        let evidence = [
+            ScanEvidence(kind: .text, value: "NDC 00054-8179-25", confidence: 0.96)
+        ]
+
+        let draft = ScanParser.parse(evidence)
+
+        XCTAssertEqual(draft.productIdentifier, "00054-8179-25")
+        XCTAssertEqual(draft.productIdentifierType, "NDC")
+    }
 }

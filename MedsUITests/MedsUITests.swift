@@ -56,6 +56,61 @@ final class MedsUITests: XCTestCase {
         ])
     }
 
+    func testMedicationEditorAccessibilityAudit() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-skip-onboarding"]
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["Add"].tap()
+        XCTAssertTrue(app.buttons["manual-entry"].waitForExistence(timeout: 3))
+        app.buttons["manual-entry"].tap()
+        XCTAssertTrue(app.navigationBars["Add Medication"].waitForExistence(timeout: 3))
+
+        let sampleValues = [
+            (app.textFields["medication-name"], "Example"),
+            (app.textFields["Strength"], "20 mg"),
+            (app.textFields["Nickname"], "Morning"),
+            (app.textFields["Label directions"], "Take as directed")
+        ]
+        for (field, value) in sampleValues where field.exists {
+            field.tap()
+            field.typeText(value)
+        }
+        app.navigationBars["Add Medication"].staticTexts["Add Medication"].tap()
+
+        try app.performAccessibilityAudit(for: [
+            .elementDetection,
+            .hitRegion,
+            .sufficientElementDescription,
+            .trait
+        ])
+    }
+
+    func testMedicationEditorAtLargestAccessibilityText() {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-ui-testing",
+            "-skip-onboarding",
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryAccessibilityExtraExtraExtraLarge"
+        ]
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["Add"].tap()
+        XCTAssertTrue(app.buttons["manual-entry"].waitForExistence(timeout: 3))
+        app.buttons["manual-entry"].tap()
+
+        let amountLabel = app.staticTexts["Amount per dose"]
+        for _ in 0..<6 where !amountLabel.exists {
+            app.swipeUp()
+        }
+        XCTAssertTrue(amountLabel.exists)
+        XCTAssertTrue(app.buttons["Sunday"].exists)
+        XCTAssertTrue(app.buttons["Saturday"].exists)
+    }
+
     func testOverdueDoseStateIsVisibleAndAccessible() {
         let app = XCUIApplication()
         app.launchArguments = [

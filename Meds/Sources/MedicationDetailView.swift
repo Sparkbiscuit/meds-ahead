@@ -27,22 +27,29 @@ struct MedicationDetailView: View {
         allInventoryEvents.filter { $0.medicationID == medication.id }.sorted { $0.date > $1.date }
     }
 
-    private var forecast: SupplyForecast {
+    private func forecast(now: Date) -> SupplyForecast {
         ForecastEngine.forecast(
             medication: medication,
             schedules: allSchedules,
             inventoryEvents: allInventoryEvents,
-            doseEvents: allDoseEvents
+            doseEvents: allDoseEvents,
+            now: now
         )
     }
 
     var body: some View {
-        ZStack {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            content(forecast: forecast(now: context.date))
+        }
+    }
+
+    private func content(forecast: SupplyForecast) -> some View {
+        return ZStack {
             CanvasBackground()
             ScrollView {
                 VStack(spacing: 18) {
                     identityHeader
-                    forecastCard
+                    forecastCard(forecast: forecast)
                     quickActions
                     scheduleCard
                     detailsCard
@@ -159,7 +166,7 @@ struct MedicationDetailView: View {
         .padding(.top, 8)
     }
 
-    private var forecastCard: some View {
+    private func forecastCard(forecast: SupplyForecast) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -167,7 +174,7 @@ struct MedicationDetailView: View {
                         .font(.caption2.weight(.bold))
                         .tracking(0.8)
                         .foregroundStyle(.secondary)
-                    Text(forecastTitle)
+                    Text(forecastTitle(forecast: forecast))
                         .font(.system(.title, design: .rounded, weight: .bold))
                         .contentTransition(.numericText())
                 }
@@ -189,7 +196,7 @@ struct MedicationDetailView: View {
         .cardSurface()
     }
 
-    private var forecastTitle: String {
+    private func forecastTitle(forecast: SupplyForecast) -> String {
         if forecast.currentSupply <= 0 { return "Out of supply" }
         if let days = forecast.daysRemaining {
             return days == 1 ? "About 1 day left" : "About \(days) days left"

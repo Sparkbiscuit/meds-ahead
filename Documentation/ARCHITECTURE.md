@@ -19,7 +19,7 @@ The app uses an append-oriented ledger:
 
 Current supply is derived from inventory events minus taken dose events. This preserves an audit trail and allows corrections without silently rewriting history.
 
-Editing a schedule reconciles definitions with existing `DoseSchedule` records instead of replacing them. Stable schedule identifiers keep earlier `DoseEvent` history associated with the correct intended dose. Count corrections compare the entered physical count with the raw ledger balance, including any negative discrepancy, before the displayed balance is clamped to zero.
+Each scheduled time retains its own dose quantity and weekday mask. Editing schedules reconciles those definitions with existing `DoseSchedule` records instead of replacing them. Stable schedule identifiers keep earlier `DoseEvent` history associated with the correct intended dose. Count corrections compare the entered physical count with the raw ledger balance, including any negative discrepancy, before the displayed balance is clamped to zero.
 
 ## Privacy
 

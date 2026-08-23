@@ -1,8 +1,10 @@
 import SwiftUI
+import UIKit
 import UserNotifications
 
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = true
     @State private var notificationStatus = "Checking…"
     @State private var showingSafety = false
@@ -13,10 +15,7 @@ struct SettingsView: View {
             Section {
                 LabeledContent("Notifications", value: notificationStatus)
                 Button("Review Notification Access") {
-                    Task {
-                        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
-                        await refreshNotificationStatus()
-                    }
+                    Task { await reviewNotificationAccess() }
                 }
             } header: {
                 Text("Reminders")
@@ -47,6 +46,10 @@ struct SettingsView: View {
             }
         }
         .task { await refreshNotificationStatus() }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            Task { await refreshNotificationStatus() }
+        }
         .sheet(isPresented: $showingPrivacy) {
             InformationSheet(
                 title: "Private by Design",
@@ -75,6 +78,19 @@ struct SettingsView: View {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
         return "\(version) (\(build))"
+    }
+
+    @MainActor
+    private func reviewNotificationAccess() async {
+        let center = UNUserNotificationCenter.current()
+        let settings = await center.notificationSettings()
+        if settings.authorizationStatus == .denied,
+           let url = URL(string: UIApplication.openSettingsURLString) {
+            await UIApplication.shared.open(url)
+            return
+        }
+        _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
+        await refreshNotificationStatus()
     }
 
     @MainActor

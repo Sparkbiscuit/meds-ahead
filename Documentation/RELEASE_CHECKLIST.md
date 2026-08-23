@@ -4,8 +4,8 @@
 
 - [x] Debug build passes for iOS Simulator
 - [x] Release build passes for iOS Simulator and generic iOS device
-- [x] Thirty-two unit tests pass, including schedule-identity reconciliation, negative-ledger correction, daylight-saving behavior, notification request compaction, notification-action logging, duplicate prevention, and tap routing
-- [x] Four UI tests pass, including automated accessibility and overdue-state coverage
+- [x] Thirty-six unit tests pass, including noisy-label and printed-NDC parsing, independent per-time schedules, schedule-identity reconciliation, negative-ledger correction, daylight-saving behavior, notification request compaction, notification-action logging, duplicate prevention, and tap routing
+- [x] Six UI tests pass, including Today and medication-editor accessibility audits, largest accessibility text in the editor, and overdue-state coverage
 - [x] Static analysis passes for the Release app target
 - [x] No source/compiler warnings; Xcode 26 emits only its no-AppIntents metadata-skip message
 - [x] Privacy manifest is present in the archived app

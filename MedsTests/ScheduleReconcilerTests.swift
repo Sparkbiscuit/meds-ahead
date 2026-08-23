@@ -71,6 +71,37 @@ final class ScheduleReconcilerTests: XCTestCase {
     }
 
     @MainActor
+    func testEachScheduleKeepsItsOwnQuantityAndWeekdays() throws {
+        let fixture = try makeFixture(minutes: [8 * 60, 20 * 60])
+        let weekdays = (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5)
+        let weekends = (1 << 0) | (1 << 6)
+
+        let reconciled = ScheduleReconciler.reconcile(
+            medicationID: fixture.medicationID,
+            definitions: [
+                ScheduleDefinition(
+                    minutesAfterMidnight: 8 * 60,
+                    doseQuantity: 2,
+                    weekdayMask: weekdays
+                ),
+                ScheduleDefinition(
+                    minutesAfterMidnight: 20 * 60,
+                    doseQuantity: 0.5,
+                    weekdayMask: weekends
+                )
+            ],
+            existing: fixture.schedules,
+            in: fixture.context
+        )
+        try fixture.context.save()
+
+        XCTAssertEqual(reconciled[0].doseQuantity, 2)
+        XCTAssertEqual(reconciled[0].weekdayMask, weekdays)
+        XCTAssertEqual(reconciled[1].doseQuantity, 0.5)
+        XCTAssertEqual(reconciled[1].weekdayMask, weekends)
+    }
+
+    @MainActor
     private func makeFixture(minutes: [Int]) throws -> ReconcilerFixture {
         let schema = Schema([Medication.self, DoseSchedule.self, DoseEvent.self, InventoryEvent.self])
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)

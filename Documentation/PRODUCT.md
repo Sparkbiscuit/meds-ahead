@@ -12,7 +12,7 @@ Meds V1 is an iPhone-only, offline-first application with:
 - Still-photo import for accessibility, testing, and unsupported devices
 - Mandatory review of every scanned medication before saving
 - Manual medication entry
-- Daily and selected-weekday schedules
+- Multiple daily and selected-weekday schedules, each with its own dose amount and days
 - As-needed medication support
 - Taken and skipped dose logging
 - Reversible inventory adjustments and refill additions

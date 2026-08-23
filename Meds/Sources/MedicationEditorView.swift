@@ -1,6 +1,13 @@
 import SwiftData
 import SwiftUI
 
+private struct EditableDoseSchedule: Identifiable {
+    let id = UUID()
+    var time: Date
+    var doseQuantity: Double
+    var weekdayMask: Int
+}
+
 struct MedicationEditorView: View {
     private let medication: Medication?
     private let draftEvidence: [ScanEvidence]
@@ -29,9 +36,7 @@ struct MedicationEditorView: View {
     @State private var remindersEnabled: Bool
     @State private var refillRemindersEnabled: Bool
     @State private var detailedNotifications: Bool
-    @State private var doseQuantity: Double
-    @State private var scheduleTimes: [Date]
-    @State private var weekdayMask: Int
+    @State private var editableSchedules: [EditableDoseSchedule]
     @State private var didLoadExistingSchedules = false
     @State private var showingValidation = false
     @State private var validationMessage = ""
@@ -60,9 +65,15 @@ struct MedicationEditorView: View {
         _remindersEnabled = State(initialValue: medication?.remindersEnabled ?? true)
         _refillRemindersEnabled = State(initialValue: medication?.refillRemindersEnabled ?? true)
         _detailedNotifications = State(initialValue: medication?.detailedNotifications ?? false)
-        _doseQuantity = State(initialValue: 1)
-        _scheduleTimes = State(initialValue: [Self.date(minutes: 8 * 60)])
-        _weekdayMask = State(initialValue: 0b1111111)
+        _editableSchedules = State(
+            initialValue: [
+                EditableDoseSchedule(
+                    time: Self.date(minutes: 8 * 60),
+                    doseQuantity: 1,
+                    weekdayMask: 0b1111111
+                )
+            ]
+        )
     }
 
     private var isEditing: Bool { medication != nil }
@@ -80,11 +91,15 @@ struct MedicationEditorView: View {
             return "Refills remaining must be a whole number of zero or more, or left blank."
         }
         if !isAsNeeded {
-            if scheduleTimes.isEmpty { return "Add at least one schedule time, or mark this medication as taken as needed." }
-            if !doseQuantity.isFinite || doseQuantity <= 0 { return "Amount per dose must be greater than zero." }
-            if weekdayMask == 0 { return "Choose at least one day for the schedule." }
-            let minutes = scheduleTimes.map { time in
-                let parts = Calendar.current.dateComponents([.hour, .minute], from: time)
+            if editableSchedules.isEmpty { return "Add at least one schedule time, or mark this medication as taken as needed." }
+            if editableSchedules.contains(where: { !$0.doseQuantity.isFinite || $0.doseQuantity <= 0 }) {
+                return "Every amount per dose must be greater than zero."
+            }
+            if editableSchedules.contains(where: { $0.weekdayMask == 0 }) {
+                return "Choose at least one day for every schedule."
+            }
+            let minutes = editableSchedules.map { schedule in
+                let parts = Calendar.current.dateComponents([.hour, .minute], from: schedule.time)
                 return (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
             }
             if Set(minutes).count != minutes.count { return "Each schedule time must be different." }
@@ -101,17 +116,24 @@ struct MedicationEditorView: View {
             Section("Medication") {
                 TextField("Medication name", text: $name)
                     .textInputAutocapitalization(.words)
+                    .padding(.vertical, 3)
                     .accessibilityIdentifier("medication-name")
-                TextField("Strength, such as 20 mg", text: $strength)
+                TextField("Strength", text: $strength)
                     .textInputAutocapitalization(.never)
+                    .padding(.vertical, 3)
+                    .accessibilityHint("For example, 20 milligrams")
                 Picker("Form", selection: $form) {
                     ForEach(MedicationForm.allCases) { form in
                         Text(form.displayName).tag(form)
                     }
                 }
-                TextField("Nickname (optional)", text: $nickname)
-                TextField("Label directions (optional)", text: $directions, axis: .vertical)
+                TextField("Nickname", text: $nickname)
+                    .padding(.vertical, 3)
+                    .accessibilityHint("Optional")
+                TextField("Label directions", text: $directions, axis: .vertical)
                     .lineLimit(2...5)
+                    .padding(.vertical, 3)
+                    .accessibilityHint("Optional; copy the current label directions")
             }
 
             if !isEditing {
@@ -119,6 +141,7 @@ struct MedicationEditorView: View {
                     HStack {
                         TextField("Current amount", text: $currentSupplyText)
                             .keyboardType(.decimalPad)
+                            .padding(.vertical, 3)
                             .accessibilityIdentifier("current-supply")
                         Text(form.unitName + (Double(currentSupplyText) == 1 ? "" : "s"))
                             .foregroundStyle(.secondary)
@@ -133,37 +156,46 @@ struct MedicationEditorView: View {
             Section {
                 Toggle("Taken as needed", isOn: $isAsNeeded.animation(.medsSpring))
                 if !isAsNeeded {
-                    HStack {
-                        Text("Amount per dose")
-                        Spacer()
-                        TextField("Dose", value: $doseQuantity, format: .number.precision(.fractionLength(0...2)))
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(maxWidth: 72)
-                        Text(form.unitName + (doseQuantity == 1 ? "" : "s"))
-                            .foregroundStyle(.secondary)
-                    }
-
-                    ForEach(scheduleTimes.indices, id: \.self) { index in
-                        HStack {
-                            DatePicker("Time \(index + 1)", selection: $scheduleTimes[index], displayedComponents: .hourAndMinute)
-                            if scheduleTimes.count > 1 {
-                                Button(role: .destructive) {
-                                    scheduleTimes.remove(at: index)
-                                } label: {
-                                    Image(systemName: "minus.circle.fill")
+                    ForEach($editableSchedules) { $schedule in
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                DatePicker("Time", selection: $schedule.time, displayedComponents: .hourAndMinute)
+                                if editableSchedules.count > 1 {
+                                    Button(role: .destructive) {
+                                        editableSchedules.removeAll { $0.id == schedule.id }
+                                    } label: {
+                                        Image(systemName: "minus.circle.fill")
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("Remove \(schedule.time.formatted(date: .omitted, time: .shortened)) schedule")
                                 }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel("Remove time \(index + 1)")
                             }
+                            ScheduleDoseQuantityField(
+                                quantity: $schedule.doseQuantity,
+                                unitName: form.unitName
+                            )
+                            WeekdayPicker(mask: $schedule.weekdayMask)
+                        }
+                        .padding(.vertical, 4)
+
+                        if schedule.id != editableSchedules.last?.id {
+                            Divider()
                         }
                     }
-                    Button("Add Another Time", systemImage: "plus.circle") {
-                        let prior = scheduleTimes.last ?? Self.date(minutes: 8 * 60)
-                        scheduleTimes.append(Calendar.current.date(byAdding: .hour, value: 6, to: prior) ?? prior)
+                    Button("Add Another Schedule", systemImage: "plus.circle") {
+                        let prior = editableSchedules.last ?? EditableDoseSchedule(
+                            time: Self.date(minutes: 8 * 60),
+                            doseQuantity: 1,
+                            weekdayMask: 0b1111111
+                        )
+                        editableSchedules.append(
+                            EditableDoseSchedule(
+                                time: Calendar.current.date(byAdding: .hour, value: 6, to: prior.time) ?? prior.time,
+                                doseQuantity: prior.doseQuantity,
+                                weekdayMask: prior.weekdayMask
+                            )
+                        )
                     }
-
-                    WeekdayPicker(mask: $weekdayMask)
                 }
             } header: {
                 Text("Schedule")
@@ -184,11 +216,13 @@ struct MedicationEditorView: View {
             Section("Prescription & package") {
                 TextField("Refills remaining (optional)", text: $refillsText)
                     .keyboardType(.numberPad)
+                    .padding(.vertical, 3)
                 Toggle("Package expiration", isOn: $hasExpirationDate.animation(.medsSpring))
                 if hasExpirationDate {
                     DatePicker("Expires", selection: $expirationDate, displayedComponents: .date)
                 }
                 TextField("Lot number (optional)", text: $lotNumber)
+                    .padding(.vertical, 3)
                 if !productIdentifier.isEmpty {
                     LabeledContent(productIdentifierType.isEmpty ? "Product code" : productIdentifierType) {
                         Text(productIdentifier)
@@ -295,9 +329,13 @@ struct MedicationEditorView: View {
         guard let medication, !didLoadExistingSchedules else { return }
         let existing = allSchedules.filter { $0.medicationID == medication.id }.sorted { $0.minutesAfterMidnight < $1.minutesAfterMidnight }
         if !existing.isEmpty {
-            scheduleTimes = existing.map { Self.date(minutes: $0.minutesAfterMidnight) }
-            doseQuantity = existing.first?.doseQuantity ?? 1
-            weekdayMask = existing.first?.weekdayMask ?? 0b1111111
+            editableSchedules = existing.map {
+                EditableDoseSchedule(
+                    time: Self.date(minutes: $0.minutesAfterMidnight),
+                    doseQuantity: $0.doseQuantity,
+                    weekdayMask: $0.weekdayMask
+                )
+            }
         }
         didLoadExistingSchedules = true
     }
@@ -351,13 +389,13 @@ struct MedicationEditorView: View {
         let scheduleDefinitions: [ScheduleDefinition] = if isAsNeeded {
             []
         } else {
-            scheduleTimes.map { time in
-                let components = Calendar.current.dateComponents([.hour, .minute], from: time)
+            editableSchedules.map { schedule in
+                let components = Calendar.current.dateComponents([.hour, .minute], from: schedule.time)
                 let minutes = (components.hour ?? 0) * 60 + (components.minute ?? 0)
                 return ScheduleDefinition(
                     minutesAfterMidnight: minutes,
-                    doseQuantity: doseQuantity,
-                    weekdayMask: weekdayMask
+                    doseQuantity: schedule.doseQuantity,
+                    weekdayMask: schedule.weekdayMask
                 )
             }
         }
@@ -404,31 +442,78 @@ struct MedicationEditorView: View {
 private struct WeekdayPicker: View {
     @Binding var mask: Int
     private let symbols = Calendar.current.veryShortWeekdaySymbols
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Days")
                 .font(.subheadline.weight(.semibold))
-            HStack(spacing: 7) {
-                ForEach(symbols.indices, id: \.self) { index in
-                    Button {
-                        if mask & (1 << index) == 0 {
-                            mask |= 1 << index
-                        } else if mask.nonzeroBitCount > 1 {
-                            mask &= ~(1 << index)
-                        }
-                    } label: {
-                        Text(symbols[index])
-                            .font(.caption.weight(.bold))
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 34)
-                            .background(mask & (1 << index) != 0 ? AppTheme.accent : Color.secondary.opacity(0.12), in: Circle())
-                            .foregroundStyle(mask & (1 << index) != 0 ? .white : .primary)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(Calendar.current.weekdaySymbols[index])
-                    .accessibilityValue(mask & (1 << index) != 0 ? "Selected" : "Not selected")
+            if dynamicTypeSize.isAccessibilitySize {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
+                    weekdayButtons
                 }
+            } else {
+                HStack(spacing: 7) {
+                    weekdayButtons
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var weekdayButtons: some View {
+        ForEach(symbols.indices, id: \.self) { index in
+            Button {
+                if mask & (1 << index) == 0 {
+                    mask |= 1 << index
+                } else if mask.nonzeroBitCount > 1 {
+                    mask &= ~(1 << index)
+                }
+            } label: {
+                Text(symbols[index])
+                    .font(.caption.weight(.bold))
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 44)
+                    .background(mask & (1 << index) != 0 ? AppTheme.accent : Color.secondary.opacity(0.12), in: Circle())
+                    .foregroundStyle(mask & (1 << index) != 0 ? .white : .primary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Calendar.current.weekdaySymbols[index])
+            .accessibilityValue(mask & (1 << index) != 0 ? "Selected" : "Not selected")
+        }
+    }
+}
+
+private struct ScheduleDoseQuantityField: View {
+    @Binding var quantity: Double
+    let unitName: String
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        let entry = HStack {
+            TextField(
+                "Dose",
+                value: $quantity,
+                format: .number.precision(.fractionLength(0...2))
+            )
+            .keyboardType(.decimalPad)
+            .multilineTextAlignment(.trailing)
+            .frame(maxWidth: 72)
+            .padding(.vertical, 3)
+            Text(unitName + (quantity == 1 ? "" : "s"))
+                .foregroundStyle(.secondary)
+        }
+
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Amount per dose")
+                entry
+            }
+        } else {
+            HStack {
+                Text("Amount per dose")
+                Spacer()
+                entry
             }
         }
     }

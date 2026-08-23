@@ -57,6 +57,7 @@ enum ScanParser {
     private static let noRefillsPattern = /(?i)\bno\s+refills?\s+(?:left|remaining)\b/
     private static let lotPattern = /(?i)\blot\s*[:#]?\s*([A-Z0-9-]+)\b/
     private static let expirationPattern = /(?i)\b(?:exp|expires?|expiration)\s*[:.]?\s*(\d{1,2})[\/-](\d{2,4})\b/
+    private static let ndcPattern = /(?i)\bNDC\s*[:#]?\s*(\d{4,5}-\d{3,4}-\d{1,2}|\d{10,11})\b/
 
     private struct TextLine {
         let value: String
@@ -85,6 +86,9 @@ enum ScanParser {
         if let barcode = preferredBarcode(in: trustedEvidence) {
             draft.productIdentifier = barcode.value
             draft.productIdentifierType = barcode.symbology ?? "Barcode"
+        } else if let ndc = capture(in: combined, pattern: ndcPattern, group: 1) {
+            draft.productIdentifier = ndc
+            draft.productIdentifierType = "NDC"
         }
         return draft
     }
@@ -108,27 +112,60 @@ enum ScanParser {
             "tablet", "capsule", "quantity", "contents", "refill", "take", "times a day",
             "dietary supplement", "drug-free", "gluten free", "lactose free", "rx#", "rx #",
             "prescriber", "patient", "pharmacy", "discard", "use by", "ndc", "phone", "address",
-            "date filled", "lot", "exp"
+            "date filled", "lot", "exp", "doctor", "provider", "www.", ".com", "fax"
         ]
 
         if !strength.isEmpty,
            let strengthLineIndex = lines.firstIndex(where: { $0.value.localizedCaseInsensitiveContains(strength) }) {
             let line = lines[strengthLineIndex].value
-            let cleaned = line.replacingOccurrences(of: strength, with: "", options: [.caseInsensitive])
-                .replacingOccurrences(of: "Each capsule contains", with: "", options: [.caseInsensitive])
-                .replacingOccurrences(of: "Each tablet contains", with: "", options: [.caseInsensitive])
-                .trimmingCharacters(in: CharacterSet(charactersIn: " :-,."))
+            let cleaned = cleanedNameLine(line, removing: strength)
             if isPlausibleName(cleaned, stopWords: stopWords) { return titleCasedDrugName(cleaned) }
 
-            if strengthLineIndex > 0 {
-                let prior = lines[strengthLineIndex - 1].value
-                if isPlausibleName(prior, stopWords: stopWords) { return titleCasedDrugName(prior) }
+            for distance in 1...2 {
+                for nearbyIndex in [strengthLineIndex - distance, strengthLineIndex + distance]
+                    where lines.indices.contains(nearbyIndex) {
+                    let nearby = lines[nearbyIndex]
+                    if nearby.confidence >= ScanEvidenceQuality.minimumTextConfidence,
+                       !isMetadataValue(at: nearbyIndex, in: lines),
+                       isPlausibleName(nearby.value, stopWords: stopWords) {
+                        return titleCasedDrugName(nearby.value)
+                    }
+                }
             }
         }
 
-        let candidates = lines.filter { isPlausibleName($0.value, stopWords: stopWords) }
+        let candidates: [TextLine] = lines.enumerated().compactMap { index, line -> TextLine? in
+            guard line.confidence >= 0.60,
+                  !isMetadataValue(at: index, in: lines),
+                  isPlausibleName(line.value, stopWords: stopWords) else { return nil }
+            return line
+        }
         let best = candidates.max { nameScore($0) < nameScore($1) }
         return best.map { titleCasedDrugName($0.value) } ?? ""
+    }
+
+    private static func cleanedNameLine(_ value: String, removing strength: String) -> String {
+        var cleaned = value
+            .replacingOccurrences(of: strength, with: "", options: [.caseInsensitive])
+            .replacingOccurrences(of: "Each capsule contains", with: "", options: [.caseInsensitive])
+            .replacingOccurrences(of: "Each tablet contains", with: "", options: [.caseInsensitive])
+        let dosageWords = [
+            "tablets", "tablet", "capsules", "capsule", "oral solution", "solution",
+            "injection", "patches", "patch", "drops", "cream", "ointment"
+        ]
+        for word in dosageWords {
+            cleaned = cleaned.replacingOccurrences(of: word, with: "", options: [.caseInsensitive])
+        }
+        return cleaned.trimmingCharacters(in: CharacterSet(charactersIn: " :-,."))
+    }
+
+    private static func isMetadataValue(at index: Int, in lines: [TextLine]) -> Bool {
+        let markers = ["patient", "patient name", "prescriber", "prescriber name", "doctor", "provider"]
+        guard index > lines.startIndex else { return false }
+        let preceding = lines[index - 1].value
+            .lowercased()
+            .trimmingCharacters(in: CharacterSet(charactersIn: " :#"))
+        return markers.contains(preceding)
     }
 
     private static func nameScore(_ line: TextLine) -> Double {

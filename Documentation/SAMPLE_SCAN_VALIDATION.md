@@ -9,8 +9,8 @@ The four supplied HEIC images were evaluated locally with the same Apple Vision 
 | `IMG_6557.HEIC` | GS1 DataBar Limited decoded; dimethyl fumarate 240 mg, capsule form, lot, and expiration recognized |
 | `IMG_6558.heic` | EAN-13 decoded; melatonin 5 mg and 120-tablet quantity recognized |
 
-Regression tests cover the recognized dimethyl fumarate and melatonin fields, the no-refills wording, and preference for a non-URL barcode when a label also contains a QR web address.
+Regression tests cover the recognized dimethyl fumarate and melatonin fields, the no-refills wording, preference for a non-URL barcode when a label also contains a QR web address, printed NDC fallback, dosage-form cleanup on medication-name lines, and rejection of patient-name metadata as a medication name.
 
-The confidence-aware autofill pass was checked against all four samples. Of 39 text observations, 37 were above the strong-confidence threshold; the remaining two remained eligible when they contained explicit medication-field context. Live observations are also replaced by VisionKit item identity as focus improves, and equivalent readings keep their strongest version. This preserves useful label content while preventing unstable fragments from accumulating or silently becoming a medication name.
+The confidence-aware autofill pass was checked against all four samples. Of 39 text observations, 37 were above the strong-confidence threshold; the remaining two remained eligible when they contained explicit medication-field context. Live observations are replaced by VisionKit item identity as focus changes, a materially lower-confidence update cannot displace a stronger reading, and equivalent readings keep their strongest version. This preserves useful label content while reducing the chance that unstable fragments silently become a medication name.
 
 Useful live camera recognition and refill-alert delivery were subsequently confirmed on an iPhone 16 Pro. A five-minute thermal check remains outstanding because VisionKit live scanning is unavailable in the simulator.

@@ -232,6 +232,10 @@ private struct LiveDataScanner: UIViewControllerRepresentable {
                     found = nil
                 }
                 if let found, ScanEvidenceQuality.isUsefulForAutofill(found) {
+                    if let existing = liveEvidenceByItemID[item.id],
+                       existing.confidence > found.confidence + 0.08 {
+                        continue
+                    }
                     liveEvidenceByItemID[item.id] = found
                 } else {
                     liveEvidenceByItemID.removeValue(forKey: item.id)
