@@ -1,0 +1,34 @@
+:root {
+  color-scheme: light dark;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  line-height: 1.55;
+  background: Canvas;
+  color: CanvasText;
+}
+
+body {
+  margin: 0;
+  padding: 48px 20px;
+}
+
+main {
+  width: min(680px, 100%);
+  margin: 0 auto;
+}
+
+h1 {
+  margin-bottom: 8px;
+  font-size: clamp(2.2rem, 8vw, 4rem);
+  letter-spacing: -0.045em;
+}
+
+h2 { margin-top: 2rem; }
+p, li { max-width: 68ch; }
+.eyebrow { color: #237c97; font-weight: 700; }
+.note {
+  margin-top: 2rem;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+  border-radius: 18px;
+  background: color-mix(in srgb, #43badd 8%, Canvas);
+}

@@ -1,0 +1,49 @@
+import XCTest
+@testable import Meds
+
+final class ScanParserTests: XCTestCase {
+    func testParsesManufacturerLabelAndGS1Code() {
+        let evidence = [
+            ScanEvidence(kind: .text, value: "Each capsule contains"),
+            ScanEvidence(kind: .text, value: "240 mg dimethyl fumarate"),
+            ScanEvidence(kind: .text, value: "LOT SH0752"),
+            ScanEvidence(kind: .text, value: "EXP 05/2029"),
+            ScanEvidence(kind: .barcode, value: "0100364406006029", symbology: "GS1 DataBar Limited")
+        ]
+
+        let draft = ScanParser.parse(evidence)
+
+        XCTAssertEqual(draft.name.lowercased(), "dimethyl fumarate")
+        XCTAssertEqual(draft.strength.lowercased(), "240 mg")
+        XCTAssertEqual(draft.form, .capsule)
+        XCTAssertEqual(draft.lotNumber, "SH0752")
+        XCTAssertEqual(draft.productIdentifier, "0100364406006029")
+    }
+
+    func testParsesOTCQuantity() {
+        let evidence = [
+            ScanEvidence(kind: .text, value: "Melatonin"),
+            ScanEvidence(kind: .text, value: "5 mg"),
+            ScanEvidence(kind: .text, value: "CONTENTS\n120 TABLETS"),
+            ScanEvidence(kind: .barcode, value: "0036800401044", symbology: "EAN-13")
+        ]
+        let draft = ScanParser.parse(evidence)
+
+        XCTAssertEqual(draft.name, "Melatonin")
+        XCTAssertEqual(draft.strength.lowercased(), "5 mg")
+        XCTAssertEqual(draft.currentSupply, 120)
+    }
+
+    func testPrefersNonURLBarcode() {
+        let evidence = [
+            ScanEvidence(kind: .barcode, value: "https://example.invalid/private", symbology: "QR"),
+            ScanEvidence(kind: .barcode, value: "323615013", symbology: "Code 128")
+        ]
+        XCTAssertEqual(ScanParser.parse(evidence).productIdentifier, "323615013")
+    }
+
+    func testNoRefillsLeftParsesAsZero() {
+        let evidence = [ScanEvidence(kind: .text, value: "No refills left")]
+        XCTAssertEqual(ScanParser.parse(evidence).refillsRemaining, 0)
+    }
+}

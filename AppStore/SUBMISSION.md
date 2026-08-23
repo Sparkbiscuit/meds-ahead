@@ -1,0 +1,67 @@
+# App Store submission draft
+
+## Name
+
+Meds (working name; availability must be confirmed in App Store Connect)
+
+## Subtitle
+
+Know what runs out next
+
+## Promotional text
+
+Scan a label, confirm your schedule, and see a calm, explainable forecast for every medication in your routine.
+
+## Description
+
+Meds is a private medication organizer designed around the question other reminder apps miss: what will run out next?
+
+Scan printed labels and barcodes on device, review exactly what was recognized, and fill in only what is missing. Create flexible schedules, log taken or skipped doses, add refills, make inventory corrections, and see an understandable supply forecast for each medication.
+
+Key features:
+
+- On-device medication label and barcode scanning
+- Human-confirmed medication records
+- Daily and selected-day schedules
+- As-needed medication support
+- Taken and skipped dose history
+- Dose and low-supply refill reminders
+- Refill and inventory adjustments
+- Explainable low-supply forecasts
+- Private local storage with no account or advertising
+- Dynamic Type, VoiceOver, dark mode, and reduced-motion support
+
+Meds is an organization tool. It does not provide medical advice, recommend dose changes, or determine prescription refill eligibility. Always follow your prescription label and clinician's instructions.
+
+## Keywords
+
+medication,medicine,refill,pill,reminder,schedule,tracker,inventory,dose,health
+
+## Review notes
+
+Meds operates without an account or backend. Camera access is requested only when the user opens the scanner. The simulator offers manual entry and photo import because live VisionKit scanning requires a supported physical device. No scanned photo is retained.
+
+The app must not be used to make prescribing, dosing, or refill-eligibility decisions. All recognized label information is presented in an editable confirmation screen before it can be stored.
+
+Suggested review path: complete onboarding, choose Add, select Enter Manually, add a name/current count/schedule, then open Supply. A supported physical iPhone is required to exercise the live text-and-barcode scanner; photo import remains available in the simulator.
+
+## App Store Connect selections
+
+- Primary category: Medical
+- Secondary category: Health & Fitness
+- Price: Free
+- App Privacy: Data Not Collected
+- Advertising identifier: Not used
+- Tracking: No
+- Regulated medical device: No; Meds is an organization and logging tool
+- Export compliance: Uses only encryption provided by the operating system
+- Content rights: No third-party streamed or hosted content
+
+## Required account-owned values
+
+- Final app name and SKU
+- Copyright holder text
+- Support URL: https://sparkbiscuit.me/meds/support/
+- Public privacy-policy URL: https://sparkbiscuit.me/meds/privacy/
+- Distribution bundle identifier and signing team
+- App Review contact details
