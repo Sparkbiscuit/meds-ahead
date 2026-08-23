@@ -10,7 +10,7 @@ struct SupplyView: View {
 
     private var active: [Medication] { medications.filter { !$0.isArchived } }
 
-    private var ranked: [(Medication, SupplyForecast)] {
+    private func ranked(now: Date) -> [(Medication, SupplyForecast)] {
         active.map { medication in
             (
                 medication,
@@ -18,7 +18,8 @@ struct SupplyView: View {
                     medication: medication,
                     schedules: schedules,
                     inventoryEvents: inventoryEvents,
-                    doseEvents: doseEvents
+                    doseEvents: doseEvents,
+                    now: now
                 )
             )
         }
@@ -32,20 +33,27 @@ struct SupplyView: View {
         }
     }
 
-    private var attentionCount: Int {
-        ranked.filter { item in
+    private func attentionCount(in forecasts: [(Medication, SupplyForecast)]) -> Int {
+        forecasts.filter { item in
             guard let days = item.1.daysRemaining else { return false }
             return days <= item.0.refillLeadDays
         }.count
     }
 
     var body: some View {
-        ZStack {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            content(now: context.date)
+        }
+    }
+
+    private func content(now: Date) -> some View {
+        let forecasts = ranked(now: now)
+        return ZStack {
             CanvasBackground()
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 16) {
-                    header
-                    if ranked.isEmpty {
+                    header(attentionCount: attentionCount(in: forecasts))
+                    if forecasts.isEmpty {
                         EmptyStateCard(
                             symbol: "chart.bar.doc.horizontal",
                             title: "Your supply runway will appear here",
@@ -54,7 +62,7 @@ struct SupplyView: View {
                             action: onAdd
                         )
                     } else {
-                        ForEach(ranked, id: \.0.id) { medication, forecast in
+                        ForEach(forecasts, id: \.0.id) { medication, forecast in
                             NavigationLink {
                                 MedicationDetailView(medication: medication)
                             } label: {
@@ -71,7 +79,7 @@ struct SupplyView: View {
         .navigationTitle("Supply")
     }
 
-    private var header: some View {
+    private func header(attentionCount: Int) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(attentionCount == 0 ? "Everything looks steady" : "\(attentionCount) need\(attentionCount == 1 ? "s" : "") attention")
                 .font(.system(.title, design: .rounded, weight: .bold))

@@ -17,7 +17,7 @@ struct SupplyForecast: Equatable {
 }
 
 enum ForecastEngine {
-    static func currentSupply(
+    static func rawSupplyBalance(
         medicationID: UUID,
         inventoryEvents: [InventoryEvent],
         doseEvents: [DoseEvent]
@@ -28,7 +28,35 @@ enum ForecastEngine {
         let consumed = doseEvents
             .filter { $0.medicationID == medicationID && $0.status == .taken }
             .reduce(0) { $0 + $1.doseQuantity }
-        return max(0, inventory - consumed)
+        return inventory - consumed
+    }
+
+    static func currentSupply(
+        medicationID: UUID,
+        inventoryEvents: [InventoryEvent],
+        doseEvents: [DoseEvent]
+    ) -> Double {
+        max(
+            0,
+            rawSupplyBalance(
+                medicationID: medicationID,
+                inventoryEvents: inventoryEvents,
+                doseEvents: doseEvents
+            )
+        )
+    }
+
+    static func correctionDelta(
+        medicationID: UUID,
+        actualCount: Double,
+        inventoryEvents: [InventoryEvent],
+        doseEvents: [DoseEvent]
+    ) -> Double {
+        actualCount - rawSupplyBalance(
+            medicationID: medicationID,
+            inventoryEvents: inventoryEvents,
+            doseEvents: doseEvents
+        )
     }
 
     static func forecast(

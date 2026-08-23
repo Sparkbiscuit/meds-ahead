@@ -17,10 +17,10 @@ struct TodayView: View {
         medications.filter { !$0.isArchived }
     }
 
-    private var todaysDoses: [(Medication, ScheduledDose)] {
+    private func todaysDoses(now: Date) -> [(Medication, ScheduledDose)] {
         let calendar = Calendar.autoupdatingCurrent
-        let start = calendar.startOfDay(for: .now)
-        let end = calendar.date(byAdding: DateComponents(day: 1, second: -1), to: start) ?? .now
+        let start = calendar.startOfDay(for: now)
+        let end = calendar.date(byAdding: DateComponents(day: 1, second: -1), to: start) ?? now
         return activeMedications.flatMap { medication in
             ScheduleEngine.doses(
                 schedules: schedules,
@@ -33,16 +33,23 @@ struct TodayView: View {
         .sorted { $0.1.date < $1.1.date }
     }
 
-    private var completedCount: Int {
-        todaysDoses.filter { status(for: $0.1) != nil }.count
+    private func completedCount(in doses: [(Medication, ScheduledDose)]) -> Int {
+        doses.filter { status(for: $0.1) != nil }.count
     }
 
     var body: some View {
-        ZStack {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            content(now: context.date)
+        }
+    }
+
+    private func content(now: Date) -> some View {
+        let doses = todaysDoses(now: now)
+        return ZStack {
             CanvasBackground()
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 18) {
-                    header
+                    header(now: now)
                     if activeMedications.isEmpty {
                         EmptyStateCard(
                             symbol: "viewfinder",
@@ -51,18 +58,19 @@ struct TodayView: View {
                             actionTitle: "Add Medication",
                             action: onAdd
                         )
-                    } else if todaysDoses.isEmpty {
+                    } else if doses.isEmpty {
                         EmptyStateCard(
                             symbol: "checkmark.circle.fill",
                             title: "Nothing scheduled today",
                             message: "Your as-needed medications and full supply forecast are still available in Medications and Supply."
                         )
                     } else {
-                        progressCard
-                        ForEach(todaysDoses, id: \.1.id) { medication, dose in
+                        progressCard(doses: doses)
+                        ForEach(doses, id: \.1.id) { medication, dose in
                             DoseCard(
                                 medication: medication,
                                 dose: dose,
+                                now: now,
                                 status: status(for: dose),
                                 onTaken: { record(dose, for: medication, status: .taken) },
                                 onSkipped: { record(dose, for: medication, status: .skipped) }
@@ -82,19 +90,19 @@ struct TodayView: View {
         }
     }
 
-    private var header: some View {
+    private func header(now: Date) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(Date.now.formatted(.dateTime.weekday(.wide).month(.wide).day()))
+            Text(now.formatted(.dateTime.weekday(.wide).month(.wide).day()))
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.primary)
-            Text(greeting)
+            Text(greeting(now: now))
                 .font(.system(.largeTitle, design: .rounded, weight: .bold))
         }
         .padding(.top, 6)
     }
 
-    private var greeting: String {
-        let hour = Calendar.autoupdatingCurrent.component(.hour, from: .now)
+    private func greeting(now: Date) -> String {
+        let hour = Calendar.autoupdatingCurrent.component(.hour, from: now)
         return switch hour {
         case 5..<12: "Good morning"
         case 12..<18: "Good afternoon"
@@ -102,34 +110,35 @@ struct TodayView: View {
         }
     }
 
-    private var progressCard: some View {
+    private func progressCard(doses: [(Medication, ScheduledDose)]) -> some View {
         Group {
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 14) {
-                    progressGauge
-                    progressCopy
+                    progressGauge(doses: doses)
+                    progressCopy(doses: doses)
                 }
             } else {
                 HStack(spacing: 14) {
-                    progressGauge
-                    progressCopy
+                    progressGauge(doses: doses)
+                    progressCopy(doses: doses)
                     Spacer(minLength: 0)
                 }
             }
         }
         .padding(18)
         .cardSurface()
-        .animation(reduceMotion ? nil : .medsSpring, value: completedCount)
+        .animation(reduceMotion ? nil : .medsSpring, value: completedCount(in: doses))
     }
 
-    private var progressGauge: some View {
-        ZStack {
+    private func progressGauge(doses: [(Medication, ScheduledDose)]) -> some View {
+        let completed = completedCount(in: doses)
+        return ZStack {
             Circle().stroke(AppTheme.accent.opacity(0.12), lineWidth: 7)
             Circle()
-                .trim(from: 0, to: todaysDoses.isEmpty ? 0 : Double(completedCount) / Double(todaysDoses.count))
+                .trim(from: 0, to: doses.isEmpty ? 0 : Double(completed) / Double(doses.count))
                 .stroke(AppTheme.accent, style: StrokeStyle(lineWidth: 7, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-            Text("\(completedCount)/\(todaysDoses.count)")
+            Text("\(completed)/\(doses.count)")
                 .font(.caption.weight(.bold))
                 .minimumScaleFactor(0.55)
                 .foregroundStyle(.white)
@@ -139,14 +148,15 @@ struct TodayView: View {
         }
         .frame(width: 58, height: 58)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(completedCount) of \(todaysDoses.count) scheduled doses logged")
+        .accessibilityLabel("\(completed) of \(doses.count) scheduled doses logged")
     }
 
-    private var progressCopy: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(completedCount == todaysDoses.count ? "All logged" : "Today’s routine")
+    private func progressCopy(doses: [(Medication, ScheduledDose)]) -> some View {
+        let completed = completedCount(in: doses)
+        return VStack(alignment: .leading, spacing: 3) {
+            Text(completed == doses.count ? "All logged" : "Today’s routine")
                 .font(.headline)
-            Text(completedCount == todaysDoses.count ? "You have accounted for every scheduled dose." : "\(todaysDoses.count - completedCount) scheduled \(todaysDoses.count - completedCount == 1 ? "dose" : "doses") remaining.")
+            Text(completed == doses.count ? "You have accounted for every scheduled dose." : "\(doses.count - completed) scheduled \(doses.count - completed == 1 ? "dose" : "doses") remaining.")
                 .font(.subheadline)
                 .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -192,18 +202,13 @@ struct TodayView: View {
 private struct DoseCard: View {
     let medication: Medication
     let dose: ScheduledDose
+    let now: Date
     let status: DoseEventStatus?
     let onTaken: () -> Void
     let onSkipped: () -> Void
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 60)) { context in
-            cardContent(now: context.date)
-        }
-    }
-
-    private func cardContent(now: Date) -> some View {
         VStack(spacing: 15) {
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 3) {

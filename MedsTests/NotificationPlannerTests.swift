@@ -8,13 +8,27 @@ final class NotificationPlannerTests: XCTestCase {
         return calendar
     }
 
-    func testDailyScheduleCreatesSevenWeeklyDoseNotifications() throws {
+    func testDailyScheduleUsesOneRepeatingNotification() throws {
         let plan = makePlan(refillRemindersEnabled: false)
         let notifications = NotificationPlanner.notifications(for: plan, calendar: calendar)
 
-        XCTAssertEqual(notifications.count, 7)
+        XCTAssertEqual(notifications.count, 1)
         XCTAssertTrue(notifications.allSatisfy { $0.kind == .dose })
-        XCTAssertEqual(Set(notifications.map(\.identifier)).count, 7)
+        XCTAssertEqual(notifications.first?.trigger, .daily(hour: 8, minute: 30))
+    }
+
+    func testSelectedWeekdaysUseOneNotificationPerSelectedDay() {
+        let plan = makePlan(refillRemindersEnabled: false, weekdayMask: (1 << 1) | (1 << 3))
+        let notifications = NotificationPlanner.notifications(for: plan, calendar: calendar)
+
+        XCTAssertEqual(notifications.count, 2)
+        XCTAssertEqual(
+            Set(notifications.map(\.trigger)),
+            Set([
+                .weekly(weekday: 2, hour: 8, minute: 30),
+                .weekly(weekday: 4, hour: 8, minute: 30)
+            ])
+        )
     }
 
     func testPrivateNotificationCopyDoesNotRevealMedication() {
@@ -72,7 +86,8 @@ final class NotificationPlannerTests: XCTestCase {
         refillRemindersEnabled: Bool = true,
         detailedNotifications: Bool = false,
         refillLeadDays: Int = 7,
-        depletionDate: Date? = nil
+        depletionDate: Date? = nil,
+        weekdayMask: Int = 0b1111111
     ) -> MedicationNotificationPlan {
         MedicationNotificationPlan(
             medicationID: UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")!,
@@ -90,7 +105,7 @@ final class NotificationPlannerTests: XCTestCase {
                     id: UUID(uuidString: "11111111-2222-3333-4444-555555555555")!,
                     minutesAfterMidnight: 8 * 60 + 30,
                     doseQuantity: 1,
-                    weekdayMask: 0b1111111
+                    weekdayMask: weekdayMask
                 )
             ]
         )

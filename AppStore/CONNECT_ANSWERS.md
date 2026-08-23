@@ -73,7 +73,8 @@ Meds relies only on encryption supplied by Apple operating-system services and c
 - Description and keywords: Use `AppStore/SUBMISSION.md`
 - Screenshots: Upload the three files in `AppStore/Screenshots/6.9-inch/` in numeric order
 - Export options: `AppStore/ExportOptions-AppStore.plist`
-- Verified local distribution artifact: `/private/tmp/Meds-AppStore-Export-NotificationFinal/Meds.ipa` (temporary local path; rebuild after final naming)
+- Verified local distribution artifact: `/private/tmp/Meds-AppStore-Export-CorrectnessFinal/Meds.ipa` (temporary local path; rebuild after final naming)
+- Artifact SHA-256: `1a98e5f8c7b64147776cc3df5fa16067071153374bcb6f2beb01c7a9a2f6bf59`
 
 ## Accessibility declarations
 

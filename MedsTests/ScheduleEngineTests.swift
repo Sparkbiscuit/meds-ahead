@@ -71,4 +71,55 @@ final class ScheduleEngineTests: XCTestCase {
         )
         XCTAssertEqual(doses.count, 3)
     }
+
+    func testDailyScheduleProducesOneDosePerDayAcrossSpringForward() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        let start = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 3, day: 6))
+        )
+        let end = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 3, day: 11, hour: 23, minute: 59))
+        )
+        let medicationID = UUID()
+        let schedule = DoseSchedule(
+            medicationID: medicationID,
+            minutesAfterMidnight: 9 * 60,
+            startDate: start
+        )
+
+        let doses = ScheduleEngine.doses(
+            schedules: [schedule],
+            medicationID: medicationID,
+            from: start,
+            through: end,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(doses.count, 6)
+        XCTAssertEqual(Set(doses.map { calendar.ordinality(of: .day, in: .year, for: $0.date) }).count, 6)
+        XCTAssertTrue(doses.allSatisfy { calendar.component(.hour, from: $0.date) == 9 })
+    }
+
+    func testNonexistentSpringForwardTimeMovesToNextValidTime() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        let springForwardDay = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 3, day: 8))
+        )
+        let medicationID = UUID()
+        let schedule = DoseSchedule(
+            medicationID: medicationID,
+            minutesAfterMidnight: 2 * 60 + 30,
+            startDate: springForwardDay
+        )
+
+        let scheduled = try XCTUnwrap(
+            ScheduleEngine.scheduledDate(for: schedule, on: springForwardDay, calendar: calendar)
+        )
+
+        XCTAssertEqual(calendar.component(.day, from: scheduled), 8)
+        XCTAssertEqual(calendar.component(.hour, from: scheduled), 3)
+        XCTAssertEqual(calendar.component(.minute, from: scheduled), 0)
+    }
 }

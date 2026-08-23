@@ -54,6 +54,13 @@ actor NotificationService {
 
             let trigger: UNNotificationTrigger
             switch item.trigger {
+            case let .daily(hour, minute):
+                var components = DateComponents()
+                components.calendar = .autoupdatingCurrent
+                components.timeZone = .autoupdatingCurrent
+                components.hour = hour
+                components.minute = minute
+                trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: true)
             case let .weekly(weekday, hour, minute):
                 var components = DateComponents()
                 components.calendar = .autoupdatingCurrent

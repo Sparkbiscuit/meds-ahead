@@ -26,7 +26,8 @@ enum PlannedNotificationKind: Equatable, Sendable {
     case refill
 }
 
-enum PlannedNotificationTrigger: Equatable, Sendable {
+enum PlannedNotificationTrigger: Equatable, Hashable, Sendable {
+    case daily(hour: Int, minute: Int)
     case weekly(weekday: Int, hour: Int, minute: Int)
     case date(Date)
     case interval(TimeInterval)
@@ -53,24 +54,42 @@ enum NotificationPlanner {
 
         if plan.doseRemindersEnabled, !plan.isAsNeeded {
             for schedule in plan.schedules {
-                for weekdayIndex in 0..<7 where schedule.weekdayMask & (1 << weekdayIndex) != 0 {
+                let hour = schedule.minutesAfterMidnight / 60
+                let minute = schedule.minutesAfterMidnight % 60
+                if schedule.weekdayMask == 0b1111111 {
                     notifications.append(
                         PlannedNotification(
-                            identifier: "meds.\(plan.medicationID.uuidString).dose.\(schedule.id.uuidString).\(weekdayIndex)",
+                            identifier: "meds.\(plan.medicationID.uuidString).dose.\(schedule.id.uuidString).daily",
                             kind: .dose,
                             title: plan.detailedNotifications ? "Time for \(plan.displayName)" : "Medication reminder",
                             body: plan.detailedNotifications
                                 ? "Touch and hold to log \(schedule.doseQuantity.medicationQuantityText) \(pluralized(plan.unitName, quantity: schedule.doseQuantity)), or open Meds to review."
                                 : "Touch and hold to log this dose, or open Meds to review.",
-                            trigger: .weekly(
-                                weekday: weekdayIndex + 1,
-                                hour: schedule.minutesAfterMidnight / 60,
-                                minute: schedule.minutesAfterMidnight % 60
-                            ),
+                            trigger: .daily(hour: hour, minute: minute),
                             medicationID: plan.medicationID,
                             scheduleID: schedule.id
                         )
                     )
+                } else {
+                    for weekdayIndex in 0..<7 where schedule.weekdayMask & (1 << weekdayIndex) != 0 {
+                        notifications.append(
+                            PlannedNotification(
+                                identifier: "meds.\(plan.medicationID.uuidString).dose.\(schedule.id.uuidString).\(weekdayIndex)",
+                                kind: .dose,
+                                title: plan.detailedNotifications ? "Time for \(plan.displayName)" : "Medication reminder",
+                                body: plan.detailedNotifications
+                                    ? "Touch and hold to log \(schedule.doseQuantity.medicationQuantityText) \(pluralized(plan.unitName, quantity: schedule.doseQuantity)), or open Meds to review."
+                                    : "Touch and hold to log this dose, or open Meds to review.",
+                                trigger: .weekly(
+                                    weekday: weekdayIndex + 1,
+                                    hour: hour,
+                                    minute: minute
+                                ),
+                                medicationID: plan.medicationID,
+                                scheduleID: schedule.id
+                            )
+                        )
+                    }
                 }
             }
         }

@@ -74,4 +74,32 @@ final class ForecastEngineTests: XCTestCase {
             0
         )
     }
+
+    func testCorrectionDeltaUsesRawLedgerBalance() {
+        let medication = Medication(name: "Example")
+        let opening = InventoryEvent(medicationID: medication.id, delta: 1, reason: .openingCount)
+        let taken = DoseEvent(medicationID: medication.id, doseQuantity: 3, status: .taken)
+
+        let delta = ForecastEngine.correctionDelta(
+            medicationID: medication.id,
+            actualCount: 5,
+            inventoryEvents: [opening],
+            doseEvents: [taken]
+        )
+        let correction = InventoryEvent(
+            medicationID: medication.id,
+            delta: delta,
+            reason: .correction
+        )
+
+        XCTAssertEqual(delta, 7)
+        XCTAssertEqual(
+            ForecastEngine.currentSupply(
+                medicationID: medication.id,
+                inventoryEvents: [opening, correction],
+                doseEvents: [taken]
+            ),
+            5
+        )
+    }
 }

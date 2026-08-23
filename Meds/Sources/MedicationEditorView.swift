@@ -348,22 +348,25 @@ struct MedicationEditorView: View {
         target.refillRemindersEnabled = refillRemindersEnabled
         target.detailedNotifications = detailedNotifications
 
-        allSchedules.filter { $0.medicationID == target.id }.forEach(modelContext.delete)
-        var newSchedules: [DoseSchedule] = []
-        if !isAsNeeded {
-            for time in scheduleTimes {
+        let scheduleDefinitions: [ScheduleDefinition] = if isAsNeeded {
+            []
+        } else {
+            scheduleTimes.map { time in
                 let components = Calendar.current.dateComponents([.hour, .minute], from: time)
                 let minutes = (components.hour ?? 0) * 60 + (components.minute ?? 0)
-                let schedule = DoseSchedule(
-                    medicationID: target.id,
+                return ScheduleDefinition(
                     minutesAfterMidnight: minutes,
                     doseQuantity: doseQuantity,
                     weekdayMask: weekdayMask
                 )
-                modelContext.insert(schedule)
-                newSchedules.append(schedule)
             }
         }
+        let newSchedules = ScheduleReconciler.reconcile(
+            medicationID: target.id,
+            definitions: scheduleDefinitions,
+            existing: allSchedules.filter { $0.medicationID == target.id },
+            in: modelContext
+        )
 
         do {
             try modelContext.save()
@@ -387,6 +390,7 @@ struct MedicationEditorView: View {
                 dismiss()
             }
         } catch {
+            modelContext.rollback()
             validationMessage = "Meds couldn't save this medication. Nothing was changed. Try again."
             showingValidation = true
         }

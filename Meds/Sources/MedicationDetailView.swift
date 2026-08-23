@@ -108,7 +108,12 @@ struct MedicationDetailView: View {
                 initialValue: forecast.currentSupply,
                 actionTitle: "Save Count"
             ) { actualCount, note in
-                let difference = actualCount - forecast.currentSupply
+                let difference = ForecastEngine.correctionDelta(
+                    medicationID: medication.id,
+                    actualCount: actualCount,
+                    inventoryEvents: allInventoryEvents,
+                    doseEvents: allDoseEvents
+                )
                 guard abs(difference) > 0.000_001 else { return }
                 let event = InventoryEvent(medicationID: medication.id, delta: difference, reason: .correction, note: note)
                 modelContext.insert(event)
@@ -386,6 +391,7 @@ struct MedicationDetailView: View {
             try modelContext.save()
             return true
         } catch {
+            modelContext.rollback()
             saveErrorMessage = "Your change wasn't saved. Try again."
             showingSaveError = true
             return false
