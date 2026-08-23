@@ -73,7 +73,11 @@ struct RootView: View {
         .sheet(isPresented: $isPresentingSettings) {
             NavigationStack { SettingsView() }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .medicationNotificationRouteDidChange)) { _ in
+            applyPendingNotificationRoute()
+        }
         .task {
+            applyPendingNotificationRoute()
 #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("-seed-demo-data") {
                 try? DemoData.seed(in: modelContext)
@@ -89,6 +93,11 @@ struct RootView: View {
                 await NotificationService.shared.replaceNotifications(for: plan)
             }
         }
+    }
+
+    private func applyPendingNotificationRoute() {
+        guard let destination = MedicationNotificationRouter.shared.consumeDestination() else { return }
+        selection = destination
     }
 
     @ToolbarContentBuilder

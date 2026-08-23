@@ -4,15 +4,28 @@ import SwiftUI
 
 @main
 struct MedsApp: App {
-    private let modelContainer: ModelContainer
+    @UIApplicationDelegateAdaptor(MedsAppDelegate.self) private var appDelegate
+    private let modelContainer: ModelContainer?
 
     init() {
         if var applicationSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            let protection = FileProtectionType.completeUntilFirstUserAuthentication
             try? FileManager.default.createDirectory(at: applicationSupport, withIntermediateDirectories: true)
             try? FileManager.default.setAttributes(
-                [.protectionKey: FileProtectionType.complete],
+                [.protectionKey: protection],
                 ofItemAtPath: applicationSupport.path
             )
+            if let existingFiles = try? FileManager.default.contentsOfDirectory(
+                at: applicationSupport,
+                includingPropertiesForKeys: nil
+            ) {
+                for file in existingFiles {
+                    try? FileManager.default.setAttributes(
+                        [.protectionKey: protection],
+                        ofItemAtPath: file.path
+                    )
+                }
+            }
             var values = URLResourceValues()
             values.isExcludedFromBackup = true
             try? applicationSupport.setResourceValues(values)
@@ -30,17 +43,37 @@ struct MedsApp: App {
             cloudKitDatabase: .none
         )
         do {
-            modelContainer = try ModelContainer(for: schema, configurations: [configuration])
+            let container = try ModelContainer(for: schema, configurations: [configuration])
+            modelContainer = container
+            appDelegate.modelContainer = container
         } catch {
-            fatalError("Unable to create the protected local medication store: \(error)")
+            modelContainer = nil
         }
     }
 
     var body: some Scene {
         WindowGroup {
-            AppEntryView()
+            if let modelContainer {
+                AppEntryView()
+                    .modelContainer(modelContainer)
+            } else {
+                StoreUnavailableView()
+            }
         }
-        .modelContainer(modelContainer)
+    }
+}
+
+private struct StoreUnavailableView: View {
+    var body: some View {
+        ContentUnavailableView {
+            Label("Medication Data Unavailable", systemImage: "lock.trianglebadge.exclamationmark")
+        } description: {
+            Text("Your medication data could not be opened. It has not been deleted. Unlock this iPhone, close Meds, and try again.")
+        } actions: {
+            Link("Contact Support", destination: URL(string: "https://sparkbiscuit.me/meds/support/")!)
+                .buttonStyle(.borderedProminent)
+        }
+        .padding()
     }
 }
 

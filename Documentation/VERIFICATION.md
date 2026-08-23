@@ -15,10 +15,11 @@ Release: 1.0 (build 1)
 - Unsigned arm64 archive and shallow store validation
 - Development signing with team `8G2SF9YU87`
 - App Store distribution export signed by `Apple Distribution: NICHOLAS GEORGE CHRISTOFORAKIS (8G2SF9YU87)`
+- Latest verified distribution artifact: `/private/tmp/Meds-AppStore-Export-NotificationFinal/Meds.ipa`
 - Explicit store profile for `8G2SF9YU87.com.christoforakis.Meds`, with `get-task-allow = false`
 - Exported IPA passes strict code-signature verification, archive integrity testing, privacy-manifest lint, and non-exempt-encryption inspection
 - Installation and launch on a paired iPhone 16 Pro
-- 21 unit tests: forecasting, supply accounting, scheduling and timing boundaries, confidence-aware sample-derived scan parsing and live-evidence merging, and notification planning
+- 25 unit tests: forecasting, supply accounting, scheduling and timing boundaries, confidence-aware sample-derived scan parsing and live-evidence merging, notification planning, duplicate-safe reminder-action logging, and notification tap routing
 - 4 UI tests: onboarding, manual medication critical flow, automated accessibility audit, and accessible overdue-dose state
 - Physical-device critical-flow and automated accessibility-audit passes on iPhone 16 Pro
 - Useful live label scanning and refill-alert delivery confirmed on iPhone 16 Pro
@@ -36,5 +37,5 @@ Xcode's metadata processor emits `Metadata extraction skipped. No AppIntents.fra
 - Enter the published support and privacy-policy URLs in App Store Connect.
 - Upload the verified distribution build after the final app record exists and complete App Store Connect's server-side validation.
 - Complete App Privacy, age rating, availability, regulated-medical-device, and review-contact fields.
-- Verify notification actions from the locked iPhone and run a five-minute camera energy/thermal check.
+- Verify the `Taken` and `Skip` reminder actions from the locked iPhone and run a five-minute camera energy/thermal check.
 - Complete a hands-on VoiceOver order/rotor pass.

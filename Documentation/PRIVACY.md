@@ -10,6 +10,7 @@ Meds treats medication information as sensitive even when a particular privacy s
 - Label photos are processed on device and are not retained.
 - Codes that resolve to URLs are displayed as evidence but never opened automatically.
 - Notifications use the medication display name only when the user enables detailed notification previews.
+- `Taken` and `Skip` reminder actions carry only internal record identifiers and do not add medication details to a private notification.
 - Medication records and their associated histories can be deleted by the user. Export is intentionally deferred until a safe, clearly labeled format is implemented.
 
 ## Data deletion

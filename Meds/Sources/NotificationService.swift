@@ -46,7 +46,11 @@ actor NotificationService {
             if let scheduleID = item.scheduleID {
                 userInfo["scheduleID"] = scheduleID.uuidString
             }
+            userInfo["notificationKind"] = item.kind == .dose ? "dose" : "refill"
             content.userInfo = userInfo
+            if item.kind == .dose {
+                content.categoryIdentifier = MedicationNotificationAction.doseCategoryIdentifier
+            }
 
             let trigger: UNNotificationTrigger
             switch item.trigger {

@@ -4,7 +4,7 @@
 
 - [x] Debug build passes for iOS Simulator
 - [x] Release build passes for iOS Simulator and generic iOS device
-- [x] Twenty-one unit tests pass
+- [x] Twenty-five unit tests pass, including notification-action logging, duplicate prevention, and tap routing
 - [x] Four UI tests pass, including automated accessibility and overdue-state coverage
 - [x] Static analysis passes for the Release app target
 - [x] No source/compiler warnings; Xcode 26 emits only its no-AppIntents metadata-skip message
@@ -35,7 +35,7 @@
 - [x] Live camera label scan on iPhone 16 Pro returns useful results
 - [x] The four original still images return useful local Vision text/barcode results
 - [x] Refill-alert delivery confirmed on iPhone 16 Pro
-- [ ] Notification actions on a locked iPhone
+- [ ] `Taken` and `Skip` notification actions on a locked iPhone
 - [ ] Energy and thermal behavior during a five-minute scan session
 
 ## App Store Connect gates

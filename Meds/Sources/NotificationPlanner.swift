@@ -60,8 +60,8 @@ enum NotificationPlanner {
                             kind: .dose,
                             title: plan.detailedNotifications ? "Time for \(plan.displayName)" : "Medication reminder",
                             body: plan.detailedNotifications
-                                ? "Log \(schedule.doseQuantity.medicationQuantityText) \(pluralized(plan.unitName, quantity: schedule.doseQuantity)) when you take it."
-                                : "Open Meds to review and log this dose.",
+                                ? "Touch and hold to log \(schedule.doseQuantity.medicationQuantityText) \(pluralized(plan.unitName, quantity: schedule.doseQuantity)), or open Meds to review."
+                                : "Touch and hold to log this dose, or open Meds to review.",
                             trigger: .weekly(
                                 weekday: weekdayIndex + 1,
                                 hour: schedule.minutesAfterMidnight / 60,

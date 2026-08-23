@@ -24,6 +24,7 @@ Key features:
 - Human-confirmed medication records
 - Daily and selected-day schedules
 - As-needed medication support
+- Privacy-safe dose reminders with Taken and Skip actions
 - Taken and skipped dose history
 - Dose and low-supply refill reminders
 - Refill and inventory adjustments
