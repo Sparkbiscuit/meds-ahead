@@ -61,9 +61,9 @@ A coined-feeling option with a real root.
 
 ## Current decision
 
-Use `Meds` as the internal working name until the owner chooses. Do not rename the target, bundle identifier, public pages, screenshots, archive, or App Store metadata yet.
+The owner selected `Through` on August 23, 2026, but App Store Connect rejected the exact name as already in use. Keep `Meds` as the internal working name until the owner chooses another direction. Do not rename the target, bundle identifier, public pages, screenshots, archive, or App Store metadata yet.
 
-If the owner likes `Through`, the next action is to attempt the App Store Connect reservation immediately. If Apple accepts it, update the user-facing display name and store assets while retaining the existing bundle identifier unless App Store Connect requires otherwise.
+The next name must be confirmed by successfully creating the app record in App Store Connect; public-catalog absence alone is not conclusive.
 
 ## Screening evidence
 
