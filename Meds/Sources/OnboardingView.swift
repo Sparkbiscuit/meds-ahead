@@ -10,7 +10,7 @@ struct OnboardingView: View {
             symbol: "pills.fill",
             eyebrow: "A calmer medication routine",
             title: "Know what runs out next.",
-            message: "Meds brings schedules, dose history, and your real supply into one clear place.",
+            message: "Meds Ahead brings schedules, dose history, and your real supply into one clear place.",
             accent: .blue
         ),
         OnboardingPage(

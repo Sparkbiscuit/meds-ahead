@@ -68,14 +68,20 @@ enum ScanParser {
     }
 
     static func parse(_ evidence: [ScanEvidence], now: Date = .now) -> MedicationDraft {
-        let trustedEvidence = evidence.filter(ScanEvidenceQuality.isUsefulForAutofill)
-        let lines = makeTextLines(from: trustedEvidence)
+        // VisionKit's live-camera confidence values are not calibrated like
+        // VNRecognizeTextRequest's still-image values. Preserve every nonempty
+        // live transcript and use confidence only to rank ambiguous choices;
+        // explicit label markers and patterns provide the autofill safety gate.
+        let usableEvidence = evidence.filter {
+            !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        let lines = makeTextLines(from: usableEvidence)
         let combined = lines.map(\.value).joined(separator: "\n")
 
         var draft = MedicationDraft()
         draft.source = .scanned
         draft.evidence = evidence
-        draft.overallConfidence = trustedEvidence.isEmpty ? 0 : trustedEvidence.map(\.confidence).reduce(0, +) / Double(trustedEvidence.count)
+        draft.overallConfidence = usableEvidence.isEmpty ? 0 : usableEvidence.map(\.confidence).reduce(0, +) / Double(usableEvidence.count)
         draft.strength = firstMatch(in: combined, pattern: strengthPattern) ?? ""
         draft.name = medicationName(from: lines, strength: draft.strength)
         draft.form = inferForm(from: combined)
@@ -85,7 +91,7 @@ enum ScanParser {
         draft.expirationDate = capturedExpiration(in: combined, now: now)
         draft.directions = capturedDirections(from: lines)
 
-        if let barcode = preferredBarcode(in: trustedEvidence) {
+        if let barcode = preferredBarcode(in: usableEvidence) {
             draft.productIdentifier = barcode.value
             draft.productIdentifierType = barcode.symbology ?? "Barcode"
         } else if let ndc = capture(in: combined, pattern: ndcPattern, group: 1) {
@@ -128,8 +134,7 @@ enum ScanParser {
                 for nearbyIndex in [strengthLineIndex - distance, strengthLineIndex + distance]
                     where lines.indices.contains(nearbyIndex) {
                     let nearby = lines[nearbyIndex]
-                    if nearby.confidence >= ScanEvidenceQuality.minimumTextConfidence,
-                       !isMetadataValue(at: nearbyIndex, in: lines),
+                    if !isMetadataValue(at: nearbyIndex, in: lines),
                        isPlausibleName(nearby.value, stopWords: stopWords) {
                         return titleCasedDrugName(nearby.value)
                     }
@@ -138,8 +143,7 @@ enum ScanParser {
         }
 
         let candidates: [TextLine] = lines.enumerated().compactMap { index, line -> TextLine? in
-            guard line.confidence >= 0.60,
-                  !isMetadataValue(at: index, in: lines),
+            guard !isMetadataValue(at: index, in: lines),
                   isPlausibleName(line.value, stopWords: stopWords) else { return nil }
             return line
         }

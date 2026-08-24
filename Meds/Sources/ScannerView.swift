@@ -177,10 +177,10 @@ private struct LiveDataScanner: UIViewControllerRepresentable {
 
     func makeUIViewController(context: Context) -> DataScannerViewController {
         let scanner = DataScannerViewController(
-            recognizedDataTypes: [.text(languages: ["en-US"]), .barcode()],
+            recognizedDataTypes: [.text(), .barcode()],
             qualityLevel: .accurate,
             recognizesMultipleItems: true,
-            isHighFrameRateTrackingEnabled: false,
+            isHighFrameRateTrackingEnabled: true,
             isPinchToZoomEnabled: true,
             isGuidanceEnabled: true,
             isHighlightingEnabled: true
@@ -198,8 +198,6 @@ private struct LiveDataScanner: UIViewControllerRepresentable {
 
     final class Coordinator: NSObject, DataScannerViewControllerDelegate {
         var parent: LiveDataScanner
-        private var liveEvidenceByItemID: [RecognizedItem.ID: ScanEvidence] = [:]
-        private var publishedLiveEvidenceIDs: Set<UUID> = []
 
         init(parent: LiveDataScanner) {
             self.parent = parent
@@ -231,24 +229,13 @@ private struct LiveDataScanner: UIViewControllerRepresentable {
                 @unknown default:
                     found = nil
                 }
-                if let found, ScanEvidenceQuality.isUsefulForAutofill(found) {
-                    if let existing = liveEvidenceByItemID[item.id],
-                       existing.confidence > found.confidence + 0.08 {
-                        continue
-                    }
-                    liveEvidenceByItemID[item.id] = found
-                } else {
-                    liveEvidenceByItemID.removeValue(forKey: item.id)
-                }
+                guard let found,
+                      !found.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                      !parent.evidence.contains(where: {
+                          ScanEvidenceQuality.deduplicationKey(for: $0) == ScanEvidenceQuality.deduplicationKey(for: found)
+                      }) else { continue }
+                parent.evidence.append(found)
             }
-
-            let nonLiveEvidence = parent.evidence.filter { !publishedLiveEvidenceIDs.contains($0.id) }
-            let currentLiveEvidence = Array(liveEvidenceByItemID.values)
-            publishedLiveEvidenceIDs = Set(currentLiveEvidence.map(\.id))
-            parent.evidence = ScanEvidenceQuality.mergingBest(
-                existing: nonLiveEvidence,
-                additions: currentLiveEvidence
-            )
         }
     }
 }

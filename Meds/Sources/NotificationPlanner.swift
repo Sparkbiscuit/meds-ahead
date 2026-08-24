@@ -63,8 +63,8 @@ enum NotificationPlanner {
                             kind: .dose,
                             title: plan.detailedNotifications ? "Time for \(plan.displayName)" : "Medication reminder",
                             body: plan.detailedNotifications
-                                ? "Touch and hold to log \(schedule.doseQuantity.medicationQuantityText) \(pluralized(plan.unitName, quantity: schedule.doseQuantity)), or open Meds to review."
-                                : "Touch and hold to log this dose, or open Meds to review.",
+                                ? "Touch and hold to log \(schedule.doseQuantity.medicationQuantityText) \(pluralized(plan.unitName, quantity: schedule.doseQuantity)), or open Meds Ahead to review."
+                                : "Touch and hold to log this dose, or open Meds Ahead to review.",
                             trigger: .daily(hour: hour, minute: minute),
                             medicationID: plan.medicationID,
                             scheduleID: schedule.id
@@ -78,8 +78,8 @@ enum NotificationPlanner {
                                 kind: .dose,
                                 title: plan.detailedNotifications ? "Time for \(plan.displayName)" : "Medication reminder",
                                 body: plan.detailedNotifications
-                                    ? "Touch and hold to log \(schedule.doseQuantity.medicationQuantityText) \(pluralized(plan.unitName, quantity: schedule.doseQuantity)), or open Meds to review."
-                                    : "Touch and hold to log this dose, or open Meds to review.",
+                                    ? "Touch and hold to log \(schedule.doseQuantity.medicationQuantityText) \(pluralized(plan.unitName, quantity: schedule.doseQuantity)), or open Meds Ahead to review."
+                                    : "Touch and hold to log this dose, or open Meds Ahead to review.",
                                 trigger: .weekly(
                                     weekday: weekdayIndex + 1,
                                     hour: hour,
@@ -110,7 +110,7 @@ enum NotificationPlanner {
                     title: plan.detailedNotifications ? "Plan a refill for \(plan.displayName)" : "Supply reminder",
                     body: plan.detailedNotifications
                         ? "Your confirmed supply may run out around \(depletionDay.formatted(date: .abbreviated, time: .omitted))."
-                        : "Open Meds to review a medication that may be running low.",
+                        : "Open Meds Ahead to review a medication that may be running low.",
                     trigger: trigger,
                     medicationID: plan.medicationID,
                     scheduleID: nil

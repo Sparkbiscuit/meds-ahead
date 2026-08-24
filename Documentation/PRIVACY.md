@@ -1,6 +1,6 @@
 # Privacy design
 
-Meds treats medication information as sensitive even when a particular privacy statute does not apply.
+Meds Ahead treats medication information as sensitive even when a particular privacy statute does not apply.
 
 ## V1 commitments
 

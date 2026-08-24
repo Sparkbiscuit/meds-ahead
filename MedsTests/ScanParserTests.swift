@@ -76,6 +76,25 @@ final class ScanParserTests: XCTestCase {
         XCTAssertEqual(ScanParser.parse(evidence).currentSupply, 30)
     }
 
+    func testLiveCameraConfidenceDoesNotSuppressStructuredLabelFields() {
+        let evidence = [
+            ScanEvidence(kind: .text, value: "FUROSEMIDE", confidence: 0.12),
+            ScanEvidence(kind: .text, value: "20 mg tablet", confidence: 0.16),
+            ScanEvidence(kind: .text, value: "TAKE ONE TABLET DAILY", confidence: 0.14),
+            ScanEvidence(kind: .text, value: "Qty: 30", confidence: 0.11),
+            ScanEvidence(kind: .text, value: "Refills: 2", confidence: 0.10)
+        ]
+
+        let draft = ScanParser.parse(evidence)
+
+        XCTAssertEqual(draft.name, "Furosemide")
+        XCTAssertEqual(draft.strength.lowercased(), "20 mg")
+        XCTAssertEqual(draft.form, .tablet)
+        XCTAssertEqual(draft.directions, "TAKE ONE TABLET DAILY")
+        XCTAssertEqual(draft.currentSupply, 30)
+        XCTAssertEqual(draft.refillsRemaining, 2)
+    }
+
     func testEvidenceMergeKeepsBestConfidenceForEquivalentReading() throws {
         let earlier = ScanEvidence(kind: .text, value: "FUROSEMIDE", confidence: 0.62)
         let corrected = ScanEvidence(kind: .text, value: "  furosemide. ", confidence: 0.96)

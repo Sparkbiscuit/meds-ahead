@@ -68,7 +68,7 @@ private struct StoreUnavailableView: View {
         ContentUnavailableView {
             Label("Medication Data Unavailable", systemImage: "lock.trianglebadge.exclamationmark")
         } description: {
-            Text("Your medication data could not be opened. It has not been deleted. Unlock this iPhone, close Meds, and try again.")
+            Text("Your medication data could not be opened. It has not been deleted. Unlock this iPhone, close Meds Ahead, and try again.")
         } actions: {
             Link("Contact Support", destination: URL(string: "https://sparkbiscuit.me/meds/support/")!)
                 .buttonStyle(.borderedProminent)

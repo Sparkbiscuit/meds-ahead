@@ -275,10 +275,10 @@
 			DEVELOPMENT_ASSET_PATHS = "";
 			ENABLE_PREVIEWS = YES;
 			GENERATE_INFOPLIST_FILE = YES;
-			INFOPLIST_KEY_CFBundleDisplayName = Meds;
+			INFOPLIST_KEY_CFBundleDisplayName = "Meds Ahead";
 			INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 			INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.medical";
-			INFOPLIST_KEY_NSCameraUsageDescription = "Meds uses the camera only when you choose to scan medication label text and barcodes on this iPhone.";
+			INFOPLIST_KEY_NSCameraUsageDescription = "Meds Ahead uses the camera only when you choose to scan medication label text and barcodes on this iPhone.";
 			INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 			INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 			INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -303,10 +303,10 @@
 			DEVELOPMENT_TEAM = 8G2SF9YU87;
 			ENABLE_PREVIEWS = YES;
 			GENERATE_INFOPLIST_FILE = YES;
-			INFOPLIST_KEY_CFBundleDisplayName = Meds;
+			INFOPLIST_KEY_CFBundleDisplayName = "Meds Ahead";
 			INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 			INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.medical";
-			INFOPLIST_KEY_NSCameraUsageDescription = "Meds uses the camera only when you choose to scan medication label text and barcodes on this iPhone.";
+			INFOPLIST_KEY_NSCameraUsageDescription = "Meds Ahead uses the camera only when you choose to scan medication label text and barcodes on this iPhone.";
 			INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 			INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 			INFOPLIST_KEY_UILaunchScreen_Generation = YES;

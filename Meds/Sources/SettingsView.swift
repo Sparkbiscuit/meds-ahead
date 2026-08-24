@@ -20,7 +20,7 @@ struct SettingsView: View {
             } header: {
                 Text("Reminders")
             } footer: {
-                Text("Meds uses local notifications. Delivery also depends on your iPhone notification and Focus settings.")
+                Text("Meds Ahead uses local notifications. Delivery also depends on your iPhone notification and Focus settings.")
             }
 
             Section("About") {
@@ -55,7 +55,7 @@ struct SettingsView: View {
                 title: "Private by Design",
                 symbol: "lock.shield.fill",
                 paragraphs: [
-                    "Medication records stay in the protected local app container. Meds has no account, advertising, analytics, or cloud medication service.",
+                    "Medication records stay in the protected local app container. Meds Ahead has no account, advertising, analytics, or cloud medication service.",
                     "Label photos are processed on device and are not retained. Pharmacy links found in codes are never opened automatically.",
                     "Deleting a medication removes its schedule, inventory ledger, and dose history from this iPhone."
                 ]
@@ -66,9 +66,9 @@ struct SettingsView: View {
                 title: "Organization, Not Medical Advice",
                 symbol: "checkmark.shield.fill",
                 paragraphs: [
-                    "Meds records information you enter or confirm. It does not prescribe, diagnose, recommend a dose, or decide when a pharmacy can fill a prescription.",
+                    "Meds Ahead records information you enter or confirm. It does not prescribe, diagnose, recommend a dose, or decide when a pharmacy can fill a prescription.",
                     "Always follow the current prescription label and instructions from your clinician or pharmacist.",
-                    "Forecasts depend on the counts, schedules, and logs you provide. When information is missing, Meds shows uncertainty instead of inventing precision."
+                    "Forecasts depend on the counts, schedules, and logs you provide. When information is missing, Meds Ahead shows uncertainty instead of inventing precision."
                 ]
             )
         }

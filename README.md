@@ -1,16 +1,16 @@
-# Meds
+# Meds Ahead
 
-Meds is an iPhone-first medication supply manager. It combines on-device label and barcode scanning with human-confirmed schedules, dose logging, inventory adjustments, and explainable refill forecasts.
+Meds Ahead is an iPhone-first medication supply manager. It combines on-device label and barcode scanning with human-confirmed schedules, dose logging, inventory adjustments, and explainable refill forecasts.
 
 ## Product promise
 
-Meds helps a person answer three questions without guesswork:
+Meds Ahead helps a person answer three questions without guesswork:
 
 1. What is due today?
 2. What did I actually take?
 3. Which medication will run out next?
 
-Medication records remain on the device. Scanned photos are processed locally and are not retained by default. Meds does not diagnose, recommend dose changes, or determine whether a prescription is legally eligible for refill.
+Medication records remain on the device. Scanned photos are processed locally and are not retained by default. Meds Ahead does not diagnose, recommend dose changes, or determine whether a prescription is legally eligible for refill.
 
 ## Requirements
 
@@ -34,4 +34,3 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 - `MedsUITests`: launch and critical-flow UI tests
 - `Documentation`: product, architecture, privacy, and release decisions
 - `AppStore`: submission copy and review notes
-

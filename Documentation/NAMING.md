@@ -4,66 +4,23 @@ Checked August 23, 2026 against the U.S. Apple catalog through Apple's Search AP
 
 These are preliminary product-name checks, not trademark clearance. A zero exact-title result is encouraging, but the only conclusive App Store availability test is successfully reserving the name in App Store Connect. A trademark attorney should review the final choice before a broader commercial launch.
 
-## Recommendation
+## Final decision
 
-### 1. Through
+The owner approved `Meds Ahead` on August 23, 2026. Apple accepted and saved the full store title `Meds Ahead: Supply Tracker` in App Store Connect on the existing draft record.
 
-The recommended brand direction after the second naming screen.
-
-- Why it fits: the app can say a person is covered *through* a specific date. It makes the forecast the brand idea without using `refill`, `dose`, or `med` in the name.
-- Tone: quiet, modern, reassuring.
-- App icon name: `Through`
-- Proposed App Store name: `Through: Medication Supply`
-- Subtitle: `See what runs out next`
+- Visible app name: `Meds Ahead`
+- App Store name: `Meds Ahead: Supply Tracker`
+- Subtitle: `Know what runs out next`
 - Positioning line: `Know what you have, and how long it lasts.`
-- Current screen: no exact `Through` title surfaced among up to 200 U.S. software results, and no direct medication-product collision surfaced in the broader search.
-- Watch-out: the connection is not self-explanatory until the subtitle or first screen supplies context. Spoken search may also be noisy.
+- Bundle identifier: `com.christoforakis.Meds`
+- Apple ID: `6804540619`
+- Reservation evidence: App Store Connect displayed the new title with a `Saved` state.
 
-### 2. Supply
+The public catalog screen returned no case-insensitive exact match for either `Meds Ahead` or `Meds Ahead: Supply Tracker` before reservation. App Store Connect acceptance is the definitive availability evidence for this release, but it is not trademark clearance.
 
-The strongest literal direction.
+## Reservation history
 
-- Why it fits: the app's differentiator is knowing how much medication remains and what will run out next. The name is direct without sounding clinical or like a reminder utility.
-- Tone: calm, confident, native, useful.
-- App icon name: `Supply`
-- Proposed App Store name: `Supply: Medication Manager`
-- Subtitle: `Know what runs out next`
-- Positioning line: `Your medication routine, accounted for.`
-- Current screen: no exact `Supply` title surfaced among up to 200 U.S. software results. Search results are dominated by retail and business supply-chain apps, not consumer medication managers.
-- Watch-out: it is a common word, so legal ownability and search discoverability may be weaker than a coined mark. It could also imply pharmacy fulfillment unless the subtitle and screenshots establish the product clearly.
-
-### 3. Course
-
-The most medication-native metaphor that still feels like a real word rather than a compound app name.
-
-- Why it fits: a course is both a treatment schedule and a path forward. `Stay the course` naturally supports adherence without guilt.
-- Tone: composed, capable, purposeful.
-- App icon name: `Course`
-- Proposed App Store name: `Course: Medication Tracker`
-- Subtitle: `Know what runs out next`
-- Positioning line: `Keep the course. See what is ahead.`
-- Current screen: no exact `Course` title surfaced among up to 200 U.S. software results.
-- Watch-out: education apps dominate search results, and another medication product already uses `course` as its name for a linked schedule-and-inventory feature. It may also sound like the app is defining treatment rather than recording a clinician's instructions.
-
-### 4. Maneo
-
-A coined-feeling option with a real root.
-
-- Why it fits: Latin `maneo` means `I remain` or `I stay`, which connects to continuity and having medication remaining.
-- Pronunciation: `mah-NAY-oh`.
-- Tone: warm, polished, ownable-feeling.
-- App icon name: `Maneo`
-- Proposed App Store name: `Maneo: Medication Supply`
-- Subtitle: `Know what runs out next`
-- Positioning line: `A steadier way to manage medication.`
-- Current screen: no `Maneo` result surfaced in the U.S. Apple software search and no direct medication-product collision surfaced.
-- Watch-out: the meaning requires explanation, pronunciation is not automatic, and active non-health software companies already use the name. It also risks sounding like a drug brand, which is undesirable for a medication organizer.
-
-## Current decision
-
-The owner selected `Through` on August 23, 2026, but App Store Connect rejected the exact name as already in use. Keep `Meds` as the internal working name until the owner chooses another direction. Do not rename the target, bundle identifier, public pages, screenshots, archive, or App Store metadata yet.
-
-The next name must be confirmed by successfully creating the app record in App Store Connect; public-catalog absence alone is not conclusive.
+An earlier draft record was started under `Through: Medication Supply`. The cancellation screen did not prevent Apple from finishing creation in the background. After the owner rejected that direction, the same unsubmitted record was renamed to `Meds Ahead: Supply Tracker`; no app using the rejected name will be submitted or shipped. The draft record's immutable SKU still reflects the abandoned working name, but SKUs are internal and are not shown to customers.
 
 ## Screening evidence
 

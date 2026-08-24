@@ -1,6 +1,6 @@
-# Meds support
+# Meds Ahead support
 
-Meds is designed to work without an account or internet connection.
+Meds Ahead is designed to work without an account or internet connection.
 
 For help, include the app version, iOS version, iPhone model, and a description of what happened. Do not send a photo of a prescription label or any medication information by email unless you intentionally choose to disclose it.
 

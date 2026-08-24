@@ -1,4 +1,4 @@
-# Meds V1 Product Definition
+# Meds Ahead V1 Product Definition
 
 ## North star
 
@@ -6,7 +6,7 @@ Always know what is due, what happened, and what will run out next.
 
 ## Release scope
 
-Meds V1 is an iPhone-only, offline-first application with:
+Meds Ahead V1 is an iPhone-only, offline-first application with:
 
 - Live camera recognition of printed text and machine-readable codes
 - Still-photo import for accessibility, testing, and unsupported devices
@@ -24,7 +24,7 @@ Meds V1 is an iPhone-only, offline-first application with:
 
 ## Safety boundary
 
-Meds organizes information entered or confirmed by the user. It does not:
+Meds Ahead organizes information entered or confirmed by the user. It does not:
 
 - Recommend, prescribe, or change a dose
 - Diagnose a condition

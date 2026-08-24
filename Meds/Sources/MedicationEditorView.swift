@@ -234,7 +234,7 @@ struct MedicationEditorView: View {
             }
 
             Section {
-                Label("Meds organizes information you confirm. It does not recommend doses or determine whether a prescription can be refilled.", systemImage: "checkmark.shield")
+                Label("Meds Ahead organizes information you confirm. It does not recommend doses or determine whether a prescription can be refilled.", systemImage: "checkmark.shield")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -310,7 +310,7 @@ struct MedicationEditorView: View {
                 }
             }
         } footer: {
-            Text("Codes can identify a product, prescription, or web link. Meds never assumes they contain a complete regimen.")
+            Text("Codes can identify a product, prescription, or web link. Meds Ahead never assumes they contain a complete regimen.")
         }
     }
 
@@ -429,7 +429,7 @@ struct MedicationEditorView: View {
             }
         } catch {
             modelContext.rollback()
-            validationMessage = "Meds couldn't save this medication. Nothing was changed. Try again."
+            validationMessage = "Meds Ahead couldn't save this medication. Nothing was changed. Try again."
             showingValidation = true
         }
     }

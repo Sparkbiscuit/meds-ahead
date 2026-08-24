@@ -4,7 +4,7 @@ The production icon was generated with OpenAI's built-in image generation tool, 
 
 ## Regular icon prompt
 
-> Create a premium, distinctly native iOS app icon for a private medication supply and refill manager called Meds. Use a restrained abstract capsule as the central symbol, paired with a subtle circular supply-runway arc that suggests time and remaining inventory. Deep indigo, rich blue, and sea-glass cyan; luminous layered depth; soft glass-like material; crisp silhouette; elegant Apple-quality finish; centered composition; no text, letters, numbers, medical cross, heart, snake, bottle label, notification badge, watermark, or device mockup. Square 1024x1024 app icon artwork with edge-to-edge background and enough visual weight to remain legible at small sizes.
+> Create a premium, distinctly native iOS app icon for a private medication supply and refill manager called Meds Ahead. Use a restrained abstract capsule as the central symbol, paired with a subtle circular supply-runway arc that suggests time and remaining inventory. Deep indigo, rich blue, and sea-glass cyan; luminous layered depth; soft glass-like material; crisp silhouette; elegant Apple-quality finish; centered composition; no text, letters, numbers, medical cross, heart, snake, bottle label, notification badge, watermark, or device mockup. Square 1024x1024 app icon artwork with edge-to-edge background and enough visual weight to remain legible at small sizes.
 
 ## Tinted icon prompt
 

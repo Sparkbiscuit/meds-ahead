@@ -5,10 +5,10 @@ Prepared for release 1.0 (build 1) on August 23, 2026. Values marked **Owner inp
 ## New app record
 
 - Platform: iOS
-- Name: **Owner input — final name pending**
+- Name: `Meds Ahead: Supply Tracker`
 - Primary language: English (U.S.)
 - Bundle ID: `com.christoforakis.Meds`
-- SKU: `meds-ios-1`
+- SKU: `through-ios-1` (immutable internal identifier created before the final public name; not customer-visible)
 - User access: Full Access
 
 ## App information
@@ -28,9 +28,9 @@ Prepared for release 1.0 (build 1) on August 23, 2026. Values marked **Owner inp
 - Data collection: `No, we do not collect data from this app`
 - Tracking: No
 - Advertising identifier: Not used
-- Privacy choices URL: Leave blank; Meds has no account, server-held data, or tracking choices
+- Privacy choices URL: Leave blank; Meds Ahead has no account, server-held data, or tracking choices
 
-Medication records, label text, barcodes, schedules, dose logs, and inventory events remain on the iPhone. Photos are processed on device and are not retained by the app. Apple defines collection as transmitting data off-device in a way that remains accessible to the developer or partners; Meds performs no such transmission.
+Medication records, label text, barcodes, schedules, dose logs, and inventory events remain on the iPhone. Photos are processed on device and are not retained by the app. Apple defines collection as transmitting data off-device in a way that remains accessible to the developer or partners; Meds Ahead performs no such transmission.
 
 ## Age rating
 
@@ -49,12 +49,12 @@ Recommended questionnaire answers:
 - Override to higher age rating: Not Applicable
 - Age suitability URL: Leave blank
 
-Rationale: Meds stores and organizes information entered or confirmed by the person using it. It does not supply diagnoses, treatment guidance, medication facts, dose recommendations, or wellness recommendations. Under Apple's current definitions, a medication organizer without app-provided medical guidance can accurately answer `None`; the expected global result is 4+. If a future release adds drug information, interaction checking, an AI medication assistant, or treatment guidance, this answer must be revisited.
+Rationale: Meds Ahead stores and organizes information entered or confirmed by the person using it. It does not supply diagnoses, treatment guidance, medication facts, dose recommendations, or wellness recommendations. Under Apple's current definitions, a medication organizer without app-provided medical guidance can accurately answer `None`; the expected global result is 4+. If a future release adds drug information, interaction checking, an AI medication assistant, or treatment guidance, this answer must be revisited.
 
 ## Regulated medical device declaration
 
 - Is this app a regulated medical device? No
-- Rationale: Meds is an organization, reminder, logging, and inventory-forecast tool. It does not diagnose, prevent, monitor, predict, prognose, treat, or alleviate disease, and it does not recommend or modify treatment.
+- Rationale: Meds Ahead is an organization, reminder, logging, and inventory-forecast tool. It does not diagnose, prevent, monitor, predict, prognose, treat, or alleviate disease, and it does not recommend or modify treatment.
 
 ## Export compliance
 
@@ -62,7 +62,7 @@ Rationale: Meds stores and organizes information entered or confirmed by the per
 - Supporting plist value: `ITSAppUsesNonExemptEncryption = NO`
 - Documentation upload: Not expected
 
-Meds relies only on encryption supplied by Apple operating-system services and contains no proprietary cryptographic implementation.
+Meds Ahead relies only on encryption supplied by Apple operating-system services and contains no proprietary cryptographic implementation.
 
 ## Version information
 
@@ -73,8 +73,8 @@ Meds relies only on encryption supplied by Apple operating-system services and c
 - Description and keywords: Use `AppStore/SUBMISSION.md`
 - Screenshots: Upload the three files in `AppStore/Screenshots/6.9-inch/` in numeric order
 - Export options: `AppStore/ExportOptions-AppStore.plist`
-- Verified local distribution artifact: `/private/tmp/Meds-AppStore-Export-ReleaseCandidateFinal/Meds.ipa` (temporary local path; rebuild after final naming)
-- Artifact SHA-256: `135b3a523473b4516cafa19f4b22527450891b94a6c62ca03db1acb02e8f831b`
+- Verified local distribution artifact: `/private/tmp/MedsAhead-OCRFix-AppStore-Export-20260823/Meds.ipa`
+- Artifact SHA-256: `e7a049a2e3f2456cfbdb4be7162f65922e1320e0c7ddcda994729dce5064b228`
 
 ## Accessibility declarations
 

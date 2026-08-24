@@ -4,7 +4,7 @@
 
 - [x] Debug build passes for iOS Simulator
 - [x] Release build passes for iOS Simulator and generic iOS device
-- [x] Thirty-six unit tests pass, including noisy-label and printed-NDC parsing, independent per-time schedules, schedule-identity reconciliation, negative-ledger correction, daylight-saving behavior, notification request compaction, notification-action logging, duplicate prevention, and tap routing
+- [x] Forty unit tests pass, including low-confidence live-camera, noisy-label, and printed-NDC parsing, independent per-time schedules, schedule-identity reconciliation, negative-ledger correction, daylight-saving behavior, notification request compaction, notification-action logging, duplicate prevention, and tap routing
 - [x] Six UI tests pass, including Today and medication-editor accessibility audits, largest accessibility text in the editor, and overdue-state coverage
 - [x] Static analysis passes for the Release app target
 - [x] No source/compiler warnings; Xcode 26 emits only its no-AppIntents metadata-skip message
@@ -32,7 +32,8 @@
 - [x] Development-signed app installs and launches on iPhone 16 Pro
 - [x] Isolated manual-entry → save → supply critical-flow UI test passes on iPhone 16 Pro
 - [x] Automated Today-screen accessibility audit passes on iPhone 16 Pro
-- [x] Live camera label scan on iPhone 16 Pro returns useful results
+- [x] Live camera label scan on iPhone 16 Pro returns raw VisionKit text
+- [ ] Corrected live scan populates the mandatory confirmation fields on iPhone 16 Pro
 - [x] The four original still images return useful local Vision text/barcode results
 - [x] Refill-alert delivery confirmed on iPhone 16 Pro
 - [ ] `Taken` and `Skip` notification actions on a locked iPhone
@@ -40,15 +41,19 @@
 
 ## App Store Connect gates
 
-- [ ] Reserve the final store name
+- [x] Reserve `Meds Ahead: Supply Tracker` as the final store name
 - [x] Select local development team and confirm development signing
 - [x] Confirm App Store Distribution signing and store provisioning profile
-- [ ] Create the App Store Connect record and bundle identifier
+- [x] Create the App Store Connect record for `com.christoforakis.Meds` (Apple ID `6804540619`)
 - [x] Publish support and privacy-policy URLs
-- [ ] Enter support and privacy-policy URLs in App Store Connect
-- [ ] Complete age rating and App Privacy answers
+- [x] Enter support and privacy-policy URLs in App Store Connect
+- [x] Complete age rating, regulated-medical-device, and App Privacy answers
 - [x] Prepare three accepted-size, no-alpha 6.9-inch screenshots
-- [ ] Upload screenshots
+- [x] Upload screenshots
 - [x] Export an App Store-distribution-signed IPA and verify its signature, profile, privacy manifest, and ZIP integrity
 - [ ] Upload and complete App Store Connect server-side build validation
-- [ ] Submit review notes and test instructions
+- [x] Enter review notes and test instructions
+- [ ] Set price, tax category, and availability
+- [ ] Complete EU DSA trader-status declaration
+- [ ] Enter App Review contact details
+- [ ] Publish verified accessibility declarations
