@@ -2,12 +2,17 @@
 
 ## Platform
 
-- SwiftUI application targeting iOS 26.0+
+- SwiftUI application targeting iOS 18.0+
 - SwiftData local persistence
 - VisionKit live scanning
 - Vision text and barcode recognition for still images
 - UserNotifications for local reminders and duplicate-safe dose logging actions
 - StoreKit for optional, non-recurring consumable tips
+- FoundationModels on iOS 26+ where Apple Intelligence is eligible, weak-linked and entirely optional
+
+## Deployment floor
+
+The floor is iOS 18.0. FoundationModels was the only thing holding it at 26.0, and it is refinement, not capability: `interpret` selects among candidates the deterministic parser already produced, and returns that parser's result unchanged whenever the model is missing. That fallback is not new — it already covered every device without Apple Intelligence, which is most of them, since the model needs iPhone 15 Pro or newer. Below iOS 26 the same path simply runs for one more reason. The framework is weak-linked, so an iOS 18 device loads the app normally.
 
 ## Data model
 
