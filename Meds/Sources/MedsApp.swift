@@ -56,6 +56,7 @@ struct MedsApp: App {
             if let modelContainer {
                 AppEntryView()
                     .modelContainer(modelContainer)
+                    .task { await TipStore.observeTransactions() }
             } else {
                 StoreUnavailableView()
             }

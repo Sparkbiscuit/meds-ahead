@@ -1,6 +1,17 @@
 import SwiftData
 import SwiftUI
 
+enum TimeOfDayGreeting {
+    static func text(for date: Date, calendar: Calendar = .autoupdatingCurrent) -> String {
+        let hour = calendar.component(.hour, from: date)
+        return switch hour {
+        case 5..<12: "Good morning"
+        case 12..<18: "Good afternoon"
+        default: "Good evening"
+        }
+    }
+}
+
 struct TodayView: View {
     @Query(sort: \Medication.createdAt) private var medications: [Medication]
     @Query private var schedules: [DoseSchedule]
@@ -95,19 +106,10 @@ struct TodayView: View {
             Text(now.formatted(.dateTime.weekday(.wide).month(.wide).day()))
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.primary)
-            Text(greeting(now: now))
+            Text(TimeOfDayGreeting.text(for: now))
                 .font(.system(.largeTitle, design: .rounded, weight: .bold))
         }
         .padding(.top, 6)
-    }
-
-    private func greeting(now: Date) -> String {
-        let hour = Calendar.autoupdatingCurrent.component(.hour, from: now)
-        return switch hour {
-        case 5..<12: "Good morning"
-        case 12..<18: "Good afternoon"
-        default: "Good evening"
-        }
     }
 
     private func progressCard(doses: [(Medication, ScheduledDose)]) -> some View {
@@ -145,6 +147,7 @@ struct TodayView: View {
                 .contentTransition(.numericText())
                 .padding(4)
                 .background(Color(red: 0.035, green: 0.22, blue: 0.29), in: Capsule())
+                .accessibilityHidden(true)
         }
         .frame(width: 58, height: 58)
         .accessibilityElement(children: .ignore)
@@ -183,13 +186,13 @@ struct TodayView: View {
         modelContext.insert(event)
         do {
             try modelContext.save()
-            let plan = NotificationPlanBuilder.make(
-                medication: medication,
+            let plans = NotificationPlanBuilder.makeAll(
+                medications: medications,
                 schedules: schedules,
                 inventoryEvents: inventoryEvents,
                 doseEvents: doseEvents.filter { $0.id != event.id } + [event]
             )
-            Task { await NotificationService.shared.replaceNotifications(for: plan) }
+            Task { await NotificationService.shared.replaceAllNotifications(for: plans) }
             UINotificationFeedbackGenerator().notificationOccurred(status == .taken ? .success : .warning)
         } catch {
             modelContext.rollback()

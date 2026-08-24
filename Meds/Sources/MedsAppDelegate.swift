@@ -55,38 +55,24 @@ final class MedsAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
                 in: context
             )
             guard result == .recorded else { return }
-            let plan = try notificationPlan(for: medicationID, in: context)
-            await NotificationService.shared.replaceNotifications(for: plan)
+            let plans = try notificationPlans(in: context)
+            await NotificationService.shared.replaceAllNotifications(for: plans)
         } catch {
             context.rollback()
         }
     }
 
     @MainActor
-    private func notificationPlan(
-        for medicationID: UUID,
-        in context: ModelContext
-    ) throws -> MedicationNotificationPlan {
-        guard let medication = try context.fetch(FetchDescriptor<Medication>())
-            .first(where: { $0.id == medicationID }) else {
-            throw NotificationActionError.medicationUnavailable
-        }
-
+    private func notificationPlans(in context: ModelContext) throws -> [MedicationNotificationPlan] {
+        let medications = try context.fetch(FetchDescriptor<Medication>())
         let schedules = try context.fetch(FetchDescriptor<DoseSchedule>())
-            .filter { $0.medicationID == medicationID }
         let inventoryEvents = try context.fetch(FetchDescriptor<InventoryEvent>())
-            .filter { $0.medicationID == medicationID }
         let doseEvents = try context.fetch(FetchDescriptor<DoseEvent>())
-            .filter { $0.medicationID == medicationID }
-        return NotificationPlanBuilder.make(
-            medication: medication,
+        return NotificationPlanBuilder.makeAll(
+            medications: medications,
             schedules: schedules,
             inventoryEvents: inventoryEvents,
             doseEvents: doseEvents
         )
     }
-}
-
-private enum NotificationActionError: Error {
-    case medicationUnavailable
 }

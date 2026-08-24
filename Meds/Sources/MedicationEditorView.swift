@@ -13,6 +13,7 @@ struct MedicationEditorView: View {
     private let draftEvidence: [ScanEvidence]
     private let onSaved: (() -> Void)?
 
+    @Query private var allMedications: [Medication]
     @Query private var allSchedules: [DoseSchedule]
     @Query private var allInventoryEvents: [InventoryEvent]
     @Query private var allDoseEvents: [DoseEvent]
@@ -114,35 +115,50 @@ struct MedicationEditorView: View {
             }
 
             Section("Medication") {
-                TextField("Medication name", text: $name)
-                    .textInputAutocapitalization(.words)
-                    .padding(.vertical, 3)
-                    .accessibilityIdentifier("medication-name")
-                TextField("Strength", text: $strength)
-                    .textInputAutocapitalization(.never)
-                    .padding(.vertical, 3)
-                    .accessibilityHint("For example, 20 milligrams")
+                VStack(alignment: .leading, spacing: 4) {
+                    MedicationFieldTitle("Medication name")
+                    TextField("Medication name", text: $name)
+                        .textInputAutocapitalization(.words)
+                        .accessibilityIdentifier("medication-name")
+                }
+                .padding(.vertical, 3)
+                VStack(alignment: .leading, spacing: 4) {
+                    MedicationFieldTitle("Strength")
+                    TextField("Strength", text: $strength)
+                        .textInputAutocapitalization(.never)
+                        .accessibilityHint("For example, 20 milligrams")
+                }
+                .padding(.vertical, 3)
                 Picker("Form", selection: $form) {
                     ForEach(MedicationForm.allCases) { form in
                         Text(form.displayName).tag(form)
                     }
                 }
-                TextField("Nickname", text: $nickname)
-                    .padding(.vertical, 3)
-                    .accessibilityHint("Optional")
-                TextField("Label directions", text: $directions, axis: .vertical)
-                    .lineLimit(2...5)
-                    .padding(.vertical, 3)
-                    .accessibilityHint("Optional; copy the current label directions")
+                VStack(alignment: .leading, spacing: 4) {
+                    MedicationFieldTitle("Nickname")
+                    TextField("Nickname", text: $nickname)
+                        .accessibilityHint("Optional")
+                }
+                .padding(.vertical, 3)
+                VStack(alignment: .leading, spacing: 4) {
+                    MedicationFieldTitle("Label directions")
+                    TextField("Label directions", text: $directions, axis: .vertical)
+                        .lineLimit(2...5)
+                        .accessibilityHint("Optional; copy the current label directions")
+                }
+                .padding(.vertical, 3)
             }
 
             if !isEditing {
                 Section {
                     HStack {
-                        TextField("Current amount", text: $currentSupplyText)
-                            .keyboardType(.decimalPad)
-                            .padding(.vertical, 3)
-                            .accessibilityIdentifier("current-supply")
+                        VStack(alignment: .leading, spacing: 4) {
+                            MedicationFieldTitle("Current amount")
+                            TextField("Current amount", text: $currentSupplyText)
+                                .keyboardType(.decimalPad)
+                                .accessibilityIdentifier("current-supply")
+                        }
+                        .padding(.vertical, 3)
                         Text(form.unitName + (Double(currentSupplyText) == 1 ? "" : "s"))
                             .foregroundStyle(.secondary)
                     }
@@ -214,15 +230,21 @@ struct MedicationEditorView: View {
             }
 
             Section("Prescription & package") {
-                TextField("Refills remaining (optional)", text: $refillsText)
-                    .keyboardType(.numberPad)
-                    .padding(.vertical, 3)
+                VStack(alignment: .leading, spacing: 4) {
+                    MedicationFieldTitle("Refills remaining")
+                    TextField("Refills remaining (optional)", text: $refillsText)
+                        .keyboardType(.numberPad)
+                }
+                .padding(.vertical, 3)
                 Toggle("Package expiration", isOn: $hasExpirationDate.animation(.medsSpring))
                 if hasExpirationDate {
                     DatePicker("Expires", selection: $expirationDate, displayedComponents: .date)
                 }
-                TextField("Lot number (optional)", text: $lotNumber)
-                    .padding(.vertical, 3)
+                VStack(alignment: .leading, spacing: 4) {
+                    MedicationFieldTitle("Lot number")
+                    TextField("Lot number (optional)", text: $lotNumber)
+                }
+                .padding(.vertical, 3)
                 if !productIdentifier.isEmpty {
                     LabeledContent(productIdentifierType.isEmpty ? "Product code" : productIdentifierType) {
                         Text(productIdentifier)
@@ -408,16 +430,18 @@ struct MedicationEditorView: View {
 
         do {
             try modelContext.save()
-            let notificationPlan = NotificationPlanBuilder.make(
-                medication: target,
-                schedules: newSchedules,
+            let medicationsForNotifications = allMedications.filter { $0.id != target.id } + [target]
+            let schedulesForNotifications = allSchedules.filter { $0.medicationID != target.id } + newSchedules
+            let notificationPlans = NotificationPlanBuilder.makeAll(
+                medications: medicationsForNotifications,
+                schedules: schedulesForNotifications,
                 inventoryEvents: inventoryForNotifications,
                 doseEvents: allDoseEvents
             )
             let shouldRequestNotificationAuthorization = target.remindersEnabled || target.refillRemindersEnabled
             Task {
-                await NotificationService.shared.replaceNotifications(
-                    for: notificationPlan,
+                await NotificationService.shared.replaceAllNotifications(
+                    for: notificationPlans,
                     requestAuthorization: shouldRequestNotificationAuthorization
                 )
             }
@@ -436,6 +460,20 @@ struct MedicationEditorView: View {
 
     private static func date(minutes: Int) -> Date {
         Calendar.current.date(bySettingHour: minutes / 60, minute: minutes % 60, second: 0, of: .now) ?? .now
+    }
+}
+
+private struct MedicationFieldTitle: View {
+    let title: String
+
+    init(_ title: String) {
+        self.title = title
+    }
+
+    var body: some View {
+        Text(title)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
     }
 }
 

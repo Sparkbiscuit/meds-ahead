@@ -24,13 +24,14 @@ Key features:
 - Human-confirmed medication records
 - Daily and selected-day schedules
 - As-needed medication support
-- Privacy-safe dose reminders with Taken and Skip actions
+- Consolidated dose reminders that avoid same-time notification spam, with privacy-safe Taken and Skip actions when an alert represents one medication
 - Taken and skipped dose history
 - Dose and low-supply refill reminders
 - Refill and inventory adjustments
 - Explainable low-supply forecasts
 - Private local storage with no account or advertising
 - Dynamic Type, VoiceOver, dark mode, and reduced-motion support
+- An optional, non-recurring tip jar; every app feature remains free
 
 Meds Ahead is an organization tool. It does not provide medical advice, recommend dose changes, or determine prescription refill eligibility. Always follow your prescription label and clinician's instructions.
 
@@ -46,6 +47,8 @@ The app must not be used to make prescribing, dosing, or refill-eligibility deci
 
 Suggested review path: complete onboarding, choose Add, select Enter Manually, add a name/current count/schedule, then open Supply. A supported physical iPhone is required to exercise the live text-and-barcode scanner; photo import remains available in the simulator.
 
+Settings may show three optional consumable tip amounts when the associated App Store products are available. Tips are processed with StoreKit, are not recurring, and do not unlock content or functionality. Reviewers can open Settings > Leave an Optional Tip to exercise the purchase surface.
+
 ## App Store Connect selections
 
 - Primary category: Medical
@@ -57,6 +60,7 @@ Suggested review path: complete onboarding, choose Add, select Enter Manually, a
 - Regulated medical device: No; Meds Ahead is an organization and logging tool
 - Export compliance: Uses only encryption provided by the operating system
 - Content rights: No third-party streamed or hosted content
+- In-App Purchases: Three optional consumable tip amounts; no subscription and no paid functionality
 
 ## Required account-owned values
 

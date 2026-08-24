@@ -8,6 +8,8 @@ Label text and supported barcodes are recognized on device. Imported or captured
 
 Notifications are scheduled by iOS on your device. Detailed notification text is optional and off by default.
 
+Optional tips are processed by Apple through StoreKit. Meds Ahead does not receive or store payment-card information, and a tip does not transmit medication information.
+
 Meds Ahead configures its local medication database not to be included in device backups.
 
 You can delete individual dose logs or delete a medication and its associated local history in the app. Deleting the app removes its local data according to iOS behavior.

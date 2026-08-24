@@ -1,18 +1,37 @@
 import PhotosUI
 import SwiftUI
-import Vision
+import UIKit
+@preconcurrency import Vision
 import VisionKit
 
 struct ScannerScreen: View {
     let onComplete: (MedicationDraft) -> Void
+    @StateObject private var scannerController = LiveScannerController()
     @State private var evidence: [ScanEvidence] = []
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var isProcessingPhoto = false
+    @State private var isInterpreting = false
     @State private var errorMessage: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var canUseLiveScanner: Bool {
         DataScannerViewController.isSupported && DataScannerViewController.isAvailable
+    }
+
+    private var previewDraft: MedicationDraft { ScanParser.parse(evidence) }
+    private var matchedMedicationName: String { MedicationLabelInterpreter.offlineDraft(evidence).name }
+
+    private var hasUsefulProgress: Bool {
+        !matchedMedicationName.isEmpty
+            || !previewDraft.strength.isEmpty
+            || previewDraft.currentSupply != nil
+            || !previewDraft.productIdentifier.isEmpty
+    }
+
+    private var canReview: Bool {
+        (canUseLiveScanner || !evidence.isEmpty)
+            && !isProcessingPhoto
+            && !isInterpreting
     }
 
     var body: some View {
@@ -31,17 +50,17 @@ struct ScannerScreen: View {
             guard let item else { return }
             processPhoto(item)
         }
-        .alert("Couldn’t Read This Photo", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+        .alert("Couldn’t Read This Label", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: {
-            Text(errorMessage ?? "Try another photo or enter the medication manually.")
+            Text(errorMessage ?? "Try a sharper view with less glare, or enter the medication manually.")
         }
     }
 
     private var scannerArea: some View {
         ZStack {
             if canUseLiveScanner {
-                LiveDataScanner(evidence: $evidence)
+                LiveDataScanner(evidence: $evidence, controller: scannerController)
                     .ignoresSafeArea(edges: .top)
             } else {
                 LinearGradient(colors: [.black, Color(red: 0.06, green: 0.11, blue: 0.14)], startPoint: .top, endPoint: .bottom)
@@ -60,44 +79,64 @@ struct ScannerScreen: View {
             }
 
             RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .stroke(evidence.isEmpty ? .white.opacity(0.72) : Color.green, style: StrokeStyle(lineWidth: 2, dash: evidence.isEmpty ? [9, 8] : []))
-                .padding(.horizontal, 24)
-                .padding(.vertical, 64)
+                .stroke(
+                    hasUsefulProgress ? Color.green : .white.opacity(0.72),
+                    style: StrokeStyle(lineWidth: 2, dash: hasUsefulProgress ? [] : [9, 8])
+                )
+                .padding(.horizontal, ScanFrameLayout.horizontalInset)
+                .padding(.vertical, ScanFrameLayout.verticalInset)
                 .allowsHitTesting(false)
-                .animation(reduceMotion ? nil : .medsSpring, value: evidence.isEmpty)
+                .animation(reduceMotion ? nil : .medsSpring, value: hasUsefulProgress)
 
-            VStack {
-                HStack {
-                    Spacer()
-                    if !evidence.isEmpty {
-                        Label("\(textCount) text · \(barcodeCount) codes", systemImage: "checkmark.circle.fill")
-                            .font(.caption.weight(.semibold))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(.regularMaterial, in: Capsule())
-                            .foregroundStyle(.white)
-                            .padding()
-                            .transition(.scale.combined(with: .opacity))
-                    }
-                }
+            VStack(spacing: 10) {
+                scanProgress
                 Spacer()
-                Text(evidence.isEmpty ? "Keep the label inside the frame and slowly rotate the bottle" : "Useful information found — keep rotating for another side")
+                Text(scanGuidance)
                     .font(.subheadline.weight(.semibold))
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.white)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
-                    .background(.black.opacity(0.48), in: Capsule())
+                    .background(.black.opacity(0.52), in: Capsule())
                     .padding(.bottom, 24)
             }
         }
         .accessibilityElement(children: .contain)
     }
 
+    @ViewBuilder
+    private var scanProgress: some View {
+        if hasUsefulProgress {
+            HStack(spacing: 7) {
+                if !matchedMedicationName.isEmpty {
+                    ScanProgressPill(title: "Name", systemImage: "pills.fill")
+                }
+                if !previewDraft.strength.isEmpty {
+                    ScanProgressPill(title: "Strength", systemImage: "checkmark")
+                }
+                if previewDraft.currentSupply != nil {
+                    ScanProgressPill(title: "Quantity", systemImage: "number")
+                }
+                if !previewDraft.productIdentifier.isEmpty {
+                    ScanProgressPill(title: "Code", systemImage: "barcode")
+                }
+            }
+            .padding(.top, 14)
+            .padding(.horizontal, 12)
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+
+    private var scanGuidance: String {
+        if !matchedMedicationName.isEmpty { return "Name matched — rotate for strength, quantity, and refill details" }
+        if !evidence.isEmpty { return "Keep rotating until the full medication name is visible" }
+        return "Keep the label inside the frame and slowly rotate the bottle"
+    }
+
     private var controls: some View {
         VStack(spacing: 13) {
-            if isProcessingPhoto {
-                ProgressView("Reading photo…")
+            if isProcessingPhoto || isInterpreting {
+                ProgressView(isInterpreting ? "Organizing label on this iPhone…" : "Reading photo…")
                     .tint(.white)
                     .foregroundStyle(.white)
             }
@@ -109,22 +148,22 @@ struct ScannerScreen: View {
                 .buttonStyle(.bordered)
                 .controlSize(.large)
                 .tint(.white)
+                .disabled(isInterpreting)
 
-                Button {
-                    let draft = ScanParser.parse(evidence)
-                    onComplete(draft)
-                } label: {
-                    Label("Review", systemImage: "arrow.right")
+                Button(action: reviewScan) {
+                    Label(evidence.isEmpty ? "Capture & Review" : "Review", systemImage: "arrow.right")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .disabled(evidence.isEmpty || isProcessingPhoto)
+                .disabled(!canReview)
             }
-            Button("Clear Scan") { evidence.removeAll() }
+            Button("Clear Scan", action: clearScan)
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(.white.opacity(0.78))
-                .disabled(evidence.isEmpty)
+                .disabled(
+                    evidence.isEmpty || isInterpreting
+                )
         }
         .padding(.horizontal, 18)
         .padding(.top, 16)
@@ -132,8 +171,38 @@ struct ScannerScreen: View {
         .background(.ultraThinMaterial)
     }
 
-    private var textCount: Int { evidence.filter { $0.kind == .text }.count }
-    private var barcodeCount: Int { evidence.filter { $0.kind == .barcode }.count }
+    private func reviewScan() {
+        isInterpreting = true
+        Task { @MainActor in
+            var finalEvidence = evidence
+            if canUseLiveScanner {
+                do {
+                    let image = try await scannerController.captureCroppedPhoto()
+                    let captured = try await StillImageRecognizer.recognize(image: image, origin: .cameraCapture)
+                    finalEvidence = ScanEvidenceQuality.mergingBest(existing: finalEvidence, additions: captured)
+                } catch where finalEvidence.isEmpty {
+                    isInterpreting = false
+                    errorMessage = "The camera couldn’t capture a sharp label. Hold the bottle steady inside the frame and try again."
+                    return
+                } catch {
+                    // Stable evidence already exists, so confirmation remains
+                    // available even if the final snapshot fails unexpectedly.
+                }
+            }
+
+            guard !finalEvidence.isEmpty else {
+                isInterpreting = false
+                errorMessage = "No trustworthy label text or code was found. Move closer, reduce glare, and keep the medication name inside the frame."
+                return
+            }
+
+            evidence = finalEvidence
+            scannerController.stopScanning()
+            let draft = await MedicationLabelInterpreter.interpret(finalEvidence)
+            isInterpreting = false
+            onComplete(draft)
+        }
+    }
 
     private func processPhoto(_ item: PhotosPickerItem) {
         isProcessingPhoto = true
@@ -142,15 +211,19 @@ struct ScannerScreen: View {
                 guard let data = try await item.loadTransferable(type: Data.self) else {
                     throw ScannerError.unreadableImage
                 }
-                let found = try await StillImageRecognizer.recognize(data: data)
+                let found = try await StillImageRecognizer.recognize(data: data, origin: .photoLibrary)
                 await MainActor.run {
                     merge(found)
                     isProcessingPhoto = false
-                    if found.isEmpty { errorMessage = "No readable label text or code was found. Try a sharper, wider photo with less glare." }
+                    selectedPhoto = nil
+                    if found.isEmpty {
+                        errorMessage = "No trustworthy Latin label text or code was found. Try a sharper, wider photo with less glare."
+                    }
                 }
             } catch {
                 await MainActor.run {
                     isProcessingPhoto = false
+                    selectedPhoto = nil
                     errorMessage = "No readable label text or code was found. Try a sharper, wider photo with less glare."
                 }
             }
@@ -164,116 +237,367 @@ struct ScannerScreen: View {
             UIImpactFeedbackGenerator(style: .soft).impactOccurred()
         }
     }
+
+    private func clearScan() {
+        evidence.removeAll()
+        scannerController.resetTracking()
+        scannerController.startScanning()
+    }
+}
+
+private struct ScanProgressPill: View {
+    let title: String
+    let systemImage: String
+
+    var body: some View {
+        Label(title, systemImage: systemImage)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(.regularMaterial, in: Capsule())
+    }
 }
 
 private enum ScannerError: Error {
     case unreadableImage
+    case scannerUnavailable
+    case invalidCapture
+}
+
+@MainActor
+private final class LiveScannerController: ObservableObject {
+    private weak var scanner: DataScannerViewController?
+    private var resetHandler: (() -> Void)?
+
+    func attach(_ scanner: DataScannerViewController, resetHandler: @escaping () -> Void) {
+        self.scanner = scanner
+        self.resetHandler = resetHandler
+    }
+
+    func detach(_ scanner: DataScannerViewController) {
+        guard self.scanner === scanner else { return }
+        self.scanner = nil
+        resetHandler = nil
+    }
+
+    func startScanning() {
+        guard let scanner, !scanner.isScanning else { return }
+        try? scanner.startScanning()
+    }
+
+    func stopScanning() {
+        scanner?.stopScanning()
+    }
+
+    func resetTracking() {
+        resetHandler?()
+    }
+
+    func captureCroppedPhoto() async throws -> UIImage {
+        guard let scanner else { throw ScannerError.scannerUnavailable }
+        let image = try await scanner.capturePhoto()
+        let viewSize = scanner.view.bounds.size
+        let visibleRect = scanner.regionOfInterest ?? scanner.view.bounds
+        guard let sourceRect = AspectFillCropMapper.sourceRect(
+            imageSize: image.size,
+            displayedIn: viewSize,
+            visibleRect: visibleRect
+        ), let cropped = image.cropped(to: sourceRect) else {
+            throw ScannerError.invalidCapture
+        }
+        return cropped
+    }
+}
+
+private extension UIImage {
+    func cropped(to sourceRect: CGRect) -> UIImage? {
+        guard sourceRect.width > 0, sourceRect.height > 0 else { return nil }
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = scale
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: sourceRect.size, format: format).image { _ in
+            draw(at: CGPoint(x: -sourceRect.minX, y: -sourceRect.minY))
+        }
+    }
 }
 
 private struct LiveDataScanner: UIViewControllerRepresentable {
     @Binding var evidence: [ScanEvidence]
+    let controller: LiveScannerController
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
     func makeUIViewController(context: Context) -> DataScannerViewController {
+        let supported = Set(DataScannerViewController.supportedTextRecognitionLanguages)
+        let preferredLanguages = ["en-US", "es-ES", "fr-FR"].filter(supported.contains)
+        let textType: DataScannerViewController.RecognizedDataType = preferredLanguages.isEmpty
+            ? .text()
+            : .text(languages: preferredLanguages)
         let scanner = DataScannerViewController(
-            recognizedDataTypes: [.text(), .barcode()],
+            recognizedDataTypes: [textType, .barcode()],
             qualityLevel: .accurate,
             recognizesMultipleItems: true,
-            isHighFrameRateTrackingEnabled: true,
+            isHighFrameRateTrackingEnabled: false,
             isPinchToZoomEnabled: true,
             isGuidanceEnabled: true,
             isHighlightingEnabled: true
         )
         scanner.delegate = context.coordinator
-        try? scanner.startScanning()
+        controller.attach(scanner) { [weak coordinator = context.coordinator] in
+            coordinator?.reset()
+        }
+        context.coordinator.startScanning(scanner)
         return scanner
     }
 
-    func updateUIViewController(_ uiViewController: DataScannerViewController, context: Context) {}
-
-    static func dismantleUIViewController(_ uiViewController: DataScannerViewController, coordinator: Coordinator) {
-        uiViewController.stopScanning()
+    func updateUIViewController(_ uiViewController: DataScannerViewController, context: Context) {
+        context.coordinator.parent = self
+        context.coordinator.configureRegion(for: uiViewController)
     }
 
+    static func dismantleUIViewController(_ uiViewController: DataScannerViewController, coordinator: Coordinator) {
+        coordinator.cancelPendingWork()
+        uiViewController.stopScanning()
+        uiViewController.delegate = nil
+        coordinator.parent.controller.detach(uiViewController)
+    }
+
+    @MainActor
     final class Coordinator: NSObject, DataScannerViewControllerDelegate {
         var parent: LiveDataScanner
+        private var tracker = LiveEvidenceTracker<RecognizedItem.ID>()
+        private var publishedLiveEvidenceIDs: Set<UUID> = []
+        private var promotionTask: Task<Void, Never>?
+        private var scannerStartTask: Task<Void, Never>?
 
         init(parent: LiveDataScanner) {
             self.parent = parent
         }
 
+        func configureRegion(for scanner: DataScannerViewController) {
+            let region = ScanFrameLayout.region(in: scanner.view.bounds)
+            guard region.width > 0, region.height > 0, scanner.regionOfInterest != region else { return }
+            scanner.regionOfInterest = region
+        }
+
+        func startScanning(_ scanner: DataScannerViewController) {
+            scannerStartTask?.cancel()
+            scannerStartTask = Task { @MainActor [weak self, weak scanner] in
+                await Task.yield()
+                guard let self, let scanner else { return }
+                configureRegion(for: scanner)
+                for attempt in 0..<8 {
+                    guard !Task.isCancelled else { return }
+                    do {
+                        if !scanner.isScanning {
+                            try scanner.startScanning()
+                        }
+                        return
+                    } catch {
+                        let backoff = 120 + (attempt * 80)
+                        try? await Task.sleep(for: .milliseconds(backoff))
+                    }
+                }
+            }
+        }
+
         func dataScanner(_ dataScanner: DataScannerViewController, didAdd addedItems: [RecognizedItem], allItems: [RecognizedItem]) {
-            merge(addedItems)
+            refresh(allItems)
         }
 
         func dataScanner(_ dataScanner: DataScannerViewController, didUpdate updatedItems: [RecognizedItem], allItems: [RecognizedItem]) {
-            merge(updatedItems)
+            refresh(allItems)
         }
 
-        private func merge(_ items: [RecognizedItem]) {
-            for item in items {
-                let found: ScanEvidence?
-                switch item {
-                case .text(let text):
-                    let confidence = Double(text.observation.topCandidates(1).first?.confidence ?? 0.8)
-                    found = ScanEvidence(kind: .text, value: text.transcript, confidence: confidence)
-                case .barcode(let barcode):
-                    guard let payload = barcode.payloadStringValue, !payload.isEmpty else { continue }
-                    found = ScanEvidence(
-                        kind: .barcode,
-                        value: payload,
-                        symbology: barcode.observation.symbology.rawValue,
-                        confidence: Double(barcode.observation.confidence)
-                    )
-                @unknown default:
-                    found = nil
-                }
-                guard let found,
-                      !found.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                      !parent.evidence.contains(where: {
-                          ScanEvidenceQuality.deduplicationKey(for: $0) == ScanEvidenceQuality.deduplicationKey(for: found)
-                      }) else { continue }
-                parent.evidence.append(found)
+        func dataScanner(_ dataScanner: DataScannerViewController, didRemove removedItems: [RecognizedItem], allItems: [RecognizedItem]) {
+            refresh(allItems)
+        }
+
+        func reset() {
+            promotionTask?.cancel()
+            tracker.reset()
+            publishedLiveEvidenceIDs.removeAll()
+        }
+
+        func cancelPendingWork() {
+            promotionTask?.cancel()
+            scannerStartTask?.cancel()
+        }
+
+        private func refresh(_ items: [RecognizedItem]) {
+            let observations = items.compactMap(makeObservation)
+            let update = tracker.update(observations, at: ProcessInfo.processInfo.systemUptime)
+            publish(update)
+            schedulePromotion()
+        }
+
+        private func schedulePromotion() {
+            promotionTask?.cancel()
+            promotionTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(425))
+                guard !Task.isCancelled, let self else { return }
+                publish(tracker.promote(at: ProcessInfo.processInfo.systemUptime))
             }
+        }
+
+        private func publish(_ update: LiveEvidenceUpdate) {
+            let nonLiveEvidence = parent.evidence.filter { !publishedLiveEvidenceIDs.contains($0.id) }
+            let merged = ScanEvidenceQuality.mergingBest(existing: nonLiveEvidence, additions: update.evidence)
+            publishedLiveEvidenceIDs = Set(update.evidence.map(\.id))
+            if merged != parent.evidence { parent.evidence = merged }
+            if update.promotedNewEvidence {
+                UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+            }
+        }
+
+        private func makeObservation(_ item: RecognizedItem) -> LiveEvidenceObservation<RecognizedItem.ID>? {
+            let evidence: ScanEvidence
+            switch item {
+            case .text(let text):
+                let candidates = text.observation.topCandidates(3)
+                if let candidate = candidates.first(where: { LabelTextPolicy.sanitized($0.string) != nil }) {
+                    evidence = ScanEvidence(
+                        kind: .text,
+                        value: candidate.string,
+                        confidence: Double(candidate.confidence),
+                        origin: .liveCamera
+                    )
+                } else if LabelTextPolicy.sanitized(text.transcript) != nil {
+                    evidence = ScanEvidence(
+                        kind: .text,
+                        value: text.transcript,
+                        confidence: 0.5,
+                        origin: .liveCamera
+                    )
+                } else {
+                    return nil
+                }
+            case .barcode(let barcode):
+                guard let payload = barcode.payloadStringValue, !payload.isEmpty else { return nil }
+                evidence = ScanEvidence(
+                    kind: .barcode,
+                    value: payload,
+                    symbology: barcode.observation.symbology.rawValue,
+                    confidence: Double(barcode.observation.confidence),
+                    origin: .liveCamera
+                )
+            @unknown default:
+                return nil
+            }
+            return LiveEvidenceObservation(id: item.id, evidence: evidence)
         }
     }
 }
 
-private enum StillImageRecognizer {
-    static func recognize(data: Data) async throws -> [ScanEvidence] {
+enum StillImageRecognizer {
+    static func recognize(data: Data, origin: ScanEvidence.Origin) async throws -> [ScanEvidence] {
         try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
-                let textRequest = VNRecognizeTextRequest()
-                textRequest.recognitionLevel = .accurate
-                textRequest.usesLanguageCorrection = true
-                textRequest.recognitionLanguages = ["en-US"]
-                let barcodeRequest = VNDetectBarcodesRequest()
-                let handler = VNImageRequestHandler(data: data, options: [:])
                 do {
-                    try handler.perform([textRequest, barcodeRequest])
-                    var results: [ScanEvidence] = []
-                    for observation in textRequest.results ?? [] {
-                        guard let candidate = observation.topCandidates(1).first,
-                              candidate.confidence >= 0.30 else { continue }
-                        results.append(ScanEvidence(kind: .text, value: candidate.string, confidence: Double(candidate.confidence)))
-                    }
-                    for observation in barcodeRequest.results ?? [] {
-                        guard let payload = observation.payloadStringValue, !payload.isEmpty else { continue }
-                        results.append(
-                            ScanEvidence(
-                                kind: .barcode,
-                                value: payload,
-                                symbology: observation.symbology.rawValue,
-                                confidence: Double(observation.confidence)
-                            )
-                        )
-                    }
-                    continuation.resume(returning: results)
+                    let handler = VNImageRequestHandler(data: data, options: [:])
+                    let recognized = try performRecognition(handler: handler)
+                    continuation.resume(returning: makeEvidence(from: recognized, origin: origin))
                 } catch {
                     continuation.resume(throwing: error)
                 }
             }
+        }
+    }
+
+    static func recognize(image: UIImage, origin: ScanEvidence.Origin) async throws -> [ScanEvidence] {
+        guard let cgImage = image.cgImage else { throw ScannerError.unreadableImage }
+        let orientation = CGImagePropertyOrientation(image.imageOrientation)
+        return try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let handler = VNImageRequestHandler(
+                        cgImage: cgImage,
+                        orientation: orientation,
+                        options: [:]
+                    )
+                    let recognized = try performRecognition(handler: handler)
+                    continuation.resume(returning: makeEvidence(from: recognized, origin: origin))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private struct RecognitionResult {
+        let text: [VNRecognizedTextObservation]
+        let barcodes: [VNBarcodeObservation]
+
+    }
+
+    private static func performRecognition(handler: VNImageRequestHandler) throws -> RecognitionResult {
+        let textRequest = VNRecognizeTextRequest()
+        textRequest.recognitionLevel = .accurate
+        textRequest.usesLanguageCorrection = true
+        textRequest.recognitionLanguages = ["en-US"]
+        let barcodeRequest = VNDetectBarcodesRequest()
+        try handler.perform([textRequest])
+        // Barcode inference is optional and can be unavailable even when OCR succeeds.
+        // Never discard usable medication text because a code model could not initialize.
+        try? handler.perform([barcodeRequest])
+        return RecognitionResult(
+            text: textRequest.results ?? [],
+            barcodes: barcodeRequest.results ?? []
+        )
+    }
+
+    private static func makeEvidence(
+        from result: RecognitionResult,
+        origin: ScanEvidence.Origin
+    ) -> [ScanEvidence] {
+        let captureID = UUID()
+        let sortedText = result.text.sorted { lhs, rhs in
+            if abs(lhs.boundingBox.midY - rhs.boundingBox.midY) > 0.02 {
+                return lhs.boundingBox.midY > rhs.boundingBox.midY
+            }
+            return lhs.boundingBox.minX < rhs.boundingBox.minX
+        }
+        var evidence = sortedText.enumerated().compactMap { index, observation -> ScanEvidence? in
+            guard let candidate = observation.topCandidates(3).first(where: {
+                $0.confidence >= 0.25 && LabelTextPolicy.sanitized($0.string) != nil
+            }), let value = LabelTextPolicy.sanitized(candidate.string) else { return nil }
+            return ScanEvidence(
+                kind: .text,
+                value: value,
+                confidence: Double(candidate.confidence),
+                origin: origin,
+                captureID: captureID,
+                lineIndex: index
+            )
+        }
+        evidence.append(contentsOf: result.barcodes.compactMap { observation in
+            guard let payload = observation.payloadStringValue, !payload.isEmpty else { return nil }
+            return ScanEvidence(
+                kind: .barcode,
+                value: payload,
+                symbology: observation.symbology.rawValue,
+                confidence: Double(observation.confidence),
+                origin: origin,
+                captureID: captureID
+            )
+        })
+        return ScanEvidenceQuality.mergingBest(existing: [], additions: evidence)
+    }
+}
+
+private extension CGImagePropertyOrientation {
+    init(_ orientation: UIImage.Orientation) {
+        switch orientation {
+        case .up: self = .up
+        case .upMirrored: self = .upMirrored
+        case .down: self = .down
+        case .downMirrored: self = .downMirrored
+        case .left: self = .left
+        case .leftMirrored: self = .leftMirrored
+        case .right: self = .right
+        case .rightMirrored: self = .rightMirrored
+        @unknown default: self = .up
         }
     }
 }

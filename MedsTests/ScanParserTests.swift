@@ -76,6 +76,39 @@ final class ScanParserTests: XCTestCase {
         XCTAssertEqual(ScanParser.parse(evidence).currentSupply, 30)
     }
 
+    func testLiveEvidenceMergeRetainsLowConfidenceTextForSemanticReview() {
+        let liveText = ScanEvidence(
+            kind: .text,
+            value: "AMPHETAMINE",
+            confidence: 0.12,
+            origin: .liveCamera
+        )
+
+        let merged = ScanEvidenceQuality.mergingBest(
+            existing: [],
+            additions: [liveText]
+        )
+
+        XCTAssertEqual(merged.map(\.value), ["AMPHETAMINE"])
+    }
+
+    func testHighResolutionCaptureRetainsLowConfidenceDrugFragmentForVocabularyRepair() {
+        let captured = ScanEvidence(
+            kind: .text,
+            value: "AMPHETAMINE - DEXTROAMPHET",
+            confidence: 0.27,
+            origin: .cameraCapture
+        )
+
+        let merged = ScanEvidenceQuality.mergingBest(existing: [], additions: [captured])
+
+        XCTAssertEqual(merged.map(\.value), ["AMPHETAMINE - DEXTROAMPHET"])
+        XCTAssertEqual(
+            MedicationLabelInterpreter.offlineDraft(merged).name,
+            "Amphetamine - dextroamphetamine"
+        )
+    }
+
     func testLiveCameraConfidenceDoesNotSuppressStructuredLabelFields() {
         let evidence = [
             ScanEvidence(kind: .text, value: "FUROSEMIDE", confidence: 0.12),
@@ -105,6 +138,38 @@ final class ScanParserTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(merged.first).id, corrected.id)
     }
 
+    func testEvidenceMergeReplacesMissingFirstLetterWithCompleteReading() throws {
+        let fragment = ScanEvidence(kind: .text, value: "elatonin", confidence: 0.84)
+        let complete = ScanEvidence(kind: .text, value: "Melatonin", confidence: 0.84)
+
+        let merged = ScanEvidenceQuality.mergingBest(existing: [fragment], additions: [complete])
+
+        XCTAssertEqual(merged.count, 1)
+        XCTAssertEqual(try XCTUnwrap(merged.first).value, "Melatonin")
+    }
+
+    func testEvidenceMergeCollapsesOCRSpellingAlternatives() throws {
+        let primary = ScanEvidence(kind: .text, value: "Melatonin", confidence: 1)
+        let alternate = ScanEvidence(kind: .text, value: "Meltonin", confidence: 0.5)
+
+        let merged = ScanEvidenceQuality.mergingBest(existing: [], additions: [primary, alternate])
+
+        XCTAssertEqual(merged.count, 1)
+        XCTAssertEqual(try XCTUnwrap(merged.first).value, "Melatonin")
+    }
+
+    func testIncompleteDirectionsFromCurvedLabelAreNotAutofilled() {
+        let evidence = [ScanEvidence(kind: .text, value: "TAKE ONE TABLET BY MO.")]
+
+        XCTAssertEqual(ScanParser.parse(evidence).directions, "")
+    }
+
+    func testPackageCountParsesAsCurrentSupply() {
+        let evidence = [ScanEvidence(kind: .text, value: "120 TABLETS")]
+
+        XCTAssertEqual(ScanParser.parse(evidence).currentSupply, 120)
+    }
+
     func testNameOnStrengthLineDropsDosageFormWords() {
         let evidence = [
             ScanEvidence(kind: .text, value: "FUROSEMIDE 20 MG TABLETS", confidence: 0.92),
@@ -125,6 +190,16 @@ final class ScanParserTests: XCTestCase {
         ]
 
         XCTAssertEqual(ScanParser.parse(evidence).name, "Furosemide")
+    }
+
+    func testAmbiguousPackagingTextLeavesMedicationNameBlank() {
+        let evidence = [
+            ScanEvidence(kind: .text, value: "Natural Cherry", confidence: 0.98),
+            ScanEvidence(kind: .text, value: "May Help Support Sleep", confidence: 0.97),
+            ScanEvidence(kind: .text, value: "Store in a cool dry place", confidence: 0.96)
+        ]
+
+        XCTAssertEqual(ScanParser.parse(evidence).name, "")
     }
 
     func testPrintedNDCIsUsedWhenNoBarcodeDecodes() {
@@ -156,5 +231,19 @@ final class ScanParserTests: XCTestCase {
         ]
 
         XCTAssertEqual(ScanParser.parse(evidence).directions, "ONE CAPSULE TWICE DAILY")
+    }
+
+    func testNonLatinOCRFragmentsNeverReachParser() {
+        let evidence = [
+            ScanEvidence(kind: .text, value: "Мелатонин", confidence: 0.99),
+            ScanEvidence(kind: .text, value: "褪黑素", confidence: 0.99),
+            ScanEvidence(kind: .text, value: "Melatonin", confidence: 0.90),
+            ScanEvidence(kind: .text, value: "5 mg", confidence: 0.90)
+        ]
+
+        let draft = ScanParser.parse(evidence)
+
+        XCTAssertEqual(draft.name, "Melatonin")
+        XCTAssertEqual(draft.evidence.map(\.value), ["Melatonin", "5 mg"])
     }
 }

@@ -5,11 +5,32 @@ enum ScanEvidenceQuality {
     private static let contextualMinimumConfidence = 0.30
 
     static func isUsefulForAutofill(_ evidence: ScanEvidence) -> Bool {
-        guard !evidence.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        guard sanitized(evidence) != nil else { return false }
         guard evidence.kind == .text else { return true }
         guard normalized(evidence.value).count >= 3 else { return false }
+        if evidence.origin == .liveCamera { return true }
+        if evidence.origin == .cameraCapture || evidence.origin == .photoLibrary {
+            return evidence.confidence >= 0.25
+        }
         if evidence.confidence >= minimumTextConfidence { return true }
         return evidence.confidence >= contextualMinimumConfidence && containsMedicationFieldMarker(evidence.value)
+    }
+
+    static func sanitized(_ evidence: ScanEvidence) -> ScanEvidence? {
+        guard !evidence.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        guard evidence.kind == .text else { return evidence }
+        guard let value = LabelTextPolicy.sanitized(evidence.value) else { return nil }
+        if value == evidence.value { return evidence }
+        return ScanEvidence(
+            id: evidence.id,
+            kind: evidence.kind,
+            value: value,
+            symbology: evidence.symbology,
+            confidence: evidence.confidence,
+            origin: evidence.origin,
+            captureID: evidence.captureID,
+            lineIndex: evidence.lineIndex
+        )
     }
 
     static func deduplicationKey(for evidence: ScanEvidence) -> String {
@@ -20,16 +41,67 @@ enum ScanEvidenceQuality {
         existing: [ScanEvidence],
         additions: [ScanEvidence]
     ) -> [ScanEvidence] {
-        var result = existing.filter(isUsefulForAutofill)
-        for item in additions where isUsefulForAutofill(item) {
-            let key = deduplicationKey(for: item)
-            if let index = result.firstIndex(where: { deduplicationKey(for: $0) == key }) {
-                if item.confidence > result[index].confidence { result[index] = item }
+        var result = existing.compactMap(sanitized).filter(isUsefulForAutofill)
+        for item in additions.compactMap(sanitized) where isUsefulForAutofill(item) {
+            if let index = result.firstIndex(where: { isEquivalentReading($0, item) }) {
+                result[index] = preferred(result[index], item)
             } else {
                 result.append(item)
             }
         }
-        return result
+        return Array(result.prefix(80))
+    }
+
+    static func isEquivalentReading(_ lhs: ScanEvidence, _ rhs: ScanEvidence) -> Bool {
+        guard lhs.kind == rhs.kind else { return false }
+        let left = normalized(lhs.value)
+        let right = normalized(rhs.value)
+        if left == right { return true }
+        guard lhs.kind == .text else { return false }
+
+        let leftCompact = left.filter(\.isLetter)
+        let rightCompact = right.filter(\.isLetter)
+        guard min(leftCompact.count, rightCompact.count) >= 5 else { return false }
+        let shorter = leftCompact.count <= rightCompact.count ? leftCompact : rightCompact
+        let longer = leftCompact.count > rightCompact.count ? leftCompact : rightCompact
+        let missing = longer.count - shorter.count
+        let coverage = Double(shorter.count) / Double(longer.count)
+        if missing <= 5
+            && coverage >= 0.66
+            && (longer.hasPrefix(shorter) || longer.hasSuffix(shorter)) {
+            return true
+        }
+
+        let allowedDistance = shorter.count >= 12 ? 2 : 1
+        return shorter.count >= 5
+            && missing <= allowedDistance
+            && editDistance(shorter, longer) <= allowedDistance
+    }
+
+    static func preferred(_ lhs: ScanEvidence, _ rhs: ScanEvidence) -> ScanEvidence {
+        readingScore(rhs) > readingScore(lhs) ? rhs : lhs
+    }
+
+    private static func readingScore(_ evidence: ScanEvidence) -> Double {
+        evidence.confidence * 100 + Double(normalized(evidence.value).count)
+    }
+
+    private static func editDistance(_ lhs: String, _ rhs: String) -> Int {
+        let left = Array(lhs)
+        let right = Array(rhs)
+        var previous = Array(0...right.count)
+        for (leftIndex, leftCharacter) in left.enumerated() {
+            var current = [leftIndex + 1]
+            for (rightIndex, rightCharacter) in right.enumerated() {
+                current.append(min(
+                    current[rightIndex] + 1,
+                    previous[rightIndex + 1] + 1,
+                    previous[rightIndex] + (leftCharacter == rightCharacter ? 0 : 1)
+                ))
+            }
+            previous = current
+        }
+        return previous[right.count]
     }
 
     private static func normalized(_ value: String) -> String {
@@ -53,6 +125,7 @@ enum ScanEvidenceQuality {
 enum ScanParser {
     private static let strengthPattern = /(?i)\b\d+(?:\.\d+)?\s?(?:mcg|mg|g|mL|%)(?:\s*\/\s*\d+(?:\.\d+)?\s?(?:mcg|mg|g|mL))?\b/
     private static let quantityPattern = /(?i)\b(?:qty|quantity|contents?)\s*[:#]?\s*(\d+(?:\.\d+)?)\b/
+    private static let packageQuantityPattern = /(?i)\b(\d+(?:\.\d+)?)\s*(?:tablets?|capsules?|patches?|puffs?|doses?|count|ct)\b/
     private static let refillPattern = /(?i)\b(\d+)\s+refills?\s+(?:left|remaining)\b/
     private static let labeledRefillPattern = /(?i)\b(?:refills?|rfls?)\s*(?:left|remaining)?\s*[:#]?\s*(\d+)\b/
     private static let simpleRefillPattern = /(?i)\b(\d+)\s+refills?\b/
@@ -68,19 +141,13 @@ enum ScanParser {
     }
 
     static func parse(_ evidence: [ScanEvidence], now: Date = .now) -> MedicationDraft {
-        // VisionKit's live-camera confidence values are not calibrated like
-        // VNRecognizeTextRequest's still-image values. Preserve every nonempty
-        // live transcript and use confidence only to rank ambiguous choices;
-        // explicit label markers and patterns provide the autofill safety gate.
-        let usableEvidence = evidence.filter {
-            !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
+        let usableEvidence = evidence.compactMap(ScanEvidenceQuality.sanitized)
         let lines = makeTextLines(from: usableEvidence)
         let combined = lines.map(\.value).joined(separator: "\n")
 
         var draft = MedicationDraft()
         draft.source = .scanned
-        draft.evidence = evidence
+        draft.evidence = usableEvidence
         draft.overallConfidence = usableEvidence.isEmpty ? 0 : usableEvidence.map(\.confidence).reduce(0, +) / Double(usableEvidence.count)
         draft.strength = firstMatch(in: combined, pattern: strengthPattern) ?? ""
         draft.name = medicationName(from: lines, strength: draft.strength)
@@ -121,7 +188,11 @@ enum ScanParser {
             "inhale", "instill", "inject", "times a day",
             "dietary supplement", "drug-free", "gluten free", "lactose free", "rx#", "rx #",
             "prescriber", "patient", "pharmacy", "discard", "use by", "ndc", "phone", "address",
-            "date filled", "lot", "exp", "doctor", "provider", "www.", ".com", "fax"
+            "date filled", "lot", "exp", "doctor", "provider", "www.", ".com", "fax",
+            "natural", "flavor", "cherry", "quick dissolve", "may help", "support", "sleep",
+            "quality", "guaranteed", "certified", "store ", "cool dry place", "keep", "away",
+            "children", "warning", "recommended while", "consult", "federal law", "transfer",
+            "color", "shape", "manufacturer", "mfg", "targeted health", "actual size", "topcare", "health"
         ]
 
         if !strength.isEmpty,
@@ -147,8 +218,8 @@ enum ScanParser {
                   isPlausibleName(line.value, stopWords: stopWords) else { return nil }
             return line
         }
-        let best = candidates.max { nameScore($0) < nameScore($1) }
-        return best.map { titleCasedDrugName($0.value) } ?? ""
+        guard candidates.count == 1, let onlyCandidate = candidates.first else { return "" }
+        return titleCasedDrugName(onlyCandidate.value)
     }
 
     private static func cleanedNameLine(_ value: String, removing strength: String) -> String {
@@ -214,8 +285,12 @@ enum ScanParser {
     }
 
     private static func capturedQuantity(in value: String) -> Double? {
-        guard let raw = capture(in: value, pattern: quantityPattern, group: 1) else { return nil }
-        return Double(raw)
+        for pattern in [quantityPattern, packageQuantityPattern] {
+            if let raw = capture(in: value, pattern: pattern, group: 1) {
+                return Double(raw)
+            }
+        }
+        return nil
     }
 
     private static func capturedRefills(in value: String) -> Int? {
@@ -262,7 +337,9 @@ enum ScanParser {
             let dosageMarkers = ["tablet", "capsule", "puff", "drop", "spray", "patch", "ml"]
             let hasDosageWithFrequency = hasFrequency && dosageMarkers.contains(where: lower.contains)
             let hasRouteInstruction = lower.contains(" by mouth") || lower.contains(" under the tongue")
-            guard startsWithDirection || hasDosageWithFrequency || hasRouteInstruction else { return nil }
+            let hasCompleteInstruction = startsWithDirection
+                && (hasFrequency || hasRouteInstruction || lower.contains(" as directed"))
+            guard hasCompleteInstruction || hasDosageWithFrequency || hasRouteInstruction else { return nil }
 
             var score = line.confidence * 100
             if startsWithDirection { score += 25 }

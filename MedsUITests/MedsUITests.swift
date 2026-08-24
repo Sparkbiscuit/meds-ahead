@@ -7,7 +7,12 @@ final class MedsUITests: XCTestCase {
 
     func testManualMedicationCriticalFlow() {
         let app = XCUIApplication()
-        app.launchArguments = ["-ui-testing", "-skip-onboarding"]
+        app.launchArguments = [
+            "-ui-testing",
+            "-skip-onboarding",
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryL"
+        ]
         app.launch()
 
         XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
@@ -21,6 +26,10 @@ final class MedsUITests: XCTestCase {
         name.typeText("Test Medication")
 
         let supply = app.textFields["current-supply"]
+        for _ in 0..<4 where !supply.exists {
+            app.swipeUp()
+        }
+        XCTAssertTrue(supply.waitForExistence(timeout: 3))
         supply.tap()
         supply.typeText("30")
 
@@ -44,7 +53,13 @@ final class MedsUITests: XCTestCase {
 
     func testTodayAccessibilityAudit() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-ui-testing", "-skip-onboarding", "-seed-demo-data"]
+        app.launchArguments = [
+            "-ui-testing",
+            "-skip-onboarding",
+            "-seed-demo-data",
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryL"
+        ]
         app.launch()
         XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
         try app.performAccessibilityAudit(for: [

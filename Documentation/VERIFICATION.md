@@ -1,6 +1,6 @@
 # Verification record
 
-Date: August 23, 2026
+Date: August 24, 2026
 
 Toolchain: Xcode 26.6, iOS 26.5 SDK
 
@@ -17,15 +17,37 @@ Reserved App Store name: `Meds Ahead: Supply Tracker` (Apple ID `6804540619`)
 - Unsigned arm64 archive and shallow store validation
 - Development signing with team `8G2SF9YU87`
 - App Store distribution export signed by `Apple Distribution: NICHOLAS GEORGE CHRISTOFORAKIS (8G2SF9YU87)`
-- Latest verified distribution artifact: `/private/tmp/MedsAhead-OCRFix-AppStore-Export-20260823/Meds.ipa`
-- SHA-256: `e7a049a2e3f2456cfbdb4be7162f65922e1320e0c7ddcda994729dce5064b228`
+- The August 23 distribution artifact is superseded by the August 24 scanner changes and must not be uploaded
 - Explicit store profile for `8G2SF9YU87.com.christoforakis.Meds`, with `get-task-allow = false`
 - Exported IPA passes strict code-signature verification, archive integrity testing, privacy-manifest lint, and non-exempt-encryption inspection
 - Installation and launch on a paired iPhone 16 Pro
-- 40 unit tests: forecasting, negative-ledger count correction, supply accounting, independent per-time schedules, schedule-identity reconciliation, daylight-saving timing boundaries, sample-derived and noisy-label scan parsing, low-confidence live-camera field extraction, direction-fragment rejection, common refill-label formats, printed-NDC fallback, notification planning and request compaction, duplicate-safe reminder-action logging, and notification tap routing
+- Unit coverage includes forecasting, supply accounting, scheduling, Latin-only stable multi-side scan evidence, ROI crop mapping, RxNorm-backed compound-fragment repair, noisy-label parsing, same-time reminder consolidation, notification-action logging, and tap routing
 - 6 UI tests: onboarding, manual medication critical flow, Today and medication-editor accessibility audits, largest accessibility text in the editor, and accessible overdue-dose state
+- Post-lifecycle-fix scanner-focused tests: 50/50 at `/private/tmp/Meds-Ahead-Scanner-Focused-20260824-0044.xcresult`
+- Post-lifecycle-fix full unit tests: 76/76 at `/private/tmp/Meds-Ahead-Full-Unit-20260824-0045.xcresult`
+- Post-lifecycle-fix UI tests: 6/6 at `/private/tmp/Meds-Ahead-UI-20260824-0046.xcresult`
+- Post-lifecycle-fix Release build and app-target static analysis succeeded at `/private/tmp/Meds-Ahead-Release-Build-20260824-0047` and `/private/tmp/Meds-Ahead-Release-Analyze-20260824-0048`
+- The exact signed Release device build at `/private/tmp/Meds-Ahead-Device-20260824-0049` installed on the paired iPhone 16 Pro; physical launch and live-continuation confirmation remain below because the phone locked before remote launch
+- Final camera-handoff and grouped-reminder focused tests: 20/20 at `/private/tmp/Meds-Ahead-Scanner-Grouped-20260824-0053.xcresult`
+- Final full unit tests: 79/79 at `/private/tmp/Meds-Ahead-Unit-20260824-0055.xcresult`
+- Final UI tests: 6/6 at `/private/tmp/Meds-Ahead-UI-20260824-0061.xcresult`
+- Final signed Release build succeeded at `/private/tmp/Meds-Ahead-Release-20260824-0062`; Release app-target static analysis also succeeded
+- The exact final signed Release app from `/private/tmp/Meds-Ahead-Release-20260824-0062/Build/Products/Release-iphoneos/Meds.app` passed strict code-signature verification, installed on the paired iPhone 16 Pro, and launched successfully
+- After removing automatic still capture and scanner recovery from the live session, the current scanner/parser/interpreter tests pass 43/43 at `/private/tmp/Meds-Ahead-Continuous-Scan-20260824-0065.xcresult`
+- The current signed Release device build succeeded at `/private/tmp/Meds-Ahead-Continuous-Device-20260824-0066`, installed on the paired iPhone 16 Pro, and launched successfully
+- Final post-form unit tests pass 79/79 at `/private/tmp/Meds-Ahead-Final-Unit-20260824-0067.xcresult`, including explicit greeting boundaries
+- Final post-form UI and accessibility tests pass 6/6 at `/private/tmp/Meds-Ahead-Final-UI-20260824-0069.xcresult`
+- Final signed Release build succeeded at `/private/tmp/Meds-Ahead-Final-Release-20260824-0070`; app-target Release analysis succeeded at `/private/tmp/Meds-Ahead-Final-App-Analyze-20260824-0072`
+- The final Release build installed and launched on the paired iPhone 16 Pro
+- The final IPA passes ZIP integrity, strict code-signature, privacy-manifest, export-compliance, and provisioning checks; it is signed by `Apple Distribution: NICHOLAS GEORGE CHRISTOFORAKIS (8G2SF9YU87)` with `get-task-allow = false`
+- Review fields retain compact persistent names, including a visible `Refills remaining` label when its value is zero
+- Optional tips use three consumable StoreKit products, remain hidden until Apple returns configured products, unlock no features, and finish verified transactions
+- After restoring the intended three tip amounts, the definitive archive compiled at `build/MedsAhead-1.0-Submission-Final.xcarchive`, installed and launched on iPhone 16 Pro, and exported to `build/AppStore-Submission-Final/Meds.ipa`; the IPA again passed signature, profile, privacy, encryption, and ZIP-integrity checks
+- The source and built privacy manifests pass `plutil` validation and declare the app-only UserDefaults reason `CA92.1` and elapsed-event system-boot-time reason `35F9.1`; no data collection or tracking is declared
+- Equal-time dose schedules now produce one slot-level notification such as `8:00 PM meds are ready`; grouped alerts route into Meds Ahead for review and intentionally omit one-tap dose actions
 - Physical-device critical-flow and automated accessibility-audit passes on iPhone 16 Pro
 - Raw live label recognition and refill-alert delivery confirmed on iPhone 16 Pro
+- Production replay of the later OTC and curved prescription photos returns Melatonin / 5 mg / 120 tablets and the complete amphetamine - dextroamphetamine generic name without invented directions
 - Light and dark appearance on 6.1-inch, 6.3-inch, and 6.9-inch simulators
 - Largest accessibility text size with adaptive Today and Supply layouts
 - Reduce Motion, Reduce Transparency, and Increase Contrast simulator review
@@ -37,8 +59,8 @@ Xcode's metadata processor emits `Metadata extraction skipped. No AppIntents.fra
 
 ## Account or hands-on gates
 
-- Confirm the corrected live scan populates the mandatory review fields on iPhone 16 Pro.
-- Upload the verified distribution build and complete App Store Connect's server-side validation.
+- Upload the final distribution build and complete App Store Connect server-side validation.
+- Create and submit the three optional consumable tip products with version 1.0, including their prices, availability, localization, and review screenshots.
 - Complete pricing, availability, EU DSA status, accessibility declarations, and review-contact fields.
 - Verify the `Taken` and `Skip` reminder actions from the locked iPhone and run a five-minute camera energy/thermal check.
 - Complete a hands-on VoiceOver order/rotor pass.

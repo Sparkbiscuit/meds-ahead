@@ -1,6 +1,6 @@
 # App Store Connect answer sheet
 
-Prepared for release 1.0 (build 1) on August 23, 2026. Values marked **Owner input** cannot be completed accurately without the account holder.
+Prepared for release 1.0 (build 1) on August 24, 2026. Owner-supplied release, availability, compliance, and review-contact decisions are recorded below.
 
 ## New app record
 
@@ -73,8 +73,21 @@ Meds Ahead relies only on encryption supplied by Apple operating-system services
 - Description and keywords: Use `AppStore/SUBMISSION.md`
 - Screenshots: Upload the three files in `AppStore/Screenshots/6.9-inch/` in numeric order
 - Export options: `AppStore/ExportOptions-AppStore.plist`
-- Verified local distribution artifact: `/private/tmp/MedsAhead-OCRFix-AppStore-Export-20260823/Meds.ipa`
-- Artifact SHA-256: `e7a049a2e3f2456cfbdb4be7162f65922e1320e0c7ddcda994729dce5064b228`
+- Distribution artifact: `build/AppStore-Submission-Final/Meds.ipa`, exported from `build/MedsAhead-1.0-Submission-Final.xcarchive` after the final scanner, compact-field-label, and three-tip passes. Do not upload any earlier export.
+
+## Optional tip products
+
+Meds Ahead uses Apple's permitted in-app-purchase tipping path. All three products are **Consumable**, non-recurring, and unlock nothing. Enter these case-sensitive product IDs exactly:
+
+| Reference name | Product ID | Suggested U.S. price | Customer-facing name |
+| --- | --- | ---: | --- |
+| Small Tip | `com.christoforakis.Meds.tip.small` | $1.99 | Small Tip |
+| Medium Tip | `com.christoforakis.Meds.tip.medium` | $4.99 | Medium Tip |
+| Large Tip | `com.christoforakis.Meds.tip.large` | $9.99 | Large Tip |
+
+For each product, add English (U.S.) localization, make it available in the same countries and regions as the app, set its price, and upload a review screenshot of Settings > Leave an Optional Tip. Suggested descriptions are respectively `A small thank-you for Meds Ahead.`, `A kind tip supporting continued development.`, and `A generous tip supporting continued development.`
+
+The Account Holder must accept the current Paid Apps Agreement and complete Apple's tax and banking setup. Product metadata can take up to one hour to appear in the sandbox. Add all three products to the version 1.0 review submission; Apple requires the first consumable purchase to be submitted with a new app version.
 
 ## Accessibility declarations
 
@@ -93,19 +106,27 @@ Do not declare captions, audio descriptions, voice control, or switch control wi
 
 - Sign-in required: No
 - Demo account: Not applicable
-- Contact first name, last name, phone, and email: **Owner input**
+- Contact first name: `Nicholas`
+- Contact last name: `Christoforakis`
+- Contact phone: on file with the account holder; not recorded in this repository
+- Contact email: `nick@christoforakis.com`
+- Authorization: The owner explicitly authorized use of these details for App Review on August 23, 2026
 - Review attachment: None required
 - Review notes: Use the review notes in `AppStore/SUBMISSION.md`
 
 Suggested review route: complete onboarding, choose Add, select Enter Manually, create a medication with a current count and schedule, then open Supply. On a supported physical iPhone, Add > Scan Label exercises on-device text and barcode recognition. Every recognized field is editable before save.
 
+If the tip products are included, add: `Settings contains three optional, non-recurring StoreKit tip amounts. They do not unlock features; Meds Ahead remains fully functional for free.`
+
 ## Availability and compliance decisions
 
-- Initial countries or regions: **Owner input**
-- EU Digital Services Act trader status: **Owner input**
+- Price: Free
+- Initial countries or regions: All countries and regions available in App Store Connect
+- EU Digital Services Act trader status: Non-trader, per the owner's direction; do not publish trader contact details in the EU
 - App Review release: Recommended `Manually release this version`
 - Pre-order: No
-- App Clips, Game Center, in-app purchases, subscriptions: None
+- App Clips, Game Center, subscriptions: None
+- In-app purchases: Three optional consumable tip amounts, submitted with version 1.0
 
 ## Current official references
 
@@ -113,3 +134,5 @@ Suggested review route: complete onboarding, choose Add, select Enter Manually, 
 - [Age rating categories and values](https://developer.apple.com/help/app-store-connect/reference/app-information/age-ratings-values-and-definitions)
 - [App information fields](https://developer.apple.com/help/app-store-connect/reference/app-information/app-information)
 - [Export compliance overview](https://developer.apple.com/help/app-store-connect/manage-app-information/overview-of-export-compliance)
+- [Create consumable In-App Purchases](https://developer.apple.com/help/app-store-connect/manage-in-app-purchases/create-consumable-or-non-consumable-in-app-purchases/)
+- [Submit an In-App Purchase](https://developer.apple.com/help/app-store-connect/manage-submissions-to-app-review/submit-an-in-app-purchase/)

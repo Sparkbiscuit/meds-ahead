@@ -83,15 +83,13 @@ struct RootView: View {
                 try? DemoData.seed(in: modelContext)
             }
 #endif
-            for medication in medications {
-                let plan = NotificationPlanBuilder.make(
-                    medication: medication,
-                    schedules: schedules,
-                    inventoryEvents: inventoryEvents,
-                    doseEvents: doseEvents
-                )
-                await NotificationService.shared.replaceNotifications(for: plan)
-            }
+            let plans = NotificationPlanBuilder.makeAll(
+                medications: medications,
+                schedules: schedules,
+                inventoryEvents: inventoryEvents,
+                doseEvents: doseEvents
+            )
+            await NotificationService.shared.replaceAllNotifications(for: plans)
         }
     }
 

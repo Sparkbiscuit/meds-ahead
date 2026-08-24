@@ -15,6 +15,62 @@ final class NotificationPlannerTests: XCTestCase {
         XCTAssertEqual(notifications.count, 1)
         XCTAssertTrue(notifications.allSatisfy { $0.kind == .dose })
         XCTAssertEqual(notifications.first?.trigger, .daily(hour: 8, minute: 30))
+        XCTAssertEqual(notifications.first?.groupedDoseCount, 1)
+        XCTAssertEqual(notifications.first?.supportsDoseQuickActions, true)
+    }
+
+    func testSameTimeDailyMedicationsAreConsolidatedIntoOneReminder() throws {
+        let first = makePlan(
+            medicationID: UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")!,
+            scheduleID: UUID(uuidString: "11111111-2222-3333-4444-555555555555")!,
+            displayName: "Morning One",
+            refillRemindersEnabled: false
+        )
+        let second = makePlan(
+            medicationID: UUID(uuidString: "BBBBBBBB-CCCC-DDDD-EEEE-FFFFFFFFFFFF")!,
+            scheduleID: UUID(uuidString: "22222222-3333-4444-5555-666666666666")!,
+            displayName: "Morning Two",
+            refillRemindersEnabled: false
+        )
+
+        let doses = NotificationPlanner.notifications(for: [first, second], calendar: calendar)
+            .filter { $0.kind == .dose }
+        let reminder = try XCTUnwrap(doses.first)
+
+        XCTAssertEqual(doses.count, 1)
+        XCTAssertEqual(reminder.trigger, .daily(hour: 8, minute: 30))
+        XCTAssertEqual(reminder.groupedDoseCount, 2)
+        XCTAssertFalse(reminder.supportsDoseQuickActions)
+        XCTAssertNil(reminder.medicationID)
+        XCTAssertNil(reminder.scheduleID)
+        XCTAssertTrue(reminder.title.lowercased().contains("meds are ready"))
+    }
+
+    func testMixedDailyAndWeekdaySchedulesStillProduceOnlyOneReminderPerSlot() throws {
+        let daily = makePlan(
+            medicationID: UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")!,
+            scheduleID: UUID(uuidString: "11111111-2222-3333-4444-555555555555")!,
+            displayName: "Daily",
+            refillRemindersEnabled: false
+        )
+        let monday = makePlan(
+            medicationID: UUID(uuidString: "BBBBBBBB-CCCC-DDDD-EEEE-FFFFFFFFFFFF")!,
+            scheduleID: UUID(uuidString: "22222222-3333-4444-5555-666666666666")!,
+            displayName: "Monday",
+            refillRemindersEnabled: false,
+            weekdayMask: 1 << 1
+        )
+
+        let doses = NotificationPlanner.notifications(for: [daily, monday], calendar: calendar)
+            .filter { $0.kind == .dose }
+        let mondayReminder = try XCTUnwrap(
+            doses.first { $0.trigger == .weekly(weekday: 2, hour: 8, minute: 30) }
+        )
+
+        XCTAssertEqual(doses.count, 7)
+        XCTAssertEqual(Set(doses.map(\.trigger)).count, 7)
+        XCTAssertEqual(mondayReminder.groupedDoseCount, 2)
+        XCTAssertFalse(mondayReminder.supportsDoseQuickActions)
     }
 
     func testSelectedWeekdaysUseOneNotificationPerSelectedDay() {
@@ -80,6 +136,8 @@ final class NotificationPlannerTests: XCTestCase {
     }
 
     private func makePlan(
+        medicationID: UUID = UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")!,
+        scheduleID: UUID = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!,
         displayName: String = "Example",
         isArchived: Bool = false,
         doseRemindersEnabled: Bool = true,
@@ -90,7 +148,7 @@ final class NotificationPlannerTests: XCTestCase {
         weekdayMask: Int = 0b1111111
     ) -> MedicationNotificationPlan {
         MedicationNotificationPlan(
-            medicationID: UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")!,
+            medicationID: medicationID,
             displayName: displayName,
             unitName: "tablet",
             isAsNeeded: false,
@@ -102,7 +160,7 @@ final class NotificationPlannerTests: XCTestCase {
             depletionDate: depletionDate,
             schedules: [
                 ScheduleNotificationPlan(
-                    id: UUID(uuidString: "11111111-2222-3333-4444-555555555555")!,
+                    id: scheduleID,
                     minutesAfterMidnight: 8 * 60 + 30,
                     doseQuantity: 1,
                     weekdayMask: weekdayMask

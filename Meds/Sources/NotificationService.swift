@@ -4,18 +4,17 @@ import UserNotifications
 actor NotificationService {
     static let shared = NotificationService()
 
-    func replaceNotifications(
-        for plan: MedicationNotificationPlan,
+    func replaceAllNotifications(
+        for plans: [MedicationNotificationPlan],
         requestAuthorization: Bool = false
     ) async {
         let center = UNUserNotificationCenter.current()
-        let planned = NotificationPlanner.notifications(for: plan)
+        let planned = NotificationPlanner.notifications(for: plans)
         let plannedIdentifiers = Set(planned.map(\.identifier))
-        let prefix = identifierPrefix(for: plan.medicationID)
         let pending = await center.pendingNotificationRequests()
         let delivered = await center.deliveredNotifications()
-        let managedPending = pending.map(\.identifier).filter { $0.hasPrefix(prefix) }
-        let managedDelivered = delivered.map { $0.request.identifier }.filter { $0.hasPrefix(prefix) }
+        let managedPending = pending.map(\.identifier).filter { $0.hasPrefix("meds.") }
+        let managedDelivered = delivered.map { $0.request.identifier }.filter { $0.hasPrefix("meds.") }
         center.removePendingNotificationRequests(
             withIdentifiers: managedPending.filter { !plannedIdentifiers.contains($0) }
         )
@@ -42,13 +41,16 @@ actor NotificationService {
             content.title = item.title
             content.body = item.body
             content.sound = .default
-            var userInfo = ["medicationID": item.medicationID.uuidString]
+            var userInfo: [String: String] = [:]
+            if let medicationID = item.medicationID {
+                userInfo["medicationID"] = medicationID.uuidString
+            }
             if let scheduleID = item.scheduleID {
                 userInfo["scheduleID"] = scheduleID.uuidString
             }
             userInfo["notificationKind"] = item.kind == .dose ? "dose" : "refill"
             content.userInfo = userInfo
-            if item.kind == .dose {
+            if item.supportsDoseQuickActions {
                 content.categoryIdentifier = MedicationNotificationAction.doseCategoryIdentifier
             }
 
@@ -80,22 +82,5 @@ actor NotificationService {
             }
             try? await center.add(UNNotificationRequest(identifier: item.identifier, content: content, trigger: trigger))
         }
-    }
-
-    func removeNotifications(for medicationID: UUID) async {
-        let center = UNUserNotificationCenter.current()
-        let prefix = identifierPrefix(for: medicationID)
-        let pending = await center.pendingNotificationRequests()
-        let delivered = await center.deliveredNotifications()
-        center.removePendingNotificationRequests(
-            withIdentifiers: pending.map(\.identifier).filter { $0.hasPrefix(prefix) }
-        )
-        center.removeDeliveredNotifications(
-            withIdentifiers: delivered.map { $0.request.identifier }.filter { $0.hasPrefix(prefix) }
-        )
-    }
-
-    private func identifierPrefix(for medicationID: UUID) -> String {
-        "meds.\(medicationID.uuidString)."
     }
 }

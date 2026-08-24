@@ -310,23 +310,48 @@ struct ScanEvidence: Identifiable, Hashable {
         case barcode
     }
 
+    enum Origin: String, Hashable {
+        case unknown
+        case liveCamera
+        case cameraCapture
+        case photoLibrary
+
+        var displayName: String {
+            switch self {
+            case .unknown: "Recognized"
+            case .liveCamera: "Live label"
+            case .cameraCapture: "Captured label"
+            case .photoLibrary: "Selected photo"
+            }
+        }
+    }
+
     let id: UUID
     let kind: Kind
     let value: String
     let symbology: String?
     let confidence: Double
+    let origin: Origin
+    let captureID: UUID?
+    let lineIndex: Int?
 
     init(
         id: UUID = UUID(),
         kind: Kind,
         value: String,
         symbology: String? = nil,
-        confidence: Double = 1
+        confidence: Double = 1,
+        origin: Origin = .unknown,
+        captureID: UUID? = nil,
+        lineIndex: Int? = nil
     ) {
         self.id = id
         self.kind = kind
         self.value = value
         self.symbology = symbology
         self.confidence = confidence
+        self.origin = origin
+        self.captureID = captureID
+        self.lineIndex = lineIndex
     }
 }

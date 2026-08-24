@@ -1,3 +1,4 @@
+import StoreKit
 import SwiftUI
 import UIKit
 import UserNotifications
@@ -9,6 +10,8 @@ struct SettingsView: View {
     @State private var notificationStatus = "Checking…"
     @State private var showingSafety = false
     @State private var showingPrivacy = false
+    @State private var showingTips = false
+    @State private var tipProducts: [Product] = []
 
     var body: some View {
         List {
@@ -21,6 +24,20 @@ struct SettingsView: View {
                 Text("Reminders")
             } footer: {
                 Text("Meds Ahead uses local notifications. Delivery also depends on your iPhone notification and Focus settings.")
+            }
+
+            if !tipProducts.isEmpty {
+                Section {
+                    Button {
+                        showingTips = true
+                    } label: {
+                        Label("Leave an Optional Tip", systemImage: "heart.fill")
+                    }
+                } header: {
+                    Text("Support Meds Ahead")
+                } footer: {
+                    Text("Meds Ahead is fully functional and free for everyone. Tips support continued improvements and never unlock features.")
+                }
             }
 
             Section("About") {
@@ -45,7 +62,11 @@ struct SettingsView: View {
                 Button("Done") { dismiss() }
             }
         }
-        .task { await refreshNotificationStatus() }
+        .task {
+            async let notificationRefresh: Void = refreshNotificationStatus()
+            async let productRefresh: Void = refreshTipProducts()
+            _ = await (notificationRefresh, productRefresh)
+        }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             Task { await refreshNotificationStatus() }
@@ -68,9 +89,13 @@ struct SettingsView: View {
                 paragraphs: [
                     "Meds Ahead records information you enter or confirm. It does not prescribe, diagnose, recommend a dose, or decide when a pharmacy can fill a prescription.",
                     "Always follow the current prescription label and instructions from your clinician or pharmacist.",
-                    "Forecasts depend on the counts, schedules, and logs you provide. When information is missing, Meds Ahead shows uncertainty instead of inventing precision."
+                    "Forecasts depend on the counts, schedules, and logs you provide. When information is missing, Meds Ahead shows uncertainty instead of inventing precision.",
+                    "This product uses publicly available data courtesy of the U.S. National Library of Medicine (NLM), National Institutes of Health, Department of Health and Human Services; NLM is not responsible for the product and does not endorse or recommend this or any other product."
                 ]
             )
+        }
+        .sheet(isPresented: $showingTips) {
+            TipJarView(products: tipProducts)
         }
     }
 
@@ -101,6 +126,114 @@ struct SettingsView: View {
         case .denied: "Off"
         case .notDetermined: "Not requested"
         @unknown default: "Unknown"
+        }
+    }
+
+    @MainActor
+    private func refreshTipProducts() async {
+        tipProducts = await TipStore.availableProducts()
+    }
+}
+
+private struct TipJarView: View {
+    let products: [Product]
+    @Environment(\.dismiss) private var dismiss
+    @State private var purchasingProductID: String?
+    @State private var resultMessage: String?
+    @State private var purchaseFailed = false
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 20) {
+                    Image(systemName: resultMessage == nil ? "heart.circle.fill" : "checkmark.circle.fill")
+                        .font(.system(size: 54, weight: .medium))
+                        .foregroundStyle(AppTheme.accent)
+                        .contentTransition(.symbolEffect(.replace))
+                        .accessibilityHidden(true)
+
+                    VStack(spacing: 8) {
+                        Text(resultMessage == nil ? "Support Meds Ahead" : (purchaseFailed ? "Tip Unavailable" : "Thank You"))
+                            .font(.system(.title2, design: .rounded, weight: .bold))
+                        Text(resultMessage ?? "If Meds Ahead makes medication management a little easier, you can leave an optional tip toward its continued development.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    if resultMessage == nil {
+                        VStack(spacing: 10) {
+                            ForEach(products, id: \.id) { product in
+                                Button {
+                                    Task { await purchase(product) }
+                                } label: {
+                                    HStack {
+                                        Text(TipStore.displayNames[product.id] ?? product.displayName)
+                                        Spacer()
+                                        if purchasingProductID == product.id {
+                                            ProgressView()
+                                        } else {
+                                            Text(product.displayPrice)
+                                                .fontWeight(.semibold)
+                                        }
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .controlSize(.large)
+                                .disabled(purchasingProductID != nil)
+                            }
+                        }
+                    }
+
+                    Text("Tips are processed by Apple, are not recurring, and do not unlock app features.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(24)
+            }
+            .navigationTitle("Optional Tip")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    @MainActor
+    private func purchase(_ product: Product) async {
+        purchasingProductID = product.id
+        defer { purchasingProductID = nil }
+
+        do {
+            switch try await product.purchase() {
+            case .success(let verification):
+                guard case .verified(let transaction) = verification else {
+                    purchaseFailed = true
+                    resultMessage = "Apple could not verify this purchase. You were not credited with a completed tip."
+                    return
+                }
+                await transaction.finish()
+                purchaseFailed = false
+                resultMessage = "Your support helps keep Meds Ahead thoughtful, private, and improving."
+            case .pending:
+                purchaseFailed = false
+                resultMessage = "Apple is still processing this tip. It will finish automatically after approval."
+            case .userCancelled:
+                break
+            @unknown default:
+                purchaseFailed = true
+                resultMessage = "The tip could not be completed right now. Please try again later."
+            }
+        } catch {
+            purchaseFailed = true
+            resultMessage = "The tip could not be completed right now. Please try again later."
         }
     }
 }

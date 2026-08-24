@@ -18,9 +18,10 @@ Meds Ahead V1 is an iPhone-only, offline-first application with:
 - Reversible inventory adjustments and refill additions
 - Forecasted depletion dates with explicit uncertainty
 - Configurable low-supply lead times
-- Local notifications with privacy-safe `Taken` and `Skip` dose actions and refill-to-Supply routing
+- Consolidated time-slot notifications for simultaneous medications, privacy-safe `Taken` and `Skip` actions for single-dose alerts, and refill-to-Supply routing
 - Full edit, archive, and delete controls
 - Dynamic Type, VoiceOver, Reduce Motion, Reduce Transparency, dark mode, and high-contrast support
+- Optional, non-recurring StoreKit tips that unlock no features
 
 ## Safety boundary
 

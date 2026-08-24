@@ -3,6 +3,7 @@ import SwiftUI
 
 struct MedicationDetailView: View {
     @Bindable var medication: Medication
+    @Query private var allMedications: [Medication]
     @Query private var allSchedules: [DoseSchedule]
     @Query private var allDoseEvents: [DoseEvent]
     @Query private var allInventoryEvents: [InventoryEvent]
@@ -372,12 +373,22 @@ struct MedicationDetailView: View {
 
     private func deleteMedication() {
         let medicationID = medication.id
+        let remainingMedications = allMedications.filter { $0.id != medicationID }
+        let remainingSchedules = allSchedules.filter { $0.medicationID != medicationID }
+        let remainingDoseEvents = allDoseEvents.filter { $0.medicationID != medicationID }
+        let remainingInventoryEvents = allInventoryEvents.filter { $0.medicationID != medicationID }
         allSchedules.filter { $0.medicationID == medicationID }.forEach(modelContext.delete)
         allDoseEvents.filter { $0.medicationID == medicationID }.forEach(modelContext.delete)
         allInventoryEvents.filter { $0.medicationID == medicationID }.forEach(modelContext.delete)
         modelContext.delete(medication)
         if saveChanges() {
-            Task { await NotificationService.shared.removeNotifications(for: medicationID) }
+            let plans = NotificationPlanBuilder.makeAll(
+                medications: remainingMedications,
+                schedules: remainingSchedules,
+                inventoryEvents: remainingInventoryEvents,
+                doseEvents: remainingDoseEvents
+            )
+            Task { await NotificationService.shared.replaceAllNotifications(for: plans) }
             dismiss()
         }
     }
@@ -409,13 +420,13 @@ struct MedicationDetailView: View {
         inventoryEvents: [InventoryEvent]? = nil,
         doseEvents: [DoseEvent]? = nil
     ) {
-        let plan = NotificationPlanBuilder.make(
-            medication: medication,
+        let plans = NotificationPlanBuilder.makeAll(
+            medications: allMedications,
             schedules: allSchedules,
             inventoryEvents: inventoryEvents ?? allInventoryEvents,
             doseEvents: doseEvents ?? allDoseEvents
         )
-        Task { await NotificationService.shared.replaceNotifications(for: plan) }
+        Task { await NotificationService.shared.replaceAllNotifications(for: plans) }
     }
 
     private func timeText(minutes: Int) -> String {
