@@ -246,16 +246,6 @@ enum ScanParser {
         return markers.contains(preceding)
     }
 
-    private static func nameScore(_ line: TextLine) -> Double {
-        let words = line.value.split(whereSeparator: \Character.isWhitespace)
-        let hasDigit = line.value.rangeOfCharacter(from: .decimalDigits) != nil
-        var score = line.confidence * 100
-        if (1...4).contains(words.count) { score += 12 }
-        if !hasDigit { score += 8 }
-        score -= Double(line.order) * 0.05
-        return score
-    }
-
     private static func isPlausibleName(_ value: String, stopWords: [String]) -> Bool {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count >= 3,

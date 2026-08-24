@@ -11,7 +11,15 @@ struct SettingsView: View {
     @State private var showingSafety = false
     @State private var showingPrivacy = false
     @State private var showingTips = false
-    @State private var tipProducts: [Product] = []
+    @State private var tipAvailability: TipAvailability = .loading
+
+    /// App Review must always be able to find the in-app purchases, so the tip row
+    /// is present in every state rather than appearing only once StoreKit answers.
+    private enum TipAvailability {
+        case loading
+        case available([Product])
+        case unavailable
+    }
 
     var body: some View {
         List {
@@ -26,18 +34,41 @@ struct SettingsView: View {
                 Text("Meds Ahead uses local notifications. Delivery also depends on your iPhone notification and Focus settings.")
             }
 
-            if !tipProducts.isEmpty {
-                Section {
+            Section {
+                switch tipAvailability {
+                case .loading:
+                    HStack {
+                        Label("Leave an Optional Tip", systemImage: "heart.fill")
+                        Spacer()
+                        ProgressView()
+                    }
+                    .foregroundStyle(.secondary)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Leave an optional tip, loading")
+                case let .available(products):
                     Button {
                         showingTips = true
                     } label: {
                         Label("Leave an Optional Tip", systemImage: "heart.fill")
                     }
-                } header: {
-                    Text("Support Meds Ahead")
-                } footer: {
-                    Text("Meds Ahead is fully functional and free for everyone. Tips support continued improvements and never unlock features.")
+                    .disabled(products.isEmpty)
+                case .unavailable:
+                    VStack(alignment: .leading, spacing: 5) {
+                        Label("Tips Are Unavailable", systemImage: "heart.slash")
+                        Text("The App Store did not return the tip options on this device.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.vertical, 2)
+                    Button("Try Again") {
+                        Task { await refreshTipProducts() }
+                    }
                 }
+            } header: {
+                Text("Support Meds Ahead")
+            } footer: {
+                Text("Meds Ahead is fully functional and free for everyone. Tips support continued improvements and never unlock features.")
             }
 
             Section("About") {
@@ -76,7 +107,8 @@ struct SettingsView: View {
                 title: "Private by Design",
                 symbol: "lock.shield.fill",
                 paragraphs: [
-                    "Medication records stay in the protected local app container. Meds Ahead has no account, advertising, analytics, or cloud medication service.",
+                    "Medication records stay in the protected local app container, readable only after you unlock this iPhone. Meds Ahead has no account, advertising, analytics, or cloud medication service.",
+                    "Your records are included in your own encrypted device and iCloud backups, so the history you build survives restoring or replacing an iPhone.",
                     "Label photos are processed on device and are not retained. Pharmacy links found in codes are never opened automatically.",
                     "Deleting a medication removes its schedule, inventory ledger, and dose history from this iPhone."
                 ]
@@ -95,7 +127,9 @@ struct SettingsView: View {
             )
         }
         .sheet(isPresented: $showingTips) {
-            TipJarView(products: tipProducts)
+            if case let .available(products) = tipAvailability {
+                TipJarView(products: products)
+            }
         }
     }
 
@@ -131,7 +165,9 @@ struct SettingsView: View {
 
     @MainActor
     private func refreshTipProducts() async {
-        tipProducts = await TipStore.availableProducts()
+        tipAvailability = .loading
+        let products = await TipStore.availableProducts()
+        tipAvailability = products.isEmpty ? .unavailable : .available(products)
     }
 }
 

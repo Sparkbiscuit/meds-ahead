@@ -10,7 +10,7 @@ Notifications are scheduled by iOS on your device. Detailed notification text is
 
 Optional tips are processed by Apple through StoreKit. Meds Ahead does not receive or store payment-card information, and a tip does not transmit medication information.
 
-Meds Ahead configures its local medication database not to be included in device backups.
+Your medication records are included in your encrypted device and iCloud backups, so a medication history you built by hand survives replacing or restoring an iPhone. The database is stored with iOS file protection and is readable only after you unlock the device. Meds Ahead never sends it anywhere; a backup goes to Apple under your own Apple Account and its own terms, not to Meds Ahead.
 
 You can delete individual dose logs or delete a medication and its associated local history in the app. Deleting the app removes its local data according to iOS behavior.
 

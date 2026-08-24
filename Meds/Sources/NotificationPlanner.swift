@@ -30,7 +30,6 @@ enum PlannedNotificationTrigger: Equatable, Hashable, Sendable {
     case daily(hour: Int, minute: Int)
     case weekly(weekday: Int, hour: Int, minute: Int)
     case date(Date)
-    case interval(TimeInterval)
 }
 
 struct PlannedNotification: Equatable, Sendable {
@@ -141,9 +140,11 @@ enum NotificationPlanner {
             let reminderDate = calendar.date(bySettingHour: 9, minute: 0, second: 0, of: leadDay) ?? leadDay
             let dateCode = depletionDay.formatted(.dateTime.year().month(.twoDigits).day(.twoDigits).locale(Locale(identifier: "en_US_POSIX")))
                 .filter(\.isNumber)
-            let trigger: PlannedNotificationTrigger = reminderDate > now.addingTimeInterval(2)
-                ? .date(reminderDate)
-                : .interval(3)
+            // A lead moment that has already passed is never re-announced. Plans are
+            // rebuilt whenever the app is open, so an immediate alert would only ever
+            // interrupt someone already looking at the low-supply state on Today and
+            // Supply, and would fire again on every launch once it was dismissed.
+            guard reminderDate > now else { continue }
             notifications.append(
                 PlannedNotification(
                     identifier: "meds.\(plan.medicationID.uuidString).refill.\(dateCode)",
@@ -152,7 +153,7 @@ enum NotificationPlanner {
                     body: plan.detailedNotifications
                         ? "Your confirmed supply may run out around \(depletionDay.formatted(date: .abbreviated, time: .omitted))."
                         : "Open Meds Ahead to review a medication that may be running low.",
-                    trigger: trigger,
+                    trigger: .date(reminderDate),
                     medicationID: plan.medicationID,
                     scheduleID: nil,
                     groupedDoseCount: 0

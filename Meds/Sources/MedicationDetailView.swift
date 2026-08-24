@@ -295,7 +295,8 @@ struct MedicationDetailView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(activity.prefix(8)) { item in
+                let recent = Array(activity.prefix(8))
+                ForEach(recent) { item in
                     HStack(alignment: .top, spacing: 11) {
                         Image(systemName: item.symbol)
                             .foregroundStyle(item.color)
@@ -320,7 +321,7 @@ struct MedicationDetailView: View {
                             .accessibilityLabel("Actions for \(item.title)")
                         }
                     }
-                    if item.id != activity.prefix(8).last?.id { Divider() }
+                    if item.id != recent.last?.id { Divider() }
                 }
             }
         }

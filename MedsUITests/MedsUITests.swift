@@ -126,6 +126,35 @@ final class MedsUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Saturday"].exists)
     }
 
+    /// The tip entry point must never vanish. When StoreKit returns nothing — the
+    /// usual situation in the simulator and a common sandbox hiccup during review —
+    /// the row has to stay put and say so, or App Review reports that it could not
+    /// locate the in-app purchases.
+    func testTipEntryPointIsAlwaysPresentInSettings() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-skip-onboarding"]
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+        app.buttons["Settings"].tap()
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
+
+        XCTAssertTrue(
+            app.staticTexts["Support Meds Ahead"].waitForExistence(timeout: 5),
+            "the tip section header is missing entirely"
+        )
+
+        // Exactly one of the three states must be on screen, never none of them.
+        let offer = app.buttons["Leave an Optional Tip"]
+        let loading = app.staticTexts["Leave an Optional Tip"]
+        let unavailable = app.staticTexts["Tips Are Unavailable"]
+
+        let resolved = offer.waitForExistence(timeout: 8)
+            || unavailable.waitForExistence(timeout: 8)
+            || loading.exists
+        XCTAssertTrue(resolved, "no tip row of any kind was shown in Settings")
+    }
+
     func testOverdueDoseStateIsVisibleAndAccessible() {
         let app = XCUIApplication()
         app.launchArguments = [

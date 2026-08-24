@@ -8,7 +8,11 @@ struct MedsApp: App {
     private let modelContainer: ModelContainer?
 
     init() {
-        if var applicationSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+        // Medication history is entered by hand and cannot be recreated, so the
+        // store stays eligible for encrypted device and iCloud backup. It is
+        // protected at rest instead, which is what keeps it private on a locked
+        // or lost iPhone.
+        if let applicationSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
             let protection = FileProtectionType.completeUntilFirstUserAuthentication
             try? FileManager.default.createDirectory(at: applicationSupport, withIntermediateDirectories: true)
             try? FileManager.default.setAttributes(
@@ -26,9 +30,6 @@ struct MedsApp: App {
                     )
                 }
             }
-            var values = URLResourceValues()
-            values.isExcludedFromBackup = true
-            try? applicationSupport.setResourceValues(values)
         }
         let schema = Schema([
             Medication.self,
@@ -36,10 +37,15 @@ struct MedsApp: App {
             DoseEvent.self,
             InventoryEvent.self
         ])
+#if DEBUG
+        let isUITesting = ProcessInfo.processInfo.arguments.contains("-ui-testing")
+#else
+        let isUITesting = false
+#endif
         let configuration = ModelConfiguration(
             "Meds",
             schema: schema,
-            isStoredInMemoryOnly: ProcessInfo.processInfo.arguments.contains("-ui-testing"),
+            isStoredInMemoryOnly: isUITesting,
             cloudKitDatabase: .none
         )
         do {
@@ -83,7 +89,11 @@ private struct AppEntryView: View {
     @State private var completedForcedOnboarding = false
 
     var body: some View {
+#if DEBUG
         let arguments = ProcessInfo.processInfo.arguments
+#else
+        let arguments: [String] = []
+#endif
         let shouldForceOnboarding = arguments.contains("-show-onboarding") && !completedForcedOnboarding
         Group {
             if !shouldForceOnboarding && (hasCompletedOnboarding || arguments.contains("-skip-onboarding")) {

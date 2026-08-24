@@ -52,6 +52,36 @@ enum LabelTextPolicy {
     }
 }
 
+/// The handful of facts the live scanner overlay shows while the camera is up.
+///
+/// Deriving these runs the whole parse pipeline, including a match against the
+/// bundled 12,865-entry vocabulary, so it must never be computed inside a
+/// SwiftUI body. `ScannerScreen` recomputes it off the main actor, debounced,
+/// and stores the result.
+struct ScanPreview: Equatable, Sendable {
+    var medicationName = ""
+    var hasStrength = false
+    var hasQuantity = false
+    var hasProductIdentifier = false
+
+    var hasUsefulProgress: Bool {
+        !medicationName.isEmpty || hasStrength || hasQuantity || hasProductIdentifier
+    }
+
+    /// One pass over the pipeline. `offlineDraft` already begins from a full
+    /// `ScanParser.parse`, so every field here comes from that single run.
+    static func make(from evidence: [ScanEvidence]) -> ScanPreview {
+        guard !evidence.isEmpty else { return ScanPreview() }
+        let draft = MedicationLabelInterpreter.offlineDraft(evidence)
+        return ScanPreview(
+            medicationName: draft.name,
+            hasStrength: !draft.strength.isEmpty,
+            hasQuantity: draft.currentSupply != nil,
+            hasProductIdentifier: !draft.productIdentifier.isEmpty
+        )
+    }
+}
+
 struct LiveEvidenceObservation<ID: Hashable> {
     let id: ID
     let evidence: ScanEvidence

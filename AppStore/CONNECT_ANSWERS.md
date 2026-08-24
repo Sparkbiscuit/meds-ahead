@@ -32,6 +32,8 @@ Prepared for release 1.0 (build 1) on August 24, 2026. Owner-supplied release, a
 
 Medication records, label text, barcodes, schedules, dose logs, and inventory events remain on the iPhone. Photos are processed on device and are not retained by the app. Apple defines collection as transmitting data off-device in a way that remains accessible to the developer or partners; Meds Ahead performs no such transmission.
 
+The local database is included in the user's own encrypted device and iCloud backups. That is not collection: the backup is made by iOS under the user's Apple Account, and neither Meds Ahead nor its developer can read it. `Data Not Collected` remains the correct answer.
+
 ## Age rating
 
 Recommended questionnaire answers:
@@ -49,7 +51,16 @@ Recommended questionnaire answers:
 - Override to higher age rating: Not Applicable
 - Age suitability URL: Leave blank
 
-Rationale: Meds Ahead stores and organizes information entered or confirmed by the person using it. It does not supply diagnoses, treatment guidance, medication facts, dose recommendations, or wellness recommendations. Under Apple's current definitions, a medication organizer without app-provided medical guidance can accurately answer `None`; the expected global result is 4+. If a future release adds drug information, interaction checking, an AI medication assistant, or treatment guidance, this answer must be revisited.
+Rationale: Meds Ahead stores and organizes information entered or confirmed by the person using it. It does not diagnose, offer treatment guidance, recommend or modify a dose, state what a medication is for or does, check interactions, or make wellness recommendations. Every field it derives from a label is shown in an editable review screen and is stored only after the person confirms it. On that basis `None` is accurate for both questions, and the expected global result is 4+.
+
+Disclose accurately if App Review asks what the app knows about medications. Version 1.0 ships two things that are easy to mischaracterise, and neither supplies medical information:
+
+- A bundled list of roughly 12,900 medication *names* derived from RxNorm (`Meds/Resources/MedicationNames.txt`). It is used only to decide whether scanned text spells a real medication name, so a misread label cannot invent one. It carries no indications, dosing, warnings, or interactions — names only.
+- Apple's on-device `FoundationModels` system language model, used strictly to pick which recognised OCR line is the name, strength, directions, quantity, or refill count, and to repair an obvious OCR error in a name that the bundled vocabulary then has to confirm. It is never asked for, and cannot contribute, a medication fact of its own. If the model is unavailable the app falls back to deterministic parsing.
+
+Risk note: this is a Medical-category app whose subject matter is prescriptions, and the questionnaire is applied by Apple, not self-certified. Apple may still set Medical or Treatment Information to `Infrequent/Mild` and land the rating at 12+. That outcome is acceptable and is not worth arguing; do not overstate the app's capabilities to avoid it, and do not understate the two items above to secure 4+.
+
+Revisit this section if a release ever adds indications, dosing guidance, interaction checking, or a medication assistant that answers questions.
 
 ## Regulated medical device declaration
 
@@ -73,7 +84,7 @@ Meds Ahead relies only on encryption supplied by Apple operating-system services
 - Description and keywords: Use `AppStore/SUBMISSION.md`
 - Screenshots: Upload the three files in `AppStore/Screenshots/6.9-inch/` in numeric order
 - Export options: `AppStore/ExportOptions-AppStore.plist`
-- Distribution artifact: `build/AppStore-Submission-Final/Meds.ipa`, exported from `build/MedsAhead-1.0-Submission-Final.xcarchive` after the final scanner, compact-field-label, and three-tip passes. Do not upload any earlier export.
+- Distribution artifact: **re-archive before uploading.** Every existing export under `build/` predates the scanner-performance, refill-notification, backup, camera-permission, and tip-surface changes, and none of them should be uploaded. Archive fresh from the current commit and export with `AppStore/ExportOptions-AppStore.plist`.
 
 ## Optional tip products
 
@@ -85,7 +96,9 @@ Meds Ahead uses Apple's permitted in-app-purchase tipping path. All three produc
 | Medium Tip | `com.christoforakis.Meds.tip.medium` | $4.99 | Medium Tip |
 | Large Tip | `com.christoforakis.Meds.tip.large` | $9.99 | Large Tip |
 
-For each product, add English (U.S.) localization, make it available in the same countries and regions as the app, set its price, and upload a review screenshot of Settings > Leave an Optional Tip. Suggested descriptions are respectively `A small thank-you for Meds Ahead.`, `A kind tip supporting continued development.`, and `A generous tip supporting continued development.`
+For each product, add English (U.S.) localization, make it available in the same countries and regions as the app, set its price, and upload a review screenshot of Settings > Leave an Optional Tip.
+
+The tip row in Settings is always present, in all three states: a disabled row with a spinner while StoreKit answers, the working button once products load, and an explicit `Tips Are Unavailable` row with a `Try Again` button if StoreKit returns nothing. It is never hidden. This is deliberate: the most common rejection for a first consumable is Guideline 2.1, "we were unable to locate the in-app purchases," which happens when a sandbox hiccup makes the entry point disappear for the reviewer. Suggested descriptions are respectively `A small thank-you for Meds Ahead.`, `A kind tip supporting continued development.`, and `A generous tip supporting continued development.`
 
 The Account Holder must accept the current Paid Apps Agreement and complete Apple's tax and banking setup. Product metadata can take up to one hour to appear in the sandbox. Add all three products to the version 1.0 review submission; Apple requires the first consumable purchase to be submitted with a new app version.
 
@@ -113,6 +126,7 @@ Do not declare captions, audio descriptions, voice control, or switch control wi
 - Authorization: The owner explicitly authorized use of these details for App Review on August 23, 2026
 - Review attachment: None required
 - Review notes: Use the review notes in `AppStore/SUBMISSION.md`
+- Camera: denying the camera prompt is a supported path. The scanner shows an explanatory screen with an `Open Settings` button and photo import stays available, so the reviewer is never left on a blank camera view.
 
 Suggested review route: complete onboarding, choose Add, select Enter Manually, create a medication with a current count and schedule, then open Supply. On a supported physical iPhone, Add > Scan Label exercises on-device text and barcode recognition. Every recognized field is editable before save.
 

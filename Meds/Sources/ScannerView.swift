@@ -1,3 +1,4 @@
+import AVFoundation
 import PhotosUI
 import SwiftUI
 import UIKit
@@ -8,25 +9,25 @@ struct ScannerScreen: View {
     let onComplete: (MedicationDraft) -> Void
     @StateObject private var scannerController = LiveScannerController()
     @State private var evidence: [ScanEvidence] = []
+    @State private var preview = ScanPreview()
+    @State private var previewTask: Task<Void, Never>?
+    @State private var cameraAccess: CameraAccess = .resolving
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var isProcessingPhoto = false
     @State private var isInterpreting = false
     @State private var errorMessage: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var canUseLiveScanner: Bool {
-        DataScannerViewController.isSupported && DataScannerViewController.isAvailable
+    private enum CameraAccess: Equatable {
+        case resolving
+        case authorized
+        case denied
+        case unavailable
     }
 
-    private var previewDraft: MedicationDraft { ScanParser.parse(evidence) }
-    private var matchedMedicationName: String { MedicationLabelInterpreter.offlineDraft(evidence).name }
+    private var canUseLiveScanner: Bool { cameraAccess == .authorized }
 
-    private var hasUsefulProgress: Bool {
-        !matchedMedicationName.isEmpty
-            || !previewDraft.strength.isEmpty
-            || previewDraft.currentSupply != nil
-            || !previewDraft.productIdentifier.isEmpty
-    }
+    private var hasUsefulProgress: Bool { preview.hasUsefulProgress }
 
     private var canReview: Bool {
         (canUseLiveScanner || !evidence.isEmpty)
@@ -46,6 +47,11 @@ struct ScannerScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbarBackground(.hidden, for: .navigationBar)
+        .task { await resolveCameraAccess() }
+        .onChange(of: evidence) { _, newValue in
+            schedulePreviewUpdate(for: newValue)
+        }
+        .onDisappear { previewTask?.cancel() }
         .onChange(of: selectedPhoto) { _, item in
             guard let item else { return }
             processPhoto(item)
@@ -64,18 +70,7 @@ struct ScannerScreen: View {
                     .ignoresSafeArea(edges: .top)
             } else {
                 LinearGradient(colors: [.black, Color(red: 0.06, green: 0.11, blue: 0.14)], startPoint: .top, endPoint: .bottom)
-                VStack(spacing: 14) {
-                    Image(systemName: "camera.metering.unknown")
-                        .font(.system(size: 48))
-                    Text("Live scanning isn’t available here")
-                        .font(.title3.weight(.semibold))
-                    Text("Choose a clear photo of the label, or use live scanning on a supported iPhone.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 32)
-                }
-                .foregroundStyle(.white)
+                unavailableScannerMessage
             }
 
             RoundedRectangle(cornerRadius: 28, style: .continuous)
@@ -108,16 +103,16 @@ struct ScannerScreen: View {
     private var scanProgress: some View {
         if hasUsefulProgress {
             HStack(spacing: 7) {
-                if !matchedMedicationName.isEmpty {
+                if !preview.medicationName.isEmpty {
                     ScanProgressPill(title: "Name", systemImage: "pills.fill")
                 }
-                if !previewDraft.strength.isEmpty {
+                if preview.hasStrength {
                     ScanProgressPill(title: "Strength", systemImage: "checkmark")
                 }
-                if previewDraft.currentSupply != nil {
+                if preview.hasQuantity {
                     ScanProgressPill(title: "Quantity", systemImage: "number")
                 }
-                if !previewDraft.productIdentifier.isEmpty {
+                if preview.hasProductIdentifier {
                     ScanProgressPill(title: "Code", systemImage: "barcode")
                 }
             }
@@ -128,7 +123,7 @@ struct ScannerScreen: View {
     }
 
     private var scanGuidance: String {
-        if !matchedMedicationName.isEmpty { return "Name matched — rotate for strength, quantity, and refill details" }
+        if !preview.medicationName.isEmpty { return "Name matched — rotate for strength, quantity, and refill details" }
         if !evidence.isEmpty { return "Keep rotating until the full medication name is visible" }
         return "Keep the label inside the frame and slowly rotate the bottle"
     }
@@ -169,6 +164,91 @@ struct ScannerScreen: View {
         .padding(.top, 16)
         .padding(.bottom, 12)
         .background(.ultraThinMaterial)
+    }
+
+    @ViewBuilder
+    private var unavailableScannerMessage: some View {
+        if cameraAccess == .resolving {
+            // Nothing is known yet; claiming the camera is unavailable here would
+            // flash the wrong explanation on the way in.
+            ProgressView()
+                .tint(.white)
+                .controlSize(.large)
+        } else {
+            deniedOrUnsupportedMessage
+        }
+    }
+
+    private var deniedOrUnsupportedMessage: some View {
+        VStack(spacing: 14) {
+            Image(systemName: cameraAccess == .denied ? "lock.circle" : "camera.metering.unknown")
+                .font(.system(size: 48))
+            Text(cameraAccess == .denied ? "Camera access is off" : "Live scanning isn’t available here")
+                .font(.title3.weight(.semibold))
+                .multilineTextAlignment(.center)
+            Text(cameraAccess == .denied
+                 ? "Meds Ahead needs the camera to read a label. You can turn it on in Settings, or choose a clear photo of the label instead."
+                 : "Choose a clear photo of the label, or use live scanning on a supported iPhone.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 32)
+            if cameraAccess == .denied {
+                Button("Open Settings") {
+                    guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+                    UIApplication.shared.open(url)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+            }
+        }
+        .foregroundStyle(.white)
+    }
+
+    /// Resolved once, up front, so a refusal lands on an explanatory screen with a
+    /// route to Settings instead of a black frame behind "keep the label inside
+    /// the frame".
+    @MainActor
+    private func resolveCameraAccess() async {
+        guard cameraAccess == .resolving else { return }
+        guard DataScannerViewController.isSupported else {
+            cameraAccess = .unavailable
+            return
+        }
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            cameraAccess = DataScannerViewController.isAvailable ? .authorized : .unavailable
+        case .notDetermined:
+            let granted = await AVCaptureDevice.requestAccess(for: .video)
+            cameraAccess = granted
+                ? (DataScannerViewController.isAvailable ? .authorized : .unavailable)
+                : .denied
+        case .denied, .restricted:
+            cameraAccess = .denied
+        @unknown default:
+            cameraAccess = .unavailable
+        }
+    }
+
+    /// Recomputing the overlay facts costs a full pipeline run against the bundled
+    /// vocabulary, and live scanning republishes evidence continuously. Debounce,
+    /// run it off the main actor, and cancel any run the next update supersedes.
+    private func schedulePreviewUpdate(for evidence: [ScanEvidence]) {
+        previewTask?.cancel()
+        guard !evidence.isEmpty else {
+            preview = ScanPreview()
+            return
+        }
+        previewTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            let computed = await Task.detached(priority: .userInitiated) {
+                ScanPreview.make(from: evidence)
+            }.value
+            guard !Task.isCancelled else { return }
+            preview = computed
+        }
     }
 
     private func reviewScan() {
@@ -239,7 +319,9 @@ struct ScannerScreen: View {
     }
 
     private func clearScan() {
+        previewTask?.cancel()
         evidence.removeAll()
+        preview = ScanPreview()
         scannerController.resetTracking()
         scannerController.startScanning()
     }

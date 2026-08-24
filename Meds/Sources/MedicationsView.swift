@@ -17,7 +17,18 @@ struct MedicationsView: View {
     var body: some View {
         ZStack {
             CanvasBackground()
-            if filtered.isEmpty && searchText.isEmpty {
+            if filtered.isEmpty && !searchText.isEmpty {
+                ScrollView {
+                    EmptyStateCard(
+                        symbol: "magnifyingglass",
+                        title: "No matches",
+                        message: showsArchived
+                            ? "No archived medication matches “\(searchText)”."
+                            : "No medication matches “\(searchText)”. Check the spelling, or search an archived medication with the archive button."
+                    )
+                    .padding(16)
+                }
+            } else if filtered.isEmpty {
                 ScrollView {
                     EmptyStateCard(
                         symbol: showsArchived ? "archivebox" : "pills.fill",

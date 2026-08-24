@@ -383,7 +383,7 @@ struct MedicationEditorView: View {
                 directions: directions.trimmingCharacters(in: .whitespacesAndNewlines),
                 source: draftEvidence.isEmpty ? .manual : .scanned,
                 sourceConfidence: draftEvidence.isEmpty ? 1 : draftEvidence.map(\.confidence).reduce(0, +) / Double(max(1, draftEvidence.count)),
-                accentIndex: abs(cleanedName.hashValue) % AppTheme.medicationColors.count
+                accentIndex: AppTheme.accentIndex(for: cleanedName)
             )
             modelContext.insert(newMedication)
             target = newMedication
@@ -482,6 +482,14 @@ private struct WeekdayPicker: View {
     private let symbols = Calendar.current.veryShortWeekdaySymbols
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
+    /// `veryShortWeekdaySymbols` is always Sunday-first, and bit 0 of the mask is
+    /// Sunday to match `Calendar.component(.weekday)`. Only the display order
+    /// rotates, so a Monday-first locale reads correctly without touching storage.
+    private var displayOrder: [Int] {
+        let first = Calendar.current.firstWeekday - 1
+        return (0..<7).map { (first + $0) % 7 }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Days")
@@ -500,7 +508,7 @@ private struct WeekdayPicker: View {
 
     @ViewBuilder
     private var weekdayButtons: some View {
-        ForEach(symbols.indices, id: \.self) { index in
+        ForEach(displayOrder, id: \.self) { index in
             Button {
                 if mask & (1 << index) == 0 {
                     mask |= 1 << index
@@ -560,11 +568,18 @@ private struct ScheduleDoseQuantityField: View {
 struct AddMedicationFlow: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft = MedicationDraft()
-    @State private var showingScanner = false
-    @State private var showingEditor = false
+    @State private var path: [Step] = []
+
+    /// Scanner and review are pushed from one typed path. Declaring two separate
+    /// `navigationDestination(isPresented:)` modifiers on the same view left the
+    /// scan-to-review hand-off up to SwiftUI's disambiguation.
+    enum Step: Hashable {
+        case scanner
+        case editor
+    }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             ZStack {
                 CanvasBackground()
                 ScrollView {
@@ -585,7 +600,7 @@ struct AddMedicationFlow: View {
                         .padding(.vertical, 18)
 
                         Button {
-                            showingScanner = true
+                            path.append(.scanner)
                         } label: {
                             AddOptionCard(
                                 symbol: "camera.viewfinder",
@@ -599,7 +614,7 @@ struct AddMedicationFlow: View {
 
                         Button {
                             draft = MedicationDraft()
-                            showingEditor = true
+                            path.append(.editor)
                         } label: {
                             AddOptionCard(
                                 symbol: "square.and.pencil",
@@ -617,14 +632,16 @@ struct AddMedicationFlow: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
             }
-            .navigationDestination(isPresented: $showingScanner) {
-                ScannerScreen { scannedDraft in
-                    draft = scannedDraft
-                    showingEditor = true
+            .navigationDestination(for: Step.self) { step in
+                switch step {
+                case .scanner:
+                    ScannerScreen { scannedDraft in
+                        draft = scannedDraft
+                        path.append(.editor)
+                    }
+                case .editor:
+                    MedicationEditorView(draft: draft, onSaved: { dismiss() })
                 }
-            }
-            .navigationDestination(isPresented: $showingEditor) {
-                MedicationEditorView(draft: draft, onSaved: { dismiss() })
             }
         }
     }

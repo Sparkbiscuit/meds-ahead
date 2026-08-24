@@ -77,8 +77,6 @@ actor NotificationService {
                     from: date
                 )
                 trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
-            case let .interval(interval):
-                trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(1, interval), repeats: false)
             }
             try? await center.add(UNNotificationRequest(identifier: item.identifier, content: content, trigger: trigger))
         }

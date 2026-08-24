@@ -114,15 +114,34 @@ final class NotificationPlannerTests: XCTestCase {
         XCTAssertEqual(calendar.component(.hour, from: date), 9)
     }
 
-    func testAlreadyLowSupplyUsesOneImmediateReminderIdentity() throws {
+    func testPassedLeadDayCreatesNoRefillReminder() throws {
+        // Lead day is 13 August; "now" is already past it, so the moment to warn
+        // has gone. Re-announcing it here would fire again on every launch once
+        // the person swiped the alert away.
         let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 18, hour: 12)))
+        let depletion = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 20)))
+        let plan = makePlan(doseRemindersEnabled: false, refillLeadDays: 7, depletionDate: depletion)
+
+        XCTAssertTrue(NotificationPlanner.notifications(for: plan, now: now, calendar: calendar).isEmpty)
+    }
+
+    func testDepletedSupplyCreatesNoRefillReminder() throws {
+        // A medication saved with a current count of zero used to schedule an alert
+        // three seconds after tapping Add.
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 18, hour: 12)))
+        let plan = makePlan(doseRemindersEnabled: false, refillLeadDays: 7, depletionDate: now)
+
+        XCTAssertTrue(NotificationPlanner.notifications(for: plan, now: now, calendar: calendar).isEmpty)
+    }
+
+    func testRefillReminderIdentityIsStableAcrossRebuilds() throws {
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 1, hour: 12)))
         let depletion = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 20)))
         let plan = makePlan(doseRemindersEnabled: false, refillLeadDays: 7, depletionDate: depletion)
         let first = try XCTUnwrap(NotificationPlanner.notifications(for: plan, now: now, calendar: calendar).first)
         let second = try XCTUnwrap(NotificationPlanner.notifications(for: plan, now: now, calendar: calendar).first)
 
         XCTAssertEqual(first.identifier, second.identifier)
-        XCTAssertEqual(first.trigger, .interval(3))
     }
 
     func testUnknownForecastDoesNotCreateRefillNotification() {

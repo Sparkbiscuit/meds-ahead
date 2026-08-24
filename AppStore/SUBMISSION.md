@@ -41,13 +41,13 @@ medication,medicine,refill,pill,reminder,schedule,tracker,inventory,dose,health
 
 ## Review notes
 
-Meds Ahead operates without an account or backend. Camera access is requested only when the user opens the scanner. The simulator offers manual entry and photo import because live VisionKit scanning requires a supported physical device. No scanned photo is retained.
+Meds Ahead operates without an account or backend. Camera access is requested only when the user opens the scanner, and declining it is fully supported: the scanner then explains why it needs the camera, offers a direct link to Settings, and leaves photo import available. The simulator offers manual entry and photo import because live VisionKit scanning requires a supported physical device. No scanned photo is retained.
 
 The app must not be used to make prescribing, dosing, or refill-eligibility decisions. All recognized label information is presented in an editable confirmation screen before it can be stored.
 
 Suggested review path: complete onboarding, choose Add, select Enter Manually, add a name/current count/schedule, then open Supply. A supported physical iPhone is required to exercise the live text-and-barcode scanner; photo import remains available in the simulator.
 
-Settings may show three optional consumable tip amounts when the associated App Store products are available. Tips are processed with StoreKit, are not recurring, and do not unlock content or functionality. Reviewers can open Settings > Leave an Optional Tip to exercise the purchase surface.
+Settings always shows the optional tip row, at Settings > Support Meds Ahead > Leave an Optional Tip. It presents three consumable amounts once StoreKit returns them, a spinner while it is loading, and an explicit unavailable state with a Try Again button if StoreKit returns nothing, so the purchase surface is never hidden. Tips are processed with StoreKit, are not recurring, and do not unlock content or functionality.
 
 ## App Store Connect selections
 

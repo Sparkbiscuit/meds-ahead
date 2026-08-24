@@ -1,7 +1,7 @@
 import Foundation
 import SwiftData
 
-enum MedicationForm: String, CaseIterable, Codable, Identifiable {
+enum MedicationForm: String, CaseIterable, Codable, Identifiable, Sendable {
     case tablet
     case capsule
     case liquid
@@ -82,7 +82,7 @@ enum InventoryReason: String, CaseIterable, Codable, Identifiable {
     }
 }
 
-enum MedicationSource: String, Codable {
+enum MedicationSource: String, Codable, Sendable {
     case scanned
     case manual
 }
@@ -287,7 +287,7 @@ final class InventoryEvent {
     }
 }
 
-struct MedicationDraft: Equatable {
+struct MedicationDraft: Equatable, Sendable {
     var name = ""
     var nickname = ""
     var strength = ""
@@ -304,13 +304,13 @@ struct MedicationDraft: Equatable {
     var evidence: [ScanEvidence] = []
 }
 
-struct ScanEvidence: Identifiable, Hashable {
-    enum Kind: String, Hashable {
+struct ScanEvidence: Identifiable, Hashable, Sendable {
+    enum Kind: String, Hashable, Sendable {
         case text
         case barcode
     }
 
-    enum Origin: String, Hashable {
+    enum Origin: String, Hashable, Sendable {
         case unknown
         case liveCamera
         case cameraCapture

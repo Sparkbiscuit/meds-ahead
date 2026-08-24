@@ -14,7 +14,20 @@ enum AppTheme {
     ]
 
     static func color(for medication: Medication) -> Color {
-        medicationColors[abs(medication.accentIndex) % medicationColors.count]
+        let count = medicationColors.count
+        // `abs` traps on Int.min; magnitude does not.
+        return medicationColors[Int(medication.accentIndex.magnitude % UInt(count))]
+    }
+
+    /// A medication's colour must survive relaunch, so this cannot use `hashValue`,
+    /// which Swift reseeds every process. FNV-1a is small, stable, and never traps.
+    static func accentIndex(for name: String) -> Int {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for scalar in name.lowercased().unicodeScalars {
+            hash ^= UInt64(scalar.value)
+            hash = hash &* 0x100_0000_01b3
+        }
+        return Int(hash % UInt64(medicationColors.count))
     }
 }
 
