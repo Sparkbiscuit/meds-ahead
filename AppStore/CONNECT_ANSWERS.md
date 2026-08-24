@@ -21,7 +21,7 @@ Prepared for release 1.0 (build 1) on August 23, 2026. Values marked **Owner inp
 - Privacy policy URL: https://sparkbiscuit.me/meds/privacy/
 - Support URL: https://sparkbiscuit.me/meds/support/
 - Marketing URL: https://sparkbiscuit.me/meds/
-- Copyright: **Owner input — legal name and year**
+- Copyright: `2026 Nicholas Christoforakis` (saved in App Store Connect)
 
 ## App Privacy
 
