@@ -177,10 +177,10 @@ private struct LiveDataScanner: UIViewControllerRepresentable {
 
     func makeUIViewController(context: Context) -> DataScannerViewController {
         let scanner = DataScannerViewController(
-            recognizedDataTypes: [.text(), .barcode()],
+            recognizedDataTypes: [.text(languages: ["en-US"]), .barcode()],
             qualityLevel: .accurate,
             recognizesMultipleItems: true,
-            isHighFrameRateTrackingEnabled: true,
+            isHighFrameRateTrackingEnabled: false,
             isPinchToZoomEnabled: true,
             isGuidanceEnabled: true,
             isHighlightingEnabled: true
@@ -260,6 +260,7 @@ private enum StillImageRecognizer {
                 let textRequest = VNRecognizeTextRequest()
                 textRequest.recognitionLevel = .accurate
                 textRequest.usesLanguageCorrection = true
+                textRequest.recognitionLanguages = ["en-US"]
                 let barcodeRequest = VNDetectBarcodesRequest()
                 let handler = VNImageRequestHandler(data: data, options: [:])
                 do {

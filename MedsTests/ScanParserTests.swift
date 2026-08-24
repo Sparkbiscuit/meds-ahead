@@ -47,6 +47,13 @@ final class ScanParserTests: XCTestCase {
         XCTAssertEqual(ScanParser.parse(evidence).refillsRemaining, 0)
     }
 
+    func testParsesCommonLabeledRefillFormats() {
+        for value in ["Refills: 3", "REFILLS REMAINING 3", "Rfls #3", "3 refills"] {
+            let evidence = [ScanEvidence(kind: .text, value: value)]
+            XCTAssertEqual(ScanParser.parse(evidence).refillsRemaining, 3, value)
+        }
+    }
+
     func testLowConfidenceFragmentDoesNotOverrideMedicationName() {
         let evidence = [
             ScanEvidence(kind: .text, value: "Fur0 random", confidence: 0.31),
@@ -110,5 +117,25 @@ final class ScanParserTests: XCTestCase {
 
         XCTAssertEqual(draft.productIdentifier, "00054-8179-25")
         XCTAssertEqual(draft.productIdentifierType, "NDC")
+    }
+
+    func testDirectionsIgnoreExpirationAndSupplementFragments() {
+        let evidence = [
+            ScanEvidence(kind: .text, value: "Furosemide", confidence: 0.92),
+            ScanEvidence(kind: .text, value: "20 mg", confidence: 0.96),
+            ScanEvidence(kind: .text, value: "USE BY 05/2029", confidence: 0.99),
+            ScanEvidence(kind: .text, value: "% DAILY VALUE", confidence: 0.99),
+            ScanEvidence(kind: .text, value: "TAKE ONE TABLET DAILY", confidence: 0.84)
+        ]
+
+        XCTAssertEqual(ScanParser.parse(evidence).directions, "TAKE ONE TABLET DAILY")
+    }
+
+    func testDirectionsAcceptDoseFrequencyWithoutVerb() {
+        let evidence = [
+            ScanEvidence(kind: .text, value: "ONE CAPSULE TWICE DAILY", confidence: 0.88)
+        ]
+
+        XCTAssertEqual(ScanParser.parse(evidence).directions, "ONE CAPSULE TWICE DAILY")
     }
 }

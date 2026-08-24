@@ -20,7 +20,7 @@ Release: 1.0 (build 1)
 - Explicit store profile for `8G2SF9YU87.com.christoforakis.Meds`, with `get-task-allow = false`
 - Exported IPA passes strict code-signature verification, archive integrity testing, privacy-manifest lint, and non-exempt-encryption inspection
 - Installation and launch on a paired iPhone 16 Pro
-- 36 unit tests: forecasting, negative-ledger count correction, supply accounting, independent per-time schedules, schedule-identity reconciliation, daylight-saving timing boundaries, confidence-aware sample-derived and noisy-label scan parsing, printed-NDC fallback, live-evidence merging, notification planning and request compaction, duplicate-safe reminder-action logging, and notification tap routing
+- 39 unit tests: forecasting, negative-ledger count correction, supply accounting, independent per-time schedules, schedule-identity reconciliation, daylight-saving timing boundaries, confidence-aware sample-derived and noisy-label scan parsing, direction-fragment rejection, common refill-label formats, printed-NDC fallback, live-evidence merging, notification planning and request compaction, duplicate-safe reminder-action logging, and notification tap routing
 - 6 UI tests: onboarding, manual medication critical flow, Today and medication-editor accessibility audits, largest accessibility text in the editor, and accessible overdue-dose state
 - Physical-device critical-flow and automated accessibility-audit passes on iPhone 16 Pro
 - Useful live label scanning and refill-alert delivery confirmed on iPhone 16 Pro

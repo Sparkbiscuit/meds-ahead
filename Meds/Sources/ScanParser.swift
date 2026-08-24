@@ -54,6 +54,8 @@ enum ScanParser {
     private static let strengthPattern = /(?i)\b\d+(?:\.\d+)?\s?(?:mcg|mg|g|mL|%)(?:\s*\/\s*\d+(?:\.\d+)?\s?(?:mcg|mg|g|mL))?\b/
     private static let quantityPattern = /(?i)\b(?:qty|quantity|contents?)\s*[:#]?\s*(\d+(?:\.\d+)?)\b/
     private static let refillPattern = /(?i)\b(\d+)\s+refills?\s+(?:left|remaining)\b/
+    private static let labeledRefillPattern = /(?i)\b(?:refills?|rfls?)\s*(?:left|remaining)?\s*[:#]?\s*(\d+)\b/
+    private static let simpleRefillPattern = /(?i)\b(\d+)\s+refills?\b/
     private static let noRefillsPattern = /(?i)\bno\s+refills?\s+(?:left|remaining)\b/
     private static let lotPattern = /(?i)\blot\s*[:#]?\s*([A-Z0-9-]+)\b/
     private static let expirationPattern = /(?i)\b(?:exp|expires?|expiration)\s*[:.]?\s*(\d{1,2})[\/-](\d{2,4})\b/
@@ -109,7 +111,8 @@ enum ScanParser {
 
     private static func medicationName(from lines: [TextLine], strength: String) -> String {
         let stopWords = [
-            "tablet", "capsule", "quantity", "contents", "refill", "take", "times a day",
+            "tablet", "capsule", "quantity", "contents", "refill", "take", "use", "apply",
+            "inhale", "instill", "inject", "times a day",
             "dietary supplement", "drug-free", "gluten free", "lactose free", "rx#", "rx #",
             "prescriber", "patient", "pharmacy", "discard", "use by", "ndc", "phone", "address",
             "date filled", "lot", "exp", "doctor", "provider", "www.", ".com", "fax"
@@ -213,8 +216,12 @@ enum ScanParser {
 
     private static func capturedRefills(in value: String) -> Int? {
         if value.firstMatch(of: noRefillsPattern) != nil { return 0 }
-        guard let raw = capture(in: value, pattern: refillPattern, group: 1) else { return nil }
-        return Int(raw)
+        for pattern in [refillPattern, labeledRefillPattern, simpleRefillPattern] {
+            if let raw = capture(in: value, pattern: pattern, group: 1) {
+                return Int(raw)
+            }
+        }
+        return nil
     }
 
     private static func capturedExpiration(in value: String, now: Date) -> Date? {
@@ -231,10 +238,36 @@ enum ScanParser {
     }
 
     private static func capturedDirections(from lines: [TextLine]) -> String {
-        lines.filter { line in
-            let lower = line.value.lowercased()
-            return lower.contains("take ") || lower.contains("use ") || lower.contains("times a day") || lower.contains("daily")
-        }.max { $0.confidence < $1.confidence }?.value ?? ""
+        lines.compactMap { line -> (line: TextLine, score: Double)? in
+            let lower = line.value
+                .lowercased()
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let excludedFragments = [
+                "daily value", "% daily", "use by", "do not use", "discard after",
+                "for external use only", "expiration", "expires", "lot number"
+            ]
+            guard !excludedFragments.contains(where: lower.contains) else { return nil }
+
+            let directionVerbs = ["take ", "use ", "apply ", "inhale ", "instill ", "inject ", "place "]
+            let startsWithDirection = directionVerbs.contains(where: lower.hasPrefix)
+            let frequencyMarkers = [
+                " once daily", " twice daily", " daily", " times a day", " times daily",
+                " every ", " as needed", " at bedtime", " in the morning", " in the evening"
+            ]
+            let hasFrequency = frequencyMarkers.contains(where: lower.contains)
+            let dosageMarkers = ["tablet", "capsule", "puff", "drop", "spray", "patch", "ml"]
+            let hasDosageWithFrequency = hasFrequency && dosageMarkers.contains(where: lower.contains)
+            let hasRouteInstruction = lower.contains(" by mouth") || lower.contains(" under the tongue")
+            guard startsWithDirection || hasDosageWithFrequency || hasRouteInstruction else { return nil }
+
+            var score = line.confidence * 100
+            if startsWithDirection { score += 25 }
+            if hasFrequency { score += 12 }
+            if hasRouteInstruction { score += 8 }
+            return (line, score)
+        }
+        .max { $0.score < $1.score }?
+        .line.value ?? ""
     }
 
     private static func preferredBarcode(in evidence: [ScanEvidence]) -> ScanEvidence? {
