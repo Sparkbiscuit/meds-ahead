@@ -287,7 +287,17 @@ final class InventoryEvent {
     }
 }
 
-struct MedicationDraft: Equatable, Sendable {
+/// How a scanned medication name was arrived at. A name found on the line that
+/// also carries the strength is trustworthy enough to pre-fill for review; a line
+/// that merely looked name-shaped is not, and must not reach the name field.
+enum MedicationNameProvenance: String, Hashable, Sendable {
+    case none
+    case soleCandidate
+    case strengthAnchored
+    case vocabulary
+}
+
+struct MedicationDraft: Hashable, Sendable {
     var name = ""
     var nickname = ""
     var strength = ""
@@ -300,6 +310,7 @@ struct MedicationDraft: Equatable, Sendable {
     var productIdentifier = ""
     var productIdentifierType = ""
     var source: MedicationSource = .manual
+    var nameProvenance: MedicationNameProvenance = .none
     var overallConfidence = 1.0
     var evidence: [ScanEvidence] = []
 }

@@ -43,6 +43,23 @@ Notification planning is global across the medication set. Doses that occur at t
 
 The live scanner's overlay reports which fields have been recognised so far. Deriving that runs the whole parse pipeline, including a match against the bundled name vocabulary, which costs far too much to sit in a SwiftUI body that re-evaluates on every recognised frame. `ScanPreview` is computed off the main actor, debounced, and cancelled when superseded, and the view only reads the stored result. The camera preview must never wait on parsing.
 
+## Autofill posture
+
+Every scanned field is shown for confirmation before anything is stored, which sets
+where the app should guess and where it should stay silent. A field the parser read
+off the label is pre-filled even when the language model is unsure among several
+candidates: the person can correct a wrong strength at a glance, but an empty field
+costs them retyping what the label plainly says, and the audience is people already
+carrying a lot.
+
+The medication name is the exception, and it is gated twice. A name confirmed by the
+bundled vocabulary is used. Otherwise only a `strengthAnchored` reading survives —
+one found on the line that also carries the strength, which is where a drug name
+actually sits. A merely name-shaped line is dropped, because "Open 9 to 6" or a
+patient's own name in the medication field is worse than a blank one. `ScanParser`
+reports this as `MedicationNameProvenance` so the distinction is explicit rather
+than re-derived.
+
 ## Source confidence
 
 Scan results retain field-level evidence. Barcode payloads are stored only when the user saves the reviewed medication. Pharmacy URLs and opaque prescription identifiers are never opened automatically.

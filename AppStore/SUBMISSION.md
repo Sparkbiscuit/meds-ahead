@@ -33,6 +33,10 @@ Key features:
 - Dynamic Type, VoiceOver, dark mode, and reduced-motion support
 - An optional, non-recurring tip jar; every app feature remains free
 
+Meds Ahead is free. Every feature is included, there is nothing to unlock, and there is no subscription. An optional tip in Settings supports development and unlocks nothing.
+
+I built Meds Ahead because my mother was managing more than a dozen medications and refills for my brother through his transplant care, and every app we tried was built around reminders rather than the question she actually needed answered: what runs out next?
+
 Meds Ahead is an organization tool. It does not provide medical advice, recommend dose changes, or determine prescription refill eligibility. Always follow your prescription label and clinician's instructions.
 
 ## Keywords

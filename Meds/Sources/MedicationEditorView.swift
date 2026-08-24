@@ -567,15 +567,18 @@ private struct ScheduleDoseQuantityField: View {
 
 struct AddMedicationFlow: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var draft = MedicationDraft()
     @State private var path: [Step] = []
 
-    /// Scanner and review are pushed from one typed path. Declaring two separate
-    /// `navigationDestination(isPresented:)` modifiers on the same view left the
-    /// scan-to-review hand-off up to SwiftUI's disambiguation.
+    /// The reviewed draft travels inside the path value rather than in separate
+    /// state the destination closure reads later. Two earlier shapes both lost a
+    /// scanned draft on the way to review: separate
+    /// `navigationDestination(isPresented:)` modifiers on one view, and a payload-free
+    /// `.editor` case, which is one unchanging value, so SwiftUI could rebuild the
+    /// editor from a stale draft or reuse the previous view's state outright.
+    /// Carrying the draft makes each review screen a distinct destination.
     enum Step: Hashable {
         case scanner
-        case editor
+        case editor(MedicationDraft)
     }
 
     var body: some View {
@@ -613,8 +616,7 @@ struct AddMedicationFlow: View {
                         .accessibilityIdentifier("scan-label")
 
                         Button {
-                            draft = MedicationDraft()
-                            path.append(.editor)
+                            path.append(.editor(MedicationDraft()))
                         } label: {
                             AddOptionCard(
                                 symbol: "square.and.pencil",
@@ -632,14 +634,28 @@ struct AddMedicationFlow: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
             }
+#if DEBUG
+            .onAppear {
+                guard ProcessInfo.processInfo.arguments.contains("-simulate-scan-result"),
+                      path.isEmpty else { return }
+                path.append(.editor(MedicationDraft(
+                    name: "Amphetamine",
+                    strength: "20 mg",
+                    form: .tablet,
+                    directions: "Take one tablet by mouth twice daily",
+                    currentSupply: 60,
+                    source: .scanned,
+                    evidence: [ScanEvidence(kind: .text, value: "AMPHETAMINE 20 MG", confidence: 0.9)]
+                )))
+            }
+#endif
             .navigationDestination(for: Step.self) { step in
                 switch step {
                 case .scanner:
                     ScannerScreen { scannedDraft in
-                        draft = scannedDraft
-                        path.append(.editor)
+                        path.append(.editor(scannedDraft))
                     }
-                case .editor:
+                case let .editor(draft):
                     MedicationEditorView(draft: draft, onSaved: { dismiss() })
                 }
             }

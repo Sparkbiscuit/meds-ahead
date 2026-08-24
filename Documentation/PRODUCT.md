@@ -1,5 +1,17 @@
 # Meds Ahead V1 Product Definition
 
+## Origin
+
+Meds Ahead was built for one household first: a mother managing more than a dozen
+medications and their refills for her son through transplant care. That is the user
+to picture. She is not short of reminders, she is short of certainty and time, and
+she is often reading a label at the end of a long day.
+
+Two consequences run through every decision here. Friction is the enemy, so a field
+the app can reasonably pre-fill for review should never arrive blank and make her
+retype what the label plainly says. And confidence must be earned, so where the app
+genuinely does not know something it says so rather than inventing precision.
+
 ## North star
 
 Always know what is due, what happened, and what will run out next.

@@ -150,7 +150,9 @@ enum ScanParser {
         draft.evidence = usableEvidence
         draft.overallConfidence = usableEvidence.isEmpty ? 0 : usableEvidence.map(\.confidence).reduce(0, +) / Double(usableEvidence.count)
         draft.strength = firstMatch(in: combined, pattern: strengthPattern) ?? ""
-        draft.name = medicationName(from: lines, strength: draft.strength)
+        let resolvedName = medicationName(from: lines, strength: draft.strength)
+        draft.name = resolvedName.value
+        draft.nameProvenance = resolvedName.provenance
         draft.form = inferForm(from: combined)
         draft.currentSupply = capturedQuantity(in: combined)
         draft.refillsRemaining = capturedRefills(in: combined)
@@ -182,7 +184,10 @@ enum ScanParser {
         return result
     }
 
-    private static func medicationName(from lines: [TextLine], strength: String) -> String {
+    private static func medicationName(
+        from lines: [TextLine],
+        strength: String
+    ) -> (value: String, provenance: MedicationNameProvenance) {
         let stopWords = [
             "tablet", "capsule", "quantity", "contents", "refill", "take", "use", "apply",
             "inhale", "instill", "inject", "times a day",
@@ -199,7 +204,9 @@ enum ScanParser {
            let strengthLineIndex = lines.firstIndex(where: { $0.value.localizedCaseInsensitiveContains(strength) }) {
             let line = lines[strengthLineIndex].value
             let cleaned = cleanedNameLine(line, removing: strength)
-            if isPlausibleName(cleaned, stopWords: stopWords) { return titleCasedDrugName(cleaned) }
+            if isPlausibleName(cleaned, stopWords: stopWords) {
+                return (titleCasedDrugName(cleaned), .strengthAnchored)
+            }
 
             for distance in 1...2 {
                 for nearbyIndex in [strengthLineIndex - distance, strengthLineIndex + distance]
@@ -207,7 +214,7 @@ enum ScanParser {
                     let nearby = lines[nearbyIndex]
                     if !isMetadataValue(at: nearbyIndex, in: lines),
                        isPlausibleName(nearby.value, stopWords: stopWords) {
-                        return titleCasedDrugName(nearby.value)
+                        return (titleCasedDrugName(nearby.value), .strengthAnchored)
                     }
                 }
             }
@@ -218,8 +225,10 @@ enum ScanParser {
                   isPlausibleName(line.value, stopWords: stopWords) else { return nil }
             return line
         }
-        guard candidates.count == 1, let onlyCandidate = candidates.first else { return "" }
-        return titleCasedDrugName(onlyCandidate.value)
+        guard candidates.count == 1, let onlyCandidate = candidates.first else {
+            return ("", .none)
+        }
+        return (titleCasedDrugName(onlyCandidate.value), .soleCandidate)
     }
 
     private static func cleanedNameLine(_ value: String, removing strength: String) -> String {
@@ -234,6 +243,18 @@ enum ScanParser {
         for word in dosageWords {
             cleaned = cleaned.replacingOccurrences(of: word, with: "", options: [.caseInsensitive])
         }
+        return tidiedNameResidue(cleaned)
+    }
+
+    /// Cutting the strength and dosage words out of a line leaves double spaces and a
+    /// dangling abbreviation, so "AMPHETAMINE SALT COMBO 20 MG TAB" would reach the
+    /// review screen as "Amphetamine Salt Combo  Tab". Abbreviations are matched on
+    /// word boundaries so a name that merely contains those letters survives intact.
+    static func tidiedNameResidue(_ value: String) -> String {
+        var cleaned = value.replacing(/(?i)\b(?:tabs?|caps?|sol|susp|inj)\b/, with: "")
+        cleaned = cleaned
+            .split(whereSeparator: \Character.isWhitespace)
+            .joined(separator: " ")
         return cleaned.trimmingCharacters(in: CharacterSet(charactersIn: " :-,."))
     }
 

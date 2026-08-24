@@ -170,7 +170,7 @@ final class MedicationLabelInterpreterTests: XCTestCase {
     }
 
     @available(iOS 26.0, *)
-    func testZeroSelectionClearsAmbiguousStructuredCandidates() {
+    func testZeroSelectionKeepsTheDeterministicValue() {
         let candidates = LabelInterpretationCandidates(
             medicationNames: [],
             strengths: [
@@ -196,6 +196,8 @@ final class MedicationLabelInterpreterTests: XCTestCase {
             to: MedicationDraft(strength: "5 mg")
         )
 
-        XCTAssertEqual(result.strength, "")
+        // The model was unsure between 5 mg and 10 mg. Blanking the field would make
+        // the person retype a strength the parser already read off the label.
+        XCTAssertEqual(result.strength, "5 mg")
     }
 }

@@ -45,8 +45,12 @@ final class MedsUITests: XCTestCase {
         app.launchArguments = ["-ui-testing", "-show-onboarding"]
         app.launch()
         XCTAssertTrue(app.buttons["Continue"].waitForExistence(timeout: 3))
-        app.buttons["Continue"].tap()
-        app.buttons["Continue"].tap()
+        // Walk to the end however many pages there are, so adding one does not
+        // silently turn this into a test of nothing.
+        for _ in 0..<12 where app.buttons["Continue"].exists {
+            app.buttons["Continue"].tap()
+        }
+        XCTAssertTrue(app.buttons["Get Started"].waitForExistence(timeout: 3))
         app.buttons["Get Started"].tap()
         XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
     }
@@ -153,6 +157,30 @@ final class MedsUITests: XCTestCase {
             || unavailable.waitForExistence(timeout: 8)
             || loading.exists
         XCTAssertTrue(resolved, "no tip row of any kind was shown in Settings")
+    }
+
+    /// A scanned draft must survive the hand-off into the review screen. The
+    /// overlay saying it found a name, strength and quantity is worthless if the
+    /// editor then opens blank.
+    func testScannedDraftPopulatesTheReviewScreen() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-skip-onboarding", "-simulate-scan-result"]
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["Add"].tap()
+
+        let name = app.textFields["medication-name"]
+        XCTAssertTrue(name.waitForExistence(timeout: 5), "review screen never appeared")
+        XCTAssertEqual(name.value as? String, "Amphetamine", "medication name did not carry over")
+
+        let strength = app.textFields["Strength"]
+        XCTAssertTrue(strength.exists)
+        XCTAssertEqual(strength.value as? String, "20 mg", "strength did not carry over")
+
+        let supply = app.textFields["current-supply"]
+        for _ in 0..<4 where !supply.exists { app.swipeUp() }
+        XCTAssertEqual(supply.value as? String, "60", "current amount did not carry over")
     }
 
     func testOverdueDoseStateIsVisibleAndAccessible() {

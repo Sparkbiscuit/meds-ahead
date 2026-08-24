@@ -42,11 +42,20 @@ enum MedicationLabelInterpreter {
         let candidates = LabelCandidateBuilder.build(from: draft.evidence)
         if let resolvedName = uniqueOfflineMedicationName(in: candidates.medicationNames) {
             draft.name = formattedMedicationName(resolvedName)
+            draft.nameProvenance = .vocabulary
         } else if let deterministicMatch = MedicationVocabulary.uniqueMatch(for: draft.name) {
             draft.name = formattedMedicationName(deterministicMatch)
-        } else {
+            draft.nameProvenance = .vocabulary
+        } else if draft.nameProvenance != .strengthAnchored {
             draft.name = ""
+            draft.nameProvenance = .none
         }
+        // A strength-anchored reading survives without a vocabulary match. Pharmacies
+        // rarely print RxNorm's canonical name — "Amphetamine salt combo tab" is a real
+        // label for a drug the vocabulary lists under four salt names — so demanding a
+        // match emptied the name on most genuine prescription labels. A merely
+        // name-shaped line still gets dropped: label furniture like "Open 9 to 6" is
+        // worse in the name field than nothing at all.
         return draft
     }
 
@@ -119,7 +128,10 @@ enum MedicationLabelInterpreter {
                         ?? validatedMedicationName(selection.normalizedMedicationName, source: selected.value)
                             .flatMap { MedicationVocabulary.uniqueMatch(for: $0) }
                 }
-        result.name = resolvedName.map(formattedMedicationName) ?? ""
+        // A vocabulary hit still wins. Without one, only a strength-anchored reading
+        // stands; the model is never allowed to put a raw fragment of its own here.
+        result.name = resolvedName.map(formattedMedicationName)
+            ?? (draft.nameProvenance == .strengthAnchored ? draft.name : "")
 
         result.strength = resolvedTextField(
             selectionID: selection.strengthID,
@@ -187,6 +199,13 @@ enum MedicationLabelInterpreter {
         return matchesByKey.values.first
     }
 
+    // When the model is unsure among several candidates, the deterministic parser's
+    // own pick is kept rather than blanked. Every one of these fields is shown in an
+    // editable review screen and is saved only after the person confirms it, so a
+    // best guess they can correct costs a glance, while an empty field costs them
+    // retyping what the label plainly says. The medication name is deliberately not
+    // treated this way: it stays gated on the bundled vocabulary above, because a
+    // confidently wrong drug name is the one error here that is worth a blank field.
     private static func resolvedTextField(
         selectionID: Int,
         candidates: [LabelFieldCandidate],
@@ -194,7 +213,7 @@ enum MedicationLabelInterpreter {
     ) -> String {
         if let selected = candidate(selectionID, in: candidates) { return selected.value }
         if candidates.count == 1 { return candidates[0].value }
-        return candidates.isEmpty ? fallback : ""
+        return fallback
     }
 
     private static func resolvedNumericField(
@@ -204,7 +223,7 @@ enum MedicationLabelInterpreter {
     ) -> Double? {
         if let selected = candidate(selectionID, in: candidates), let value = Double(selected.value) { return value }
         if candidates.count == 1 { return Double(candidates[0].value) }
-        return candidates.isEmpty ? fallback : nil
+        return fallback
     }
 
     private static func resolvedIntegerField(
@@ -214,7 +233,7 @@ enum MedicationLabelInterpreter {
     ) -> Int? {
         if let selected = candidate(selectionID, in: candidates), let value = Int(selected.value) { return value }
         if candidates.count == 1 { return Int(candidates[0].value) }
-        return candidates.isEmpty ? fallback : nil
+        return fallback
     }
 
     private static func formattedMedicationName(_ value: String) -> String {
@@ -414,7 +433,8 @@ enum LabelCandidateBuilder {
         for word in dosageWords {
             cleaned = cleaned.replacingOccurrences(of: word, with: "", options: [.caseInsensitive])
         }
-        cleaned = cleaned.trimmingCharacters(in: CharacterSet(charactersIn: " :-,.#"))
+        cleaned = ScanParser.tidiedNameResidue(cleaned)
+            .trimmingCharacters(in: CharacterSet(charactersIn: " :-,.#"))
         return isPlausibleName(cleaned) ? cleaned : nil
     }
 

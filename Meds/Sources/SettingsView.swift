@@ -10,6 +10,7 @@ struct SettingsView: View {
     @State private var notificationStatus = "Checking…"
     @State private var showingSafety = false
     @State private var showingPrivacy = false
+    @State private var showingStory = false
     @State private var showingTips = false
     @State private var tipAvailability: TipAvailability = .loading
 
@@ -72,6 +73,7 @@ struct SettingsView: View {
             }
 
             Section("About") {
+                Button("Why I Made Meds Ahead") { showingStory = true }
                 Button("Privacy by Design") { showingPrivacy = true }
                 Button("Safety & Intended Use") { showingSafety = true }
                 Link("Privacy Policy", destination: URL(string: "https://sparkbiscuit.me/meds/privacy/")!)
@@ -101,6 +103,19 @@ struct SettingsView: View {
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             Task { await refreshNotificationStatus() }
+        }
+        .sheet(isPresented: $showingStory) {
+            InformationSheet(
+                title: "Why I Made Meds Ahead",
+                symbol: "heart.fill",
+                paragraphs: [
+                    "My mother was managing more than a dozen medications for my brother Lukas, through his transplant care. Refills came due on different days, in different amounts, from different places. Running out of one of them was not a small problem.",
+                    "Every app we tried was built around reminders — telling you to take something at eight in the morning. None of them answered the question she actually needed answered, standing at the pharmacy counter or lying awake on a Sunday night: what runs out next, and when do I have to do something about it?",
+                    "So I built the app she needed. Meds Ahead keeps an honest count of what is actually on hand, asks you to confirm everything before it believes it, and tells you plainly which medication needs attention next. It has no account, no advertising, and no analytics, and your medication information never leaves your iPhone.",
+                    "If you are keeping track of medications for someone you love, I hope this takes one thing off your plate."
+                ],
+                signature: "— Nicholas Christoforakis"
+            )
         }
         .sheet(isPresented: $showingPrivacy) {
             InformationSheet(
@@ -278,6 +293,7 @@ private struct InformationSheet: View {
     let title: String
     let symbol: String
     let paragraphs: [String]
+    var signature: String? = nil
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -293,6 +309,12 @@ private struct InformationSheet: View {
                             .font(.body)
                             .lineSpacing(4)
                             .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if let signature {
+                        Text(signature)
+                            .font(.callout.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 2)
                     }
                 }
                 .padding(24)
