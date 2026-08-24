@@ -32,6 +32,7 @@ final class MedicationLabelInterpreterTests: XCTestCase {
         XCTAssertFalse(values.contains { $0.localizedCaseInsensitiveContains("Supplement") })
     }
 
+    @available(iOS 26.0, *)
     func testSelectionCanOnlyApplyExistingCandidateIDs() {
         let candidates = LabelInterpretationCandidates(
             medicationNames: [LabelFieldCandidate(id: 1, value: "FUROSEMIDE")],
@@ -141,6 +142,7 @@ final class MedicationLabelInterpreterTests: XCTestCase {
         )
     }
 
+    @available(iOS 26.0, *)
     func testModelCannotAutofillAnUnsupportedRawNameFragment() {
         let candidates = LabelInterpretationCandidates(
             medicationNames: [LabelFieldCandidate(id: 1, value: "amphetamine-dextrzzz")],
@@ -167,6 +169,7 @@ final class MedicationLabelInterpreterTests: XCTestCase {
         XCTAssertEqual(result.name, "")
     }
 
+    @available(iOS 26.0, *)
     func testZeroSelectionClearsAmbiguousStructuredCandidates() {
         let candidates = LabelInterpretationCandidates(
             medicationNames: [],

@@ -14,6 +14,7 @@ struct LabelInterpretationCandidates: Equatable, Sendable {
     var refills: [LabelFieldCandidate]
 }
 
+@available(iOS 26.0, *)
 @Generable(description: "Selections from medication-label OCR candidates")
 struct LabelFieldSelection {
     @Guide(description: "ID of the actual medication name, or 0 when uncertain", .range(0...99))
@@ -52,8 +53,26 @@ enum MedicationLabelInterpreter {
     static func interpret(_ evidence: [ScanEvidence]) async -> MedicationDraft {
         let deterministicDraft = offlineDraft(evidence)
         let candidates = LabelCandidateBuilder.build(from: deterministicDraft.evidence)
-        guard !candidates.medicationNames.isEmpty,
-              case .available = SystemLanguageModel.default.availability else {
+        guard !candidates.medicationNames.isEmpty else { return deterministicDraft }
+        guard #available(iOS 26.0, *) else { return deterministicDraft }
+        return await modelRefinedDraft(
+            evidence: evidence,
+            candidates: candidates,
+            deterministicDraft: deterministicDraft
+        )
+    }
+
+    /// Apple Intelligence refinement. It selects among candidates the app already
+    /// derived and can never introduce a fact of its own, so every caller below
+    /// iOS 26 — and every eligible device where the model is unavailable — keeps
+    /// the identical deterministic result.
+    @available(iOS 26.0, *)
+    private static func modelRefinedDraft(
+        evidence: [ScanEvidence],
+        candidates: LabelInterpretationCandidates,
+        deterministicDraft: MedicationDraft
+    ) async -> MedicationDraft {
+        guard case .available = SystemLanguageModel.default.availability else {
             return deterministicDraft
         }
 
@@ -81,6 +100,7 @@ enum MedicationLabelInterpreter {
         }
     }
 
+    @available(iOS 26.0, *)
     static func applying(
         _ selection: LabelFieldSelection,
         candidates: LabelInterpretationCandidates,
