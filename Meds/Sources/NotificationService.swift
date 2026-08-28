@@ -44,6 +44,10 @@ actor NotificationService {
             // Stack dose reminders together (and refill alerts together) in
             // Notification Center instead of interleaving with everything else.
             content.threadIdentifier = item.kind == .dose ? "meds.dose" : "meds.refill"
+            // Dose reminders may break through Focus modes (the entitlement in
+            // Meds.entitlements grants this; the person still controls it per-app
+            // in Settings). Refill alerts are plan-ahead notices, not moments.
+            content.interruptionLevel = item.kind == .dose ? .timeSensitive : .active
             var userInfo: [String: String] = [:]
             if let medicationID = item.medicationID {
                 userInfo["medicationID"] = medicationID.uuidString

@@ -21,6 +21,32 @@ same-day schedule overlap validation.
   button and torch shutoff paths need a physical-device check (no torch exists
   in the simulator, so the button correctly stays hidden there).
 
+### Time Sensitive dose reminders (same day, later)
+
+Dose reminders now carry `interruptionLevel = .timeSensitive` so they can break
+through Focus modes; refill alerts stay `.active`. The entitlement lives in
+`Meds/Meds.entitlements` and is wired through `CODE_SIGN_ENTITLEMENTS` in both
+app configurations.
+
+- `plutil -lint` passes on the entitlements file; full unit tests remain 120/120.
+- Debug simulator build embeds the entitlement in the simulated entitlements
+  (`Meds.app-Simulated.xcent`); `codesign -d --entitlements` on a simulator app
+  reads the host slot and legitimately shows it empty.
+- Release device build required `-allowProvisioningUpdates` once to regenerate
+  the team provisioning profile with the Time Sensitive Notifications
+  capability, then succeeded; the signed binary's entitlements contain
+  `com.apple.developer.usernotifications.time-sensitive`.
+- **The August 24 distribution artifacts are superseded**: the archive at
+  `build/MedsAhead-1.0-Submission-Final.xcarchive` and the export in
+  `build/AppStore-Submission-Final/` predate the entitlement and must not be
+  uploaded. Re-archive and re-export; the App Store distribution profile will
+  be regenerated with the capability during export. Re-run the strict
+  signature, provisioning, privacy-manifest, and ZIP-integrity checks on the
+  new IPA.
+- New hands-on gate: with a Focus mode active on the paired iPhone, confirm a
+  dose reminder breaks through and shows the system "Time Sensitive" chrome,
+  and that Settings → Meds Ahead offers the per-app Time Sensitive toggle.
+
 ---
 
 Date: August 24, 2026
