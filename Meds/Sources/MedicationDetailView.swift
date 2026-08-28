@@ -28,6 +28,18 @@ struct MedicationDetailView: View {
         allInventoryEvents.filter { $0.medicationID == medication.id }.sorted { $0.date > $1.date }
     }
 
+    /// The last refill is the best guess for the next one; the opening count is
+    /// the fallback for a first refill. 30 covers a brand-new history.
+    private var suggestedRefillQuantity: Double {
+        if let lastRefill = inventoryEvents.first(where: { $0.reason == .refill && $0.delta > 0 }) {
+            return lastRefill.delta
+        }
+        if let opening = inventoryEvents.last(where: { $0.reason == .openingCount && $0.delta > 0 }) {
+            return opening.delta
+        }
+        return 30
+    }
+
     private func forecast(now: Date) -> SupplyForecast {
         ForecastEngine.forecast(
             medication: medication,
@@ -94,7 +106,7 @@ struct MedicationDetailView: View {
                 title: "Add a Refill",
                 message: "Add the quantity you actually received.",
                 unit: medication.form.unitName,
-                initialValue: 30,
+                initialValue: suggestedRefillQuantity,
                 actionTitle: "Add Refill"
             ) { quantity, note in
                 let event = InventoryEvent(medicationID: medication.id, delta: quantity, reason: .refill, note: note)
@@ -270,7 +282,13 @@ struct MedicationDetailView: View {
             DetailLine(label: "Refills", value: medication.refillsRemaining.map(String.init) ?? "Not entered")
             DetailLine(label: "Low-supply alert", value: "\(medication.refillLeadDays) days before")
             if let expirationDate = medication.expirationDate {
-                DetailLine(label: "Package expiration", value: expirationDate.formatted(date: .abbreviated, time: .omitted))
+                let calendar = Calendar.autoupdatingCurrent
+                let isExpired = calendar.startOfDay(for: expirationDate) < calendar.startOfDay(for: .now)
+                DetailLine(
+                    label: "Package expiration",
+                    value: expirationDate.formatted(date: .abbreviated, time: .omitted) + (isExpired ? " · Expired" : ""),
+                    isWarning: isExpired
+                )
             }
             if !medication.lotNumber.isEmpty {
                 DetailLine(label: "Lot", value: medication.lotNumber)
@@ -439,12 +457,14 @@ struct MedicationDetailView: View {
 private struct DetailLine: View {
     let label: String
     let value: String
+    var isWarning = false
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
             Text(label).foregroundStyle(.secondary)
             Spacer(minLength: 18)
             Text(value)
+                .foregroundStyle(isWarning ? AnyShapeStyle(.orange) : AnyShapeStyle(.primary))
                 .multilineTextAlignment(.trailing)
                 .textSelection(.enabled)
         }

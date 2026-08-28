@@ -48,6 +48,12 @@ struct PlannedNotification: Equatable, Sendable {
 }
 
 enum NotificationPlanner {
+    /// iOS silently keeps only the ~64 soonest pending requests per app and drops
+    /// the rest without error. Staying under that with room to spare, and putting
+    /// repeating dose reminders ahead of one-shot refill alerts, means a heavy
+    /// regimen degrades by dropping the farthest-out refill alert — never a dose.
+    static let maximumScheduledRequests = 60
+
     static func notifications(
         for plan: MedicationNotificationPlan,
         now: Date = .now,
@@ -133,6 +139,7 @@ enum NotificationPlanner {
             }
         }
 
+        var refillNotifications: [PlannedNotification] = []
         for plan in plans where !plan.isArchived {
             guard plan.refillRemindersEnabled, let depletionDate = plan.depletionDate else { continue }
             let depletionDay = calendar.startOfDay(for: depletionDate)
@@ -145,7 +152,7 @@ enum NotificationPlanner {
             // interrupt someone already looking at the low-supply state on Today and
             // Supply, and would fire again on every launch once it was dismissed.
             guard reminderDate > now else { continue }
-            notifications.append(
+            refillNotifications.append(
                 PlannedNotification(
                     identifier: "meds.\(plan.medicationID.uuidString).refill.\(dateCode)",
                     kind: .refill,
@@ -161,7 +168,12 @@ enum NotificationPlanner {
             )
         }
 
-        return notifications
+        // Nearest refill alerts matter most when trimming is unavoidable.
+        refillNotifications.sort { lhs, rhs in
+            guard case let .date(left) = lhs.trigger, case let .date(right) = rhs.trigger else { return false }
+            return left < right
+        }
+        return Array((notifications + refillNotifications).prefix(maximumScheduledRequests))
     }
 
     private static func doseNotification(

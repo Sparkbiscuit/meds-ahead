@@ -1,5 +1,28 @@
 # Verification record
 
+## August 28, 2026 — scan reliability and reminder-cap pass (build 2)
+
+Covers: flashlight control and camera-session recovery in the scanner, expiration
+parsing for pharmacy wording (`DISCARD AFTER`, `USE BY`, named months, OCR
+pipe-for-slash misreads), package-quantity vs. directions disambiguation,
+matching photo OCR languages to the live scanner, comma-decimal locale
+quantities, a 60-request notification cap that always prefers dose reminders and
+the nearest refill alerts, refill sheet prefilled from refill history, and
+same-day schedule overlap validation.
+
+- Full unit tests: 120/120 on the iPhone 17 Pro simulator (Debug), including a
+  new end-to-end test that renders a pharmacy-style label image and runs it
+  through the real Vision OCR → sanitize → parse pipeline. That test caught
+  Vision reading a printed slash as a pipe in `DISCARD AFTER 07/14/26`; the date
+  patterns now accept `|` and `.` separators.
+- UI and accessibility tests: 8/8 on the iPhone 17 simulator.
+- Release static analysis on the application target: clean.
+- Hands-on gates unchanged from the August 24 record below; the flashlight
+  button and torch shutoff paths need a physical-device check (no torch exists
+  in the simulator, so the button correctly stays hidden there).
+
+---
+
 Date: August 24, 2026
 
 Toolchain: Xcode 26.6, iOS 26.5 SDK

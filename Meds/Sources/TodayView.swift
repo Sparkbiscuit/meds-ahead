@@ -268,6 +268,7 @@ private struct DoseCard: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.large)
+                    .accessibilityLabel("Skip \(medication.displayName)")
 
                     Button(action: onTaken) {
                         Label("Taken", systemImage: "checkmark")
@@ -275,6 +276,7 @@ private struct DoseCard: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
+                    .accessibilityLabel("Mark \(medication.displayName) taken")
                 }
             }
         }
