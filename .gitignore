@@ -6,3 +6,7 @@ xcuserdata/
 *.ipa
 *.dSYM.zip
 *.xcarchive
+
+# Local Claude Code setup
+.mcp.json
+.claude/

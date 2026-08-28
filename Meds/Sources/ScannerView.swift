@@ -17,6 +17,7 @@ struct ScannerScreen: View {
     @State private var isInterpreting = false
     @State private var errorMessage: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
 
     private enum CameraAccess: Equatable {
         case resolving
@@ -51,7 +52,27 @@ struct ScannerScreen: View {
         .onChange(of: evidence) { _, newValue in
             schedulePreviewUpdate(for: newValue)
         }
-        .onDisappear { previewTask?.cancel() }
+        .onChange(of: scenePhase) { _, phase in
+            guard canUseLiveScanner else { return }
+            if phase == .active {
+                // Backgrounding (or a phone call) stops the capture session and
+                // VisionKit does not restart it on its own; without this, coming
+                // back to the scanner shows a frozen frame.
+                scannerController.startScanning()
+            } else {
+                scannerController.setTorch(false)
+            }
+        }
+        .onAppear {
+            // No-op on first appearance (the scanner starts itself when it
+            // attaches); resumes live scanning when popping back from review,
+            // which previously left a frozen frame until Clear Scan.
+            scannerController.startScanning()
+        }
+        .onDisappear {
+            previewTask?.cancel()
+            scannerController.setTorch(false)
+        }
         .onChange(of: selectedPhoto) { _, item in
             guard let item else { return }
             processPhoto(item)
@@ -66,8 +87,14 @@ struct ScannerScreen: View {
     private var scannerArea: some View {
         ZStack {
             if canUseLiveScanner {
-                LiveDataScanner(evidence: $evidence, controller: scannerController)
-                    .ignoresSafeArea(edges: .top)
+                LiveDataScanner(
+                    evidence: $evidence,
+                    controller: scannerController,
+                    // Swaps to the photo-fallback explanation; recognized
+                    // evidence is kept and Review stays available.
+                    onBecameUnavailable: { cameraAccess = .unavailable }
+                )
+                .ignoresSafeArea(edges: .top)
             } else {
                 LinearGradient(colors: [.black, Color(red: 0.06, green: 0.11, blue: 0.14)], startPoint: .top, endPoint: .bottom)
                 unavailableScannerMessage
@@ -96,7 +123,31 @@ struct ScannerScreen: View {
                     .padding(.bottom, 24)
             }
         }
+        .overlay(alignment: .bottomTrailing) { torchButton }
         .accessibilityElement(children: .contain)
+    }
+
+    /// Low light is the most common reason a legible label fails to read, and the
+    /// system scanner offers no flashlight control of its own.
+    @ViewBuilder
+    private var torchButton: some View {
+        if canUseLiveScanner && scannerController.isTorchAvailable {
+            Button {
+                scannerController.toggleTorch()
+            } label: {
+                Image(systemName: scannerController.isTorchOn ? "flashlight.on.fill" : "flashlight.off.fill")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(scannerController.isTorchOn ? .black : .white)
+                    .frame(width: 44, height: 44)
+                    .background(
+                        scannerController.isTorchOn ? AnyShapeStyle(.white) : AnyShapeStyle(.black.opacity(0.52)),
+                        in: Circle()
+                    )
+            }
+            .accessibilityLabel(scannerController.isTorchOn ? "Turn flashlight off" : "Turn flashlight on")
+            .padding(.trailing, ScanFrameLayout.horizontalInset + 12)
+            .padding(.bottom, ScanFrameLayout.verticalInset + 12)
+        }
     }
 
     @ViewBuilder
@@ -349,31 +400,66 @@ private enum ScannerError: Error {
 
 @MainActor
 private final class LiveScannerController: ObservableObject {
+    @Published private(set) var isTorchAvailable = false
+    @Published private(set) var isTorchOn = false
     private weak var scanner: DataScannerViewController?
     private var resetHandler: (() -> Void)?
+    private var restartHandler: (() -> Void)?
 
-    func attach(_ scanner: DataScannerViewController, resetHandler: @escaping () -> Void) {
+    func attach(
+        _ scanner: DataScannerViewController,
+        resetHandler: @escaping () -> Void,
+        restartHandler: @escaping () -> Void
+    ) {
         self.scanner = scanner
         self.resetHandler = resetHandler
+        self.restartHandler = restartHandler
+        isTorchAvailable = AVCaptureDevice.default(for: .video)?.hasTorch == true
     }
 
     func detach(_ scanner: DataScannerViewController) {
         guard self.scanner === scanner else { return }
         self.scanner = nil
         resetHandler = nil
+        restartHandler = nil
+        isTorchAvailable = false
+        isTorchOn = false
     }
 
     func startScanning() {
         guard let scanner, !scanner.isScanning else { return }
-        try? scanner.startScanning()
+        restartHandler?()
     }
 
     func stopScanning() {
+        setTorch(false)
         scanner?.stopScanning()
     }
 
     func resetTracking() {
         resetHandler?()
+    }
+
+    func toggleTorch() {
+        setTorch(!isTorchOn)
+    }
+
+    /// The torch belongs to the capture device, not the VisionKit controller, so
+    /// it can be driven directly while the scanner's own session runs. The system
+    /// shuts it off whenever the session stops; state is re-synced on those paths.
+    func setTorch(_ on: Bool) {
+        guard let device = AVCaptureDevice.default(for: .video), device.hasTorch else {
+            isTorchOn = false
+            return
+        }
+        do {
+            try device.lockForConfiguration()
+            device.torchMode = on && device.isTorchAvailable ? .on : .off
+            device.unlockForConfiguration()
+            isTorchOn = device.torchMode == .on
+        } catch {
+            isTorchOn = false
+        }
     }
 
     func captureCroppedPhoto() async throws -> UIImage {
@@ -407,6 +493,7 @@ private extension UIImage {
 private struct LiveDataScanner: UIViewControllerRepresentable {
     @Binding var evidence: [ScanEvidence]
     let controller: LiveScannerController
+    let onBecameUnavailable: () -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
@@ -426,9 +513,16 @@ private struct LiveDataScanner: UIViewControllerRepresentable {
             isHighlightingEnabled: true
         )
         scanner.delegate = context.coordinator
-        controller.attach(scanner) { [weak coordinator = context.coordinator] in
-            coordinator?.reset()
-        }
+        controller.attach(
+            scanner,
+            resetHandler: { [weak coordinator = context.coordinator] in
+                coordinator?.reset()
+            },
+            restartHandler: { [weak coordinator = context.coordinator, weak scanner] in
+                guard let scanner else { return }
+                coordinator?.startScanning(scanner)
+            }
+        )
         context.coordinator.startScanning(scanner)
         return scanner
     }
@@ -494,6 +588,17 @@ private struct LiveDataScanner: UIViewControllerRepresentable {
 
         func dataScanner(_ dataScanner: DataScannerViewController, didRemove removedItems: [RecognizedItem], allItems: [RecognizedItem]) {
             refresh(allItems)
+        }
+
+        func dataScanner(
+            _ dataScanner: DataScannerViewController,
+            becameUnavailableWithError error: DataScannerViewController.ScanningUnavailable
+        ) {
+            // Without this, a session killed mid-scan (thermal pressure, another
+            // app claiming the camera) leaves a frozen frame behind guidance that
+            // says to keep rotating the bottle.
+            cancelPendingWork()
+            parent.onBecameUnavailable()
         }
 
         func reset() {
@@ -617,7 +722,9 @@ enum StillImageRecognizer {
         let textRequest = VNRecognizeTextRequest()
         textRequest.recognitionLevel = .accurate
         textRequest.usesLanguageCorrection = true
-        textRequest.recognitionLanguages = ["en-US"]
+        // Match the live scanner's language set so a photo of the same label
+        // reads the same way the camera does.
+        textRequest.recognitionLanguages = ["en-US", "es-ES", "fr-FR"]
         let barcodeRequest = VNDetectBarcodesRequest()
         try handler.perform([textRequest])
         // Barcode inference is optional and can be unavailable even when OCR succeeds.

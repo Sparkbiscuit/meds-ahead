@@ -154,6 +154,54 @@ final class NotificationPlannerTests: XCTestCase {
         XCTAssertTrue(NotificationPlanner.notifications(for: plan, calendar: calendar).isEmpty)
     }
 
+    func testDoseRemindersOutrankRefillAlertsUnderThePendingRequestCap() throws {
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 1, hour: 12)))
+        // 58 distinct Monday-only slots, plus refill alerts for six medications
+        // with staggered depletion dates: 64 wanted requests against a cap of 60.
+        var nearestRefillIDs: [UUID] = []
+        var plans: [MedicationNotificationPlan] = []
+        for index in 0..<58 {
+            let medicationID = UUID()
+            let hasRefill = index < 6
+            if hasRefill, index < 2 { nearestRefillIDs.append(medicationID) }
+            plans.append(makePlan(
+                medicationID: medicationID,
+                scheduleID: UUID(),
+                refillRemindersEnabled: hasRefill,
+                refillLeadDays: 1,
+                depletionDate: hasRefill ? calendar.date(byAdding: .day, value: 10 + index, to: now) : nil,
+                weekdayMask: 1 << 1,
+                minutesAfterMidnight: 6 * 60 + index
+            ))
+        }
+
+        let notifications = NotificationPlanner.notifications(for: plans, now: now, calendar: calendar)
+
+        XCTAssertEqual(notifications.count, NotificationPlanner.maximumScheduledRequests)
+        XCTAssertEqual(notifications.filter { $0.kind == .dose }.count, 58)
+        let keptRefills = notifications.filter { $0.kind == .refill }
+        XCTAssertEqual(keptRefills.count, 2)
+        XCTAssertEqual(Set(keptRefills.compactMap(\.medicationID)), Set(nearestRefillIDs))
+    }
+
+    func testTypicalRegimenIsNotTrimmedByTheCap() throws {
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 1, hour: 12)))
+        let depletion = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 9, day: 20)))
+        let plans = (0..<8).map { index in
+            makePlan(
+                medicationID: UUID(),
+                scheduleID: UUID(),
+                depletionDate: depletion,
+                minutesAfterMidnight: 7 * 60 + index * 90
+            )
+        }
+
+        let notifications = NotificationPlanner.notifications(for: plans, now: now, calendar: calendar)
+
+        XCTAssertEqual(notifications.filter { $0.kind == .dose }.count, 8)
+        XCTAssertEqual(notifications.filter { $0.kind == .refill }.count, 8)
+    }
+
     private func makePlan(
         medicationID: UUID = UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")!,
         scheduleID: UUID = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!,
@@ -164,7 +212,8 @@ final class NotificationPlannerTests: XCTestCase {
         detailedNotifications: Bool = false,
         refillLeadDays: Int = 7,
         depletionDate: Date? = nil,
-        weekdayMask: Int = 0b1111111
+        weekdayMask: Int = 0b1111111,
+        minutesAfterMidnight: Int = 8 * 60 + 30
     ) -> MedicationNotificationPlan {
         MedicationNotificationPlan(
             medicationID: medicationID,
@@ -180,7 +229,7 @@ final class NotificationPlannerTests: XCTestCase {
             schedules: [
                 ScheduleNotificationPlan(
                     id: scheduleID,
-                    minutesAfterMidnight: 8 * 60 + 30,
+                    minutesAfterMidnight: minutesAfterMidnight,
                     doseQuantity: 1,
                     weekdayMask: weekdayMask
                 )

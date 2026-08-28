@@ -131,7 +131,13 @@ enum ScanParser {
     private static let simpleRefillPattern = /(?i)\b(\d+)\s+refills?\b/
     private static let noRefillsPattern = /(?i)\bno\s+refills?\s+(?:left|remaining)\b/
     private static let lotPattern = /(?i)\blot\s*[:#]?\s*([A-Z0-9-]+)\b/
-    private static let expirationPattern = /(?i)\b(?:exp|expires?|expiration)\s*[:.]?\s*(\d{1,2})[\/-](\d{2,4})\b/
+    // Pharmacy vials print "DISCARD AFTER" or "USE BY" far more often than "EXP",
+    // and manufacturer bottles print named months ("EXP MAY 2029", "Use by 01JUL26").
+    // The date separators accept "|" and "." alongside "/" and "-": Vision reads
+    // a printed slash as a pipe often enough that a real label's discard date
+    // otherwise silently fails to prefill.
+    private static let expirationPattern = /(?i)\b(?:exp(?:\.|ires?|iration)?|use\s+by|best\s+by|discard\s+after|do\s+not\s+use\s+after|beyond\s+use)\s*(?:date)?\s*[:.]?\s*(\d{1,2})[\/\-|.](?:(\d{1,2})[\/\-|.])?(\d{2,4})\b/
+    private static let namedMonthExpirationPattern = /(?i)\b(?:exp(?:\.|ires?|iration)?|use\s+by|best\s+by|discard\s+after|do\s+not\s+use\s+after|beyond\s+use)\s*(?:date)?\s*[:.]?\s*(?:(\d{1,2})\s*)?(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s*(?:(\d{1,2})(?:st|nd|rd|th)?\s*,?\s+)?(\d{2,4})\b/
     private static let ndcPattern = /(?i)\bNDC\s*[:#]?\s*(\d{4,5}-\d{3,4}-\d{1,2}|\d{10,11})\b/
 
     private struct TextLine {
@@ -154,7 +160,7 @@ enum ScanParser {
         draft.name = resolvedName.value
         draft.nameProvenance = resolvedName.provenance
         draft.form = inferForm(from: combined)
-        draft.currentSupply = capturedQuantity(in: combined)
+        draft.currentSupply = capturedQuantity(from: lines, combined: combined)
         draft.refillsRemaining = capturedRefills(in: combined)
         draft.lotNumber = capture(in: combined, pattern: lotPattern, group: 1) ?? ""
         draft.expirationDate = capturedExpiration(in: combined, now: now)
@@ -295,13 +301,35 @@ enum ScanParser {
         return .tablet
     }
 
-    private static func capturedQuantity(in value: String) -> Double? {
-        for pattern in [quantityPattern, packageQuantityPattern] {
-            if let raw = capture(in: value, pattern: pattern, group: 1) {
+    /// A labeled quantity ("QTY: 60", "CONTENTS 120") is trusted anywhere. The bare
+    /// package-count fallback ("120 tablets") is only trusted on lines that are not
+    /// directions: "Take 1 tablet by mouth twice daily" fits the same shape, and on
+    /// an OTC bottle with no printed QTY it would autofill a supply of 1.
+    private static func capturedQuantity(from lines: [TextLine], combined: String) -> Double? {
+        if let raw = capture(in: combined, pattern: quantityPattern, group: 1) {
+            return Double(raw)
+        }
+        for line in lines where !isDirectionLike(line.value) {
+            if let raw = capture(in: line.value, pattern: packageQuantityPattern, group: 1) {
                 return Double(raw)
             }
         }
         return nil
+    }
+
+    private static func isDirectionLike(_ value: String) -> Bool {
+        let lower = value.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let directionVerbs = [
+            "take ", "use ", "apply ", "inhale ", "instill ", "inject ", "place ",
+            "give ", "chew ", "swallow ", "dissolve ", "adults", "children"
+        ]
+        if directionVerbs.contains(where: lower.hasPrefix) { return true }
+        let frequencyMarkers = [
+            " once daily", " twice daily", " daily", " times a day", " times daily",
+            " every ", " as needed", " as directed", " at bedtime", " by mouth",
+            " in the morning", " in the evening", " under the tongue"
+        ]
+        return frequencyMarkers.contains(where: lower.contains)
     }
 
     private static func capturedRefills(in value: String) -> Int? {
@@ -314,17 +342,51 @@ enum ScanParser {
         return nil
     }
 
+    /// Labels print both month/year ("EXP 05/2029") and full dates ("EXP 10/01/25").
+    /// The middle group must be treated as a day when present: reading "10/01/25"
+    /// as month 10 of year 01 would prefill an expiration a quarter-century past.
     private static func capturedExpiration(in value: String, now: Date) -> Date? {
-        guard let match = value.firstMatch(of: expirationPattern),
-              let month = Int(match.1),
-              var year = Int(match.2),
-              (1...12).contains(month) else { return nil }
+        if let match = value.firstMatch(of: expirationPattern),
+           let month = Int(match.1),
+           let year = Int(match.3),
+           let date = expirationDate(month: month, day: match.2.flatMap { Int($0) }, year: year) {
+            return date
+        }
+        if let match = value.firstMatch(of: namedMonthExpirationPattern),
+           let month = monthNumber(named: String(match.2)),
+           let year = Int(match.4) {
+            let day = match.1.flatMap { Int($0) } ?? match.3.flatMap { Int($0) }
+            return expirationDate(month: month, day: day, year: year)
+        }
+        return nil
+    }
+
+    private static func expirationDate(month: Int, day: Int?, year rawYear: Int) -> Date? {
+        var year = rawYear
         if year < 100 { year += 2000 }
+        guard (1...12).contains(month), (2000...2099).contains(year) else { return nil }
+        let calendar = Calendar(identifier: .gregorian)
+        if let day, (1...31).contains(day) {
+            var components = DateComponents()
+            components.year = year
+            components.month = month
+            components.day = day
+            if let date = calendar.date(from: components),
+               calendar.component(.month, from: date) == month {
+                return date
+            }
+        }
+        // Month/year-only labels mean "good through that month": use its last day.
         var components = DateComponents()
         components.year = year
         components.month = month + 1
         components.day = 0
-        return Calendar(identifier: .gregorian).date(from: components)
+        return calendar.date(from: components)
+    }
+
+    private static func monthNumber(named value: String) -> Int? {
+        let months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+        return months.firstIndex(of: value.lowercased()).map { $0 + 1 }
     }
 
     private static func capturedDirections(from lines: [TextLine]) -> String {

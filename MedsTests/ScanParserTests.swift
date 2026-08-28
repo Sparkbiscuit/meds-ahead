@@ -170,6 +170,25 @@ final class ScanParserTests: XCTestCase {
         XCTAssertEqual(ScanParser.parse(evidence).currentSupply, 120)
     }
 
+    func testDirectionsDoseCountIsNotMistakenForPackageQuantity() {
+        // An OTC label with no printed QTY: the directions line fits the bare
+        // "(N) tablets" shape and used to autofill a supply of 1.
+        let evidence = [
+            ScanEvidence(kind: .text, value: "Ibuprofen"),
+            ScanEvidence(kind: .text, value: "200 mg"),
+            ScanEvidence(kind: .text, value: "Take 1 tablet every 6 hours"),
+            ScanEvidence(kind: .text, value: "100 tablets")
+        ]
+
+        XCTAssertEqual(ScanParser.parse(evidence).currentSupply, 100)
+    }
+
+    func testDirectionsAloneLeaveQuantityEmpty() {
+        let evidence = [ScanEvidence(kind: .text, value: "Take 2 tablets daily")]
+
+        XCTAssertNil(ScanParser.parse(evidence).currentSupply)
+    }
+
     func testNameOnStrengthLineDropsDosageFormWords() {
         let evidence = [
             ScanEvidence(kind: .text, value: "FUROSEMIDE 20 MG TABLETS", confidence: 0.92),

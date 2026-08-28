@@ -61,10 +61,12 @@ struct RootView: View {
                 Color.clear
             }
         }
-        .onChange(of: selection) { _, newValue in
+        .onChange(of: selection) { oldValue, newValue in
             if newValue == .add {
                 isPresentingAdd = true
-                selection = .today
+                // Return to the tab the person was on, so closing the add sheet
+                // does not teleport them from Supply or Medications to Today.
+                selection = oldValue == .add ? .today : oldValue
             }
         }
         .sheet(isPresented: $isPresentingAdd) {

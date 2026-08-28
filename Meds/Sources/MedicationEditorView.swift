@@ -83,12 +83,12 @@ struct MedicationEditorView: View {
             return "Enter the medication name."
         }
         if !isEditing {
-            guard let currentSupply = Double(currentSupplyText), currentSupply.isFinite, currentSupply >= 0 else {
+            guard let currentSupply = Double.medicationQuantity(from: currentSupplyText), currentSupply >= 0 else {
                 return "Enter a current amount of zero or more. Include doses already placed in pill organizers."
             }
         }
-        if !refillsText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           (Int(refillsText) == nil || (Int(refillsText) ?? -1) < 0) {
+        let refills = refillsText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !refills.isEmpty, (Int(refills).map { $0 < 0 } ?? true) {
             return "Refills remaining must be a whole number of zero or more, or left blank."
         }
         if !isAsNeeded {
@@ -99,11 +99,18 @@ struct MedicationEditorView: View {
             if editableSchedules.contains(where: { $0.weekdayMask == 0 }) {
                 return "Choose at least one day for every schedule."
             }
-            let minutes = editableSchedules.map { schedule in
+            // Two schedules may share a clock time on different days — a Monday
+            // dose and a Tuesday dose at 8:00 with different amounts is a promised
+            // configuration. Only a same-day collision is a genuine duplicate.
+            var masksByMinute: [Int: Int] = [:]
+            for schedule in editableSchedules {
                 let parts = Calendar.current.dateComponents([.hour, .minute], from: schedule.time)
-                return (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+                let minutes = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+                if masksByMinute[minutes, default: 0] & schedule.weekdayMask != 0 {
+                    return "Two schedules overlap at the same time on the same day. Change one of the times or its days."
+                }
+                masksByMinute[minutes, default: 0] |= schedule.weekdayMask
             }
-            if Set(minutes).count != minutes.count { return "Each schedule time must be different." }
         }
         return nil
     }
@@ -159,7 +166,7 @@ struct MedicationEditorView: View {
                                 .accessibilityIdentifier("current-supply")
                         }
                         .padding(.vertical, 3)
-                        Text(form.unitName + (Double(currentSupplyText) == 1 ? "" : "s"))
+                        Text(form.unitName + (Double.medicationQuantity(from: currentSupplyText) == 1 ? "" : "s"))
                             .foregroundStyle(.secondary)
                     }
                 } header: {
@@ -389,7 +396,7 @@ struct MedicationEditorView: View {
             target = newMedication
             let opening = InventoryEvent(
                 medicationID: target.id,
-                delta: Double(currentSupplyText) ?? 0,
+                delta: Double.medicationQuantity(from: currentSupplyText) ?? 0,
                 reason: .openingCount
             )
             modelContext.insert(opening)
@@ -397,7 +404,7 @@ struct MedicationEditorView: View {
             inventoryForNotifications.append(opening)
         }
 
-        target.refillsRemaining = Int(refillsText)
+        target.refillsRemaining = Int(refillsText.trimmingCharacters(in: .whitespacesAndNewlines))
         target.refillLeadDays = refillLeadDays
         target.expirationDate = hasExpirationDate ? expirationDate : nil
         target.lotNumber = lotNumber.trimmingCharacters(in: .whitespacesAndNewlines)

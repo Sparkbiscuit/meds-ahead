@@ -41,6 +41,9 @@ actor NotificationService {
             content.title = item.title
             content.body = item.body
             content.sound = .default
+            // Stack dose reminders together (and refill alerts together) in
+            // Notification Center instead of interleaving with everything else.
+            content.threadIdentifier = item.kind == .dose ? "meds.dose" : "meds.refill"
             var userInfo: [String: String] = [:]
             if let medicationID = item.medicationID {
                 userInfo["medicationID"] = medicationID.uuidString
