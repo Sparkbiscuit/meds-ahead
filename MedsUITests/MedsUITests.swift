@@ -183,6 +183,29 @@ final class MedsUITests: XCTestCase {
         XCTAssertEqual(supply.value as? String, "60", "current amount did not carry over")
     }
 
+    func testLogAllDueRecordsEveryDueDose() {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-ui-testing",
+            "-skip-onboarding",
+            "-seed-demo-data",
+            "-force-overdue-dose-state"
+        ]
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+        let logAll = app.buttons["log-all-due"]
+        XCTAssertTrue(logAll.waitForExistence(timeout: 3), "the log-all shortcut never appeared")
+        logAll.tap()
+
+        let confirm = app.buttons["Mark All Taken"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3), "the confirmation dialog never appeared")
+        confirm.tap()
+
+        XCTAssertTrue(app.staticTexts["All logged"].waitForExistence(timeout: 5))
+        XCTAssertFalse(logAll.exists, "the shortcut should disappear once nothing is due")
+    }
+
     func testOverdueDoseStateIsVisibleAndAccessible() {
         let app = XCUIApplication()
         app.launchArguments = [

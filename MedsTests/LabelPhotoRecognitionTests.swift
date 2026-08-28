@@ -40,6 +40,33 @@ final class LabelPhotoRecognitionTests: XCTestCase {
         XCTAssertEqual(parts.day, 14)
     }
 
+    /// The OTC shape: no printed QTY, a directions line that fits the bare
+    /// "(N) tablets" pattern, and a named-month best-by date. The supply must
+    /// come from the package count, never the directions.
+    func testRenderedOTCLabelPhotoUsesPackageCountNotDirections() async throws {
+        let image = renderedLabel(lines: [
+            Line("Melatonin", size: 56, bold: true),
+            Line("5 mg", size: 44, bold: true),
+            Line("Take 2 tablets daily at bedtime", size: 38),
+            Line("120 TABLETS", size: 42, bold: true),
+            Line("BEST BY JAN 26", size: 36)
+        ])
+        let data = try XCTUnwrap(image.pngData())
+
+        let evidence = try await StillImageRecognizer.recognize(data: data, origin: .photoLibrary)
+        let draft = MedicationLabelInterpreter.offlineDraft(evidence)
+
+        XCTAssertEqual(draft.name, "Melatonin")
+        XCTAssertEqual(draft.strength.lowercased(), "5 mg")
+        XCTAssertEqual(draft.currentSupply, 120, "package count must win over the dose in the directions")
+        XCTAssertEqual(draft.directions.lowercased(), "take 2 tablets daily at bedtime")
+        let expiration = try XCTUnwrap(draft.expirationDate)
+        let parts = Calendar(identifier: .gregorian).dateComponents([.year, .month, .day], from: expiration)
+        XCTAssertEqual(parts.year, 2026)
+        XCTAssertEqual(parts.month, 1)
+        XCTAssertEqual(parts.day, 31)
+    }
+
     private struct Line {
         let text: String
         let size: CGFloat

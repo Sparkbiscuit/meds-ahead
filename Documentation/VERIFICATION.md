@@ -1,5 +1,33 @@
 # Verification record
 
+## August 28, 2026 (second pass) — torch fix, log-all-due, medication list PDF
+
+- Fixed the hands-on finding that turning the flashlight on froze the live
+  scanner: the torch is now driven on the AVCaptureDevice instance inside
+  VisionKit's own session (found via its preview layer) instead of a second
+  instance of the camera, whose configuration lock interrupted the session. A
+  recovery nudge restarts scanning if the session still stops. **Needs a fresh
+  physical-device check of torch + live preview together.**
+- Scanner guidance is now state-aware: the photo-fallback screen no longer says
+  to rotate a bottle in front of a camera that is off, and guides toward adding
+  photos instead.
+- New: "Mark all N due doses taken" on Today (confirmation-gated, each dose
+  still logged individually at its scheduled time), and Settings → Your records
+  → "Share Medication List", a one-page monochrome PDF of active medications,
+  schedules, supply, refills, and expirations rendered on device.
+- Unit tests: 127/127, adding medication-list document/PDF tests and a second
+  rendered-label OCR test (OTC shape: package count wins over the dose printed
+  in the directions; BEST BY named-month date).
+- UI and accessibility tests: 9/9, adding the log-all-due flow.
+- Release static analysis on the application target: clean.
+- Simulator panel pass on iPhone 17 Pro: Today with the log-all shortcut
+  (before/after states), the confirmation dialog copy, Settings share sheet
+  producing a 19 KB PDF with correct live totals, the photo-fallback scanner
+  states, and the full photo → OCR → review flow on a rendered Tacrolimus
+  pharmacy label — every field (name via vocabulary, strength, form,
+  directions, quantity 60, refills 2, DISCARD AFTER date, lot) prefilled
+  correctly.
+
 ## August 28, 2026 — scan reliability and reminder-cap pass (build 2)
 
 Covers: flashlight control and camera-session recovery in the scanner, expiration
