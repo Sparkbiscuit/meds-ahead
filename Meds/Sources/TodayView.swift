@@ -12,6 +12,17 @@ enum TimeOfDayGreeting {
     }
 }
 
+/// One shared answer to "is this dose actionable right now", including the
+/// UI-test override, so the cards and the log-all shortcut can never disagree.
+private func effectiveTimingState(for date: Date, now: Date) -> DoseTimingState {
+#if DEBUG
+    if ProcessInfo.processInfo.arguments.contains("-force-overdue-dose-state") {
+        return .overdue
+    }
+#endif
+    return ScheduleEngine.timingState(for: date, now: now)
+}
+
 struct TodayView: View {
     @Query(sort: \Medication.createdAt) private var medications: [Medication]
     @Query private var schedules: [DoseSchedule]
@@ -22,6 +33,7 @@ struct TodayView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var savingDoseIDs: Set<String> = []
     @State private var showingSaveError = false
+    @State private var showingLogAllConfirmation = false
     let onAdd: () -> Void
 
     private var activeMedications: [Medication] {
@@ -77,6 +89,7 @@ struct TodayView: View {
                         )
                     } else {
                         progressCard(doses: doses)
+                        logAllDueButton(doses: doses, now: now)
                         ForEach(doses, id: \.1.id) { medication, dose in
                             DoseCard(
                                 medication: medication,
@@ -163,6 +176,78 @@ struct TodayView: View {
                 .font(.subheadline)
                 .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func dueDoses(in doses: [(Medication, ScheduledDose)], now: Date) -> [(Medication, ScheduledDose)] {
+        doses.filter {
+            status(for: $0.1) == nil && effectiveTimingState(for: $0.1.date, now: now) != .upcoming
+        }
+    }
+
+    /// With several medications due at once, per-card logging is a tap per bottle.
+    /// One reviewed action logs the whole tray; each dose is still recorded
+    /// individually and can be removed from its medication's history.
+    @ViewBuilder
+    private func logAllDueButton(doses: [(Medication, ScheduledDose)], now: Date) -> some View {
+        let due = dueDoses(in: doses, now: now)
+        if due.count >= 2 {
+            Button {
+                showingLogAllConfirmation = true
+            } label: {
+                Label("Mark all \(due.count) due doses taken", systemImage: "checkmark.circle.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .tint(AppTheme.accent)
+            .accessibilityIdentifier("log-all-due")
+            .confirmationDialog(
+                "Mark \(due.count) due doses as taken?",
+                isPresented: $showingLogAllConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Mark All Taken") { recordAllDue() }
+            } message: {
+                Text("Each dose is logged at its scheduled time. You can remove any log from that medication's history.")
+            }
+        }
+    }
+
+    private func recordAllDue(now: Date = .now) {
+        let pending = dueDoses(in: todaysDoses(now: now), now: now)
+            .filter { !savingDoseIDs.contains($0.1.id) }
+        guard !pending.isEmpty else { return }
+        savingDoseIDs.formUnion(pending.map(\.1.id))
+        defer { savingDoseIDs.subtract(pending.map(\.1.id)) }
+
+        var newEvents: [DoseEvent] = []
+        for (medication, dose) in pending {
+            let event = DoseEvent(
+                medicationID: medication.id,
+                scheduleID: dose.scheduleID,
+                scheduledAt: dose.date,
+                doseQuantity: dose.quantity,
+                status: .taken
+            )
+            modelContext.insert(event)
+            newEvents.append(event)
+        }
+        do {
+            try modelContext.save()
+            let newIDs = Set(newEvents.map(\.id))
+            let plans = NotificationPlanBuilder.makeAll(
+                medications: medications,
+                schedules: schedules,
+                inventoryEvents: inventoryEvents,
+                doseEvents: doseEvents.filter { !newIDs.contains($0.id) } + newEvents
+            )
+            Task { await NotificationService.shared.replaceAllNotifications(for: plans) }
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        } catch {
+            modelContext.rollback()
+            showingSaveError = true
         }
     }
 
@@ -300,12 +385,7 @@ private struct DoseCard: View {
     }
 
     private func timingState(now: Date) -> DoseTimingState {
-#if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("-force-overdue-dose-state") {
-            return .overdue
-        }
-#endif
-        return ScheduleEngine.timingState(for: dose.date, now: now)
+        effectiveTimingState(for: dose.date, now: now)
     }
 
     private func timingTitle(now: Date) -> String {

@@ -1,4 +1,5 @@
 import StoreKit
+import SwiftData
 import SwiftUI
 import UIKit
 import UserNotifications
@@ -7,12 +8,27 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = true
+    @Query private var medications: [Medication]
+    @Query private var schedules: [DoseSchedule]
+    @Query private var inventoryEvents: [InventoryEvent]
+    @Query private var doseEvents: [DoseEvent]
     @State private var notificationStatus = "Checking…"
     @State private var showingSafety = false
     @State private var showingPrivacy = false
     @State private var showingStory = false
     @State private var showingTips = false
+    @State private var medicationListShare: MedicationListShareItem?
+    @State private var showingExportUnavailable = false
+
+    private struct MedicationListShareItem: Identifiable {
+        let url: URL
+        var id: URL { url }
+    }
     @State private var tipAvailability: TipAvailability = .loading
+
+    private var hasActiveMedications: Bool {
+        medications.contains { !$0.isArchived }
+    }
 
     /// App Review must always be able to find the in-app purchases, so the tip row
     /// is present in every state rather than appearing only once StoreKit answers.
@@ -33,6 +49,19 @@ struct SettingsView: View {
                 Text("Reminders")
             } footer: {
                 Text("Meds Ahead uses local notifications. Delivery also depends on your iPhone notification and Focus settings.")
+            }
+
+            Section {
+                Button {
+                    shareMedicationList()
+                } label: {
+                    Label("Share Medication List", systemImage: "square.and.arrow.up")
+                }
+                .disabled(!hasActiveMedications)
+            } header: {
+                Text("Your records")
+            } footer: {
+                Text("A one-page PDF of your current medications, schedules, and supply for appointments and pharmacy visits. It is created on this iPhone and shared only where you send it.")
             }
 
             Section {
@@ -145,6 +174,29 @@ struct SettingsView: View {
             if case let .available(products) = tipAvailability {
                 TipJarView(products: products)
             }
+        }
+        .sheet(item: $medicationListShare) { item in
+            ActivityShareSheet(items: [item.url])
+                .presentationDetents([.medium, .large])
+        }
+        .alert("Couldn't Create the List", isPresented: $showingExportUnavailable) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("The medication list PDF could not be created. Try again.")
+        }
+    }
+
+    private func shareMedicationList() {
+        let entries = MedicationListDocument.entries(
+            medications: medications,
+            schedules: schedules,
+            inventoryEvents: inventoryEvents,
+            doseEvents: doseEvents
+        )
+        if let url = MedicationListPDFRenderer.render(entries: entries) {
+            medicationListShare = MedicationListShareItem(url: url)
+        } else {
+            showingExportUnavailable = true
         }
     }
 

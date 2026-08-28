@@ -113,14 +113,16 @@ struct ScannerScreen: View {
             VStack(spacing: 10) {
                 scanProgress
                 Spacer()
-                Text(scanGuidance)
-                    .font(.subheadline.weight(.semibold))
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(.black.opacity(0.52), in: Capsule())
-                    .padding(.bottom, 24)
+                if let scanGuidance {
+                    Text(scanGuidance)
+                        .font(.subheadline.weight(.semibold))
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(.black.opacity(0.52), in: Capsule())
+                        .padding(.bottom, 24)
+                }
             }
         }
         .overlay(alignment: .bottomTrailing) { torchButton }
@@ -173,10 +175,17 @@ struct ScannerScreen: View {
         }
     }
 
-    private var scanGuidance: String {
-        if !preview.medicationName.isEmpty { return "Name matched — rotate for strength, quantity, and refill details" }
-        if !evidence.isEmpty { return "Keep rotating until the full medication name is visible" }
-        return "Keep the label inside the frame and slowly rotate the bottle"
+    /// Guidance must match the input actually available: telling someone to
+    /// rotate a bottle in front of a camera that is off is worse than silence.
+    private var scanGuidance: String? {
+        if canUseLiveScanner {
+            if !preview.medicationName.isEmpty { return "Name matched — rotate for strength, quantity, and refill details" }
+            if !evidence.isEmpty { return "Keep rotating until the full medication name is visible" }
+            return "Keep the label inside the frame and slowly rotate the bottle"
+        }
+        guard !evidence.isEmpty else { return nil }
+        if !preview.medicationName.isEmpty { return "Name matched — add photos of the other sides for the rest" }
+        return "Add a photo where the full medication name is visible"
     }
 
     private var controls: some View {
@@ -405,6 +414,7 @@ private final class LiveScannerController: ObservableObject {
     private weak var scanner: DataScannerViewController?
     private var resetHandler: (() -> Void)?
     private var restartHandler: (() -> Void)?
+    private var torchRecoveryTask: Task<Void, Never>?
 
     func attach(
         _ scanner: DataScannerViewController,
@@ -422,6 +432,7 @@ private final class LiveScannerController: ObservableObject {
         self.scanner = nil
         resetHandler = nil
         restartHandler = nil
+        torchRecoveryTask?.cancel()
         isTorchAvailable = false
         isTorchOn = false
     }
@@ -444,11 +455,15 @@ private final class LiveScannerController: ObservableObject {
         setTorch(!isTorchOn)
     }
 
-    /// The torch belongs to the capture device, not the VisionKit controller, so
-    /// it can be driven directly while the scanner's own session runs. The system
-    /// shuts it off whenever the session stops; state is re-synced on those paths.
+    /// The torch must be driven on the same AVCaptureDevice instance VisionKit's
+    /// session uses, found through its preview layer. Locking a second instance
+    /// of the camera (AVCaptureDevice.default) interrupts the running session on
+    /// real hardware, which froze the live preview whenever the torch was on.
+    /// The system shuts the torch off whenever the session stops; state is
+    /// re-synced on those paths.
     func setTorch(_ on: Bool) {
-        guard let device = AVCaptureDevice.default(for: .video), device.hasTorch else {
+        guard let device = sessionCaptureDevice() ?? AVCaptureDevice.default(for: .video),
+              device.hasTorch else {
             isTorchOn = false
             return
         }
@@ -459,6 +474,37 @@ private final class LiveScannerController: ObservableObject {
             isTorchOn = device.torchMode == .on
         } catch {
             isTorchOn = false
+        }
+        if on { scheduleTorchRecoveryNudge() }
+    }
+
+    private func sessionCaptureDevice() -> AVCaptureDevice? {
+        guard let scanner,
+              let preview = Self.previewLayer(in: scanner.view.layer),
+              let session = preview.session else { return nil }
+        return session.inputs
+            .compactMap { ($0 as? AVCaptureDeviceInput)?.device }
+            .first(where: \.hasTorch)
+    }
+
+    private static func previewLayer(in layer: CALayer) -> AVCaptureVideoPreviewLayer? {
+        if let preview = layer as? AVCaptureVideoPreviewLayer { return preview }
+        for sublayer in layer.sublayers ?? [] {
+            if let found = previewLayer(in: sublayer) { return found }
+        }
+        return nil
+    }
+
+    /// Belt and suspenders: if toggling the torch still interrupted the session,
+    /// scanning stops — restart it rather than leave a frozen frame.
+    private func scheduleTorchRecoveryNudge() {
+        torchRecoveryTask?.cancel()
+        torchRecoveryTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(450))
+            guard let self, !Task.isCancelled else { return }
+            if let scanner = self.scanner, !scanner.isScanning {
+                self.restartHandler?()
+            }
         }
     }
 
