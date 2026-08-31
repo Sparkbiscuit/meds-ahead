@@ -44,9 +44,13 @@ enum MedicationBrandIndex {
         return index
     }()
 
+    /// One brand can legitimately answer to two generic names — Myfortic is sold as
+    /// both `mycophenolate sodium` and `mycophenolic acid`. The first entry in file
+    /// order wins so the name a label resolves to never depends on dictionary
+    /// ordering, and the table's sort decides it rather than chance.
     private static let brandIndex: [String: Pair] = {
         var index: [String: Pair] = [:]
-        for entry in entries {
+        for entry in entries where index[entry.brandKey] == nil {
             index[entry.brandKey] = entry
         }
         return index

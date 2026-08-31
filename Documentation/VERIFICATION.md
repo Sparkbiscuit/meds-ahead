@@ -1,5 +1,66 @@
 # Verification record
 
+## August 30, 2026 (third pass) — brand field earns its place, transplant coverage
+
+The brand field no longer occupies a row until it has an answer. An empty
+`Brand name` input sat in the medication form for every drug without a useful
+brand — most of a household's list once supplements and old generics are
+counted — and cost a skip on every entry. It is replaced by a compact
+`Add brand name` button, and the field appears already filled the moment a
+recognised name resolves. Once revealed it stays revealed; taking the row away
+again mid-edit would be worse than an empty one. Confirmed by hand: the form
+opens with the button, and typing `Mycophenolate sodium` reveals the field
+carrying `Myfortic`.
+
+Brand table expanded from 247 to 266 pairs, weighted toward lung-transplant
+care, since that is the regimen this app was built for and the audience it is
+most likely to reach. Added: `azathioprine|Imuran`, `mycophenolate
+sodium|Myfortic`, `acyclovir|Zovirax`, `valganciclovir|Valcyte`,
+`letermovir|Prevymis`, `maribavir|Livtencity`, `posaconazole|Noxafil`,
+`isavuconazonium|Cresemba`, `methylprednisolone|Medrol`, `alendronate|Fosamax`,
+`warfarin|Coumadin`, `linezolid|Zyvox`, `dornase alfa|Pulmozyme`,
+`nintedanib|Ofev`, `pirfenidone|Esbriet`, and the CF modulators
+`ivacaftor|Kalydeco`, `ivacaftor / lumacaftor|Orkambi`, `ivacaftor /
+tezacaftor|Symdeko`, `elexacaftor / ivacaftor / tezacaftor|Trikafta` — cystic
+fibrosis being one of the larger paths to a lung transplant.
+
+Every added generic was checked against `Meds/Resources/MedicationNames.txt`
+first: a pair whose generic is absent from that vocabulary can never be reached
+by a scan.
+
+Deliberately still blank, each pinned by a test so a later expansion cannot add
+one back without someone deciding to: `prednisone` (Deltasone obsolete, Rayos is
+a different delayed-release product), `aspirin` (no single brand),
+`cyclosporine` (Neoral, Sandimmune and Gengraf are not interchangeable — the
+most important omission in the table), `everolimus` (Zortress in transplant,
+Afinitor in oncology), `nystatin`, `budesonide`, `tobramycin`, `albuterol`,
+`ipratropium` (Atrovent names both an inhaler and a nasal spray), `lisinopril`,
+`dapsone`, `pentamidine`, `ganciclovir`, `ursodiol`.
+
+An independent review of the 18 proposed pairs argued for removing seven. Two
+were accepted in substance — `ipratropium|Atrovent` was dropped on the same
+route reasoning that dropped albuterol — and the review's own two proposals,
+`letermovir|Prevymis` and `maribavir|Livtencity`, were adopted; both are
+single-brand CMV drugs central to transplant care. The rest were kept: the
+review disclaimed any ability to verify market status, and its objections to
+`posaconazole|Noxafil` (Noxafil is the brand for every posaconazole
+formulation) and `alendronate|Fosamax` did not hold up. Two are judgment calls
+worth revisiting: `warfarin|Coumadin` keeps a brand discontinued in 2020 because
+it remains the name patients and clinicians actually say for a high-risk drug,
+and `methylprednisolone|Medrol` names the oral brand family while Solu-Medrol
+and Depo-Medrol are injectable — defensible because this app tracks what a
+person keeps at home.
+
+`MedicationBrandIndex` now resolves a repeated brand deterministically by file
+order rather than dictionary ordering. Myfortic legitimately answers to both
+`mycophenolate sodium` and `mycophenolic acid`, so the table's uniqueness test
+was relaxed from "no brand repeats" to "a repeated brand still resolves", which
+is the invariant that actually matters.
+
+Verified: 191 unit tests pass, up from 187. Coverage on the same 30-medication
+household list used to measure this before rose from 23/30 to 25/30; of the five
+still blank, four are drugs with no brand worth printing.
+
 ## August 30, 2026 (second pass) — responsiveness, tab routing, scanner pills
 
 Four reports from using the previous build, each reproduced on the simulator
