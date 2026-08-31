@@ -53,9 +53,20 @@ Recommended questionnaire answers:
 
 Rationale: Meds Ahead stores and organizes information entered or confirmed by the person using it. It does not diagnose, offer treatment guidance, recommend or modify a dose, state what a medication is for or does, check interactions, or make wellness recommendations. Every field it derives from a label is shown in an editable review screen and is stored only after the person confirms it. On that basis `None` is accurate for both questions, and the expected global result is 4+.
 
-Disclose accurately if App Review asks what the app knows about medications. Version 1.0 ships two things that are easy to mischaracterise, and neither supplies medical information:
+Disclose accurately if App Review asks what the app knows about medications. Version 1.0 ships three things that are easy to mischaracterise, and none supplies medical information:
 
 - A bundled list of roughly 12,900 medication *names* derived from RxNorm (`Meds/Resources/MedicationNames.txt`). It is used only to decide whether scanned text spells a real medication name, so a misread label cannot invent one. It carries no indications, dosing, warnings, or interactions — names only.
+- A bundled table of roughly 270 generic-to-brand name pairs
+  (`Meds/Resources/MedicationBrandNames.txt`). It supplies the other name a
+  medication is sold under — `tacrolimus` and `Prograf` — so a shared medication
+  list carries both, which is how a pharmacy counter and a specialist's intake
+  form each ask for it. It is a name equivalence and nothing more: no
+  indications, dosing, warnings, or interactions. Pairs are exact-match only,
+  hand-verified, and deliberately omit any medication whose brands are not
+  interchangeable — cyclosporine is absent because Neoral, Sandimmune and Gengraf
+  are different products, and prednisone is absent because no brand for it is
+  still in use. The field is shown for confirmation and is editable like every
+  other scanned field.
 - Apple's on-device `FoundationModels` system language model, used strictly to pick which recognised OCR line is the name, strength, directions, quantity, or refill count, and to repair an obvious OCR error in a name that the bundled vocabulary then has to confirm. It is never asked for, and cannot contribute, a medication fact of its own. If the model is unavailable the app falls back to deterministic parsing.
 
 Risk note: this is a Medical-category app whose subject matter is prescriptions, and the questionnaire is applied by Apple, not self-certified. Apple may still set Medical or Treatment Information to `Infrequent/Mild` and land the rating at 12+. That outcome is acceptable and is not worth arguing; do not overstate the app's capabilities to avoid it, and do not understate the two items above to secure 4+.
