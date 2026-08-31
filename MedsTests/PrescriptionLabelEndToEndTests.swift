@@ -26,7 +26,7 @@ final class PrescriptionLabelEndToEndTests: XCTestCase {
         ]))
 
         XCTAssertEqual(draft.name, "Amphetamine Salt Combo")
-        XCTAssertEqual(draft.strength, "20 MG")
+        XCTAssertEqual(draft.strength, "20 mg")
         XCTAssertEqual(draft.directions, "TAKE 1 TABLET BY MOUTH TWICE DAILY")
         XCTAssertEqual(draft.currentSupply, 60)
         XCTAssertEqual(draft.refillsRemaining, 0)
@@ -42,7 +42,7 @@ final class PrescriptionLabelEndToEndTests: XCTestCase {
         ]))
 
         XCTAssertEqual(draft.name, "Furosemide")
-        XCTAssertEqual(draft.strength, "20 MG")
+        XCTAssertEqual(draft.strength, "20 mg")
         XCTAssertEqual(draft.currentSupply, 60)
     }
 

@@ -31,14 +31,14 @@ struct OnboardingView: View {
             symbol: "heart.fill",
             eyebrow: "Why this exists",
             title: "Built for my family.",
-            message: "My mother was managing more than a dozen medications and refills for my brother Lukas through his transplant care. Nothing we tried answered the question she actually needed answered, so I built the app she needed.",
+            message: "My mother was managing more than a dozen medications and refills for my 9-year-old brother Lukas through his lung transplant care. Nothing we tried could tell her what would run out next, so I built the app we needed.",
             accent: .pink
         ),
         OnboardingPage(
             symbol: "gift.fill",
             eyebrow: "Free, and staying that way",
             title: "Every feature is free.",
-            message: "There is nothing to unlock and nothing to subscribe to. If Meds Ahead helps and you would like to support its development, Settings has an optional tip — it unlocks nothing, and skipping it changes nothing.",
+            message: "There is nothing to unlock and nothing to subscribe to. If Meds Ahead helps and you would like to support its development, Settings has an optional tip. It unlocks nothing, and skipping it changes nothing.",
             accent: .teal
         )
     ]

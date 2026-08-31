@@ -15,7 +15,7 @@ Medication records remain on the device. Scanned photos are processed locally an
 ## Requirements
 
 - Xcode 26.6 or later
-- iOS 26.0 or later
+- iOS 18.0 or later
 - An iPhone for live camera scanning; the simulator supports photo import and manual entry
 
 ## Build and test

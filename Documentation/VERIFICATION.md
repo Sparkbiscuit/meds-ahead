@@ -1,5 +1,196 @@
 # Verification record
 
+## August 30, 2026 — pill-box session findings: doses, combination strengths, brand names
+
+Seven defects found while entering a real week of a transplant patient's
+medications from the bottles, each reproduced against source before acting.
+
+Correctness:
+
+- **No dose other than 1 could be entered.** A prednisone bottle dosed at 2.5
+  tablets daily could not be recorded. `DoseSchedule.doseQuantity` was already a
+  `Double` and the editor did contain a decimal field, but it rendered as bare
+  right-aligned text beside the `Time` row's chrome, so it read as a label and was
+  never found. It is now a filled, tappable field with a stepper — half-unit for
+  tablets and capsules, whole-unit otherwise — with the label above the control so
+  no unit name clips at either edge. Confirmed by hand: 2.5 tablets entered and
+  saved, and the schedule row reads *2.5 tablets*.
+- **A typed dose could be discarded by Save.** The field only wrote back on focus
+  loss, and the Add toolbar button does not resign first responder, so typing 2.5
+  and tapping Add saved the previous amount. The value is now tracked as it is
+  typed. Confirmed by hand: typed and saved without dismissing the keyboard.
+- **A combination strength lost its first ingredient.** A
+  `SULFAMETHOXAZOLE/TRIMETHOPRIM 400-80 MG` label autofilled `80 mg`. The strength
+  pattern now matches combination forms whole, and every captured strength is
+  canonicalised, so the `50MG` and `5 mg` seen on two bottles the same evening now
+  read alike.
+- **`1,000 IU` matched as `000 IU`.** Grouped digits were not part of the number
+  form, so a vitamin label offered a tenfold-wrong strength for confirmation.
+- **Three real bottles produced unusable directions.** `is Filled: 8/13/2026 RPh:
+  Mg by mouth 1 time each chew.`, `- capsule by mouth 2 tim agNe 8.5 mg total
+  twice da`, and `like 2 tablets by mouth rednesdays, and fridays` were all
+  accepted, because a bare ` by mouth` satisfied the old guard on its own. A
+  candidate must now open with a direction verb or a dose phrase, carry a
+  frequency, and be free of dispensing markers, dates, phone numbers, and OCR
+  garbage. A sig wrapped across adjacent lines of one capture is assembled and
+  re-tested. All three now yield a blank field.
+- **A pharmacy imprint reached the name field.** A Zoloft bottle produced
+  `Sertraline Hcl G1`. A trailing imprint token is dropped and the salt is cased,
+  but only while two tokens still stand, so `Vitamin B12` is not truncated.
+- **Guidance never updated.** The scanner said `Name matched — rotate for
+  strength, quantity, and refill details` with every progress pill already lit,
+  and its banner crossed the green frame. It now names only what is still missing,
+  matches the pills' material and shape, and sits in the band below the frame.
+
+Additions:
+
+- A `brandName` field on `Medication`, filled from a curated 247-pair table.
+  Scanning a generic supplies the brand; scanning a brand supplies the generic.
+  Both appear on the editable review screen before anything is saved, and the
+  brand prints on the shared list. Exact, letters-only matching with a trailing
+  salt or release-form fallback — no fuzzy matching, because a plausible but wrong
+  brand on a clinician's list is worse than a blank.
+- Share Medication List moved from Settings onto the Medications screen toolbar.
+
+Review findings, each fixed and covered by a regression test:
+
+- Wrapped-sig assembly joined lines from different captures, so three unrelated
+  readings could become `TAKE 1 TABLET Patient: Jane Doe TWICE DAILY` and print on
+  the shared PDF. Lines now carry the evidence item they came from.
+- Dispensing markers matched as substrings, rejecting `Apply lotion…` for `lot`
+  and `Use on exposed skin…` for `exp`. They match whole words now, and `patient`
+  and `doctor` were added.
+- Renaming a medication kept the previous drug's brand. An autofilled brand is now
+  replaced on rename; one typed by hand is left alone.
+- The stepper's floor was its own step size, so a stored 0.5 mL dose would have
+  been silently rounded up by the first tap.
+- A refill count was treated as required scanner progress, which an OTC bottle
+  never satisfies, leaving the banner nagging forever. It now has its own progress
+  pill instead.
+
+Verified:
+
+- 187 unit tests pass on the iPhone 17 Pro simulator; the suite was 146 before
+  this pass.
+- Release app-target static analysis succeeds.
+- **SwiftData migration confirmed empirically, not assumed.** A build of the
+  previous commit was made in a detached worktree, installed, and used to create a
+  medication, a schedule, and an opening inventory event in an on-disk store. The
+  new build was then installed over it without uninstalling. The medication, its
+  8:00 AM 1-tablet schedule, and the 42-unit ledger balance with its starting-count
+  event all survived. `brandName` is declared with an inline default, matching how
+  `refillRemindersEnabled` was added.
+- End-to-end by hand on the simulator against rendered pharmacy labels: a Bactrim
+  label yields name `Sulfamethoxazole / trimethoprim`, brand `Bactrim`, strength
+  `400-80 mg`, and the assembled sig `TAKE 2 TABLETS BY MOUTH ON MONDAYS,
+  WEDNESDAYS, AND FRIDAYS`; a tacrolimus label yields brand `Prograf` and clean
+  directions.
+
+Known and accepted: `isTrustedDirections` still admits a thin instruction such as
+`Use daily`. It is shown for confirmation on an editable screen and is not worth
+tightening at the cost of rejecting `TAKE AS DIRECTED`.
+
+Still hands-on only: live-camera behaviour on a physical iPhone, including the
+new banner placement over a real preview.
+
+## August 28, 2026 (third pass) — audit fixes, unlogged-dose catch-up, delivery honesty
+
+Findings from a full read of the app, each verified against source before acting.
+
+Correctness:
+
+- **Take Now could double-log a dose.** The medication detail screen wrote a
+  `DoseEvent` with no `scheduleID` or `scheduledAt`, and Today matches a card to
+  its log by both. So Take Now left the card reading *Due*, the natural next tap
+  logged it again, and the supply was charged twice. Take Now now claims the same
+  dose Today is offering, via one shared `ScheduleEngine.actionableDose`, and the
+  UI-test overdue override moved into `ScheduleEngine.timingState` so the two
+  screens cannot diverge under test either. Confirmed by hand on the simulator:
+  Take Now on Furosemide leaves the 8:00 AM card reading *Taken · Logged*.
+- **Take Now logged the wrong amount.** It used `schedules.first`, always the
+  earliest of the day, so a 1-tablet morning and 2-tablet evening regimen
+  recorded 1 at night. An unscheduled log now uses the schedule nearest that time
+  of day, measured the short way around midnight.
+- **As-needed forecasts always divided by thirty days** while only requiring
+  three logged doses. A medication started ten days ago reported three times the
+  runway it had, always in the optimistic direction. The rate is now measured
+  over the history that exists, capped at thirty days, and the explanation says
+  which window it used.
+- `medicationQuantityText` trapped on any `Double` past `Int.max`; the count
+  fields accept as many digits as a person can type, so a long entry crashed.
+- Strength parsing gained `units` and `IU`, so insulin, heparin, and vitamin D
+  labels no longer leave the field blank. Because a directions line quotes a
+  dose in the same units ("Inject 10 units"), the strength is now read from
+  non-direction lines first and only falls back to the whole label.
+- Expirations more than six years out are rejected as an OCR slip on the year.
+  Dates already past are kept: an expired package is real information.
+
+Reminder delivery:
+
+- **Nothing told anyone when reminders were off.** A refused or withdrawn
+  authorization made scheduling a silent no-op, and `center.add` failures were
+  discarded by `try?`. Both are now recorded by `NotificationHealth` on every
+  pass and stated on Today with the action that fixes them.
+- Plans are rebuilt when the app returns to the foreground. `task` runs once per
+  view lifetime, so refill alerts — one-shot dates, unlike the repeating dose
+  triggers — stopped being replaced for anyone who left the app closed.
+- A prescription with no refills left warns on the longer of the person's lead
+  time and a ten-day prescriber lead, and says a new prescription is what's
+  needed. `refillsRemaining` had been scanned, decremented, and displayed, but
+  never used.
+
+Product:
+
+- **New: unlogged doses stay answerable for two days on Today.** Today ended at
+  midnight, so an evening dose nobody confirmed vanished with no screen left that
+  could answer "did last night happen?" — and an unlogged dose reads as unspent,
+  quietly stretching the forecast. Three compact rows, retroactively logged at
+  their scheduled time, with a "Not Now" that sets them aside until tomorrow so
+  someone tracking supply without logging is not nagged permanently.
+- **The shared medication list is paginated onto US Letter pages.** It rendered
+  as one page sized to its content — for a dozen-plus medications, a sheet about
+  three feet tall that prints to nothing legible. Pages carry "Page n of m" and
+  no medication is split across a break.
+- The exported PDF is swept from the temporary directory at launch rather than
+  left there indefinitely. Deleting it at share time would race an AirDrop still
+  in flight.
+- `-seed-missed-doses` backdates the demo schedules so the catch-up state can be
+  driven by hand; the demo store is unchanged without it.
+
+Copy and greeting:
+
+- **The greeting said "Good evening" at three in the morning.** Evening was the
+  fallback branch, so every hour before five fell into it. There are now four
+  bands, with 22:00 to 04:59 reading "Good night" — a real hour to be awake and
+  giving a dose in this house.
+- The story sheet and onboarding name Lukas's age and that it is lung transplant
+  care, sign off as Nick Christoforakis, and say "the app we needed". Em dashes
+  are gone from the story, the onboarding, and the signature.
+- The Share Medication List footer no longer promises "a one-page PDF", which
+  stopped being true when the export was paginated.
+
+Documentation:
+
+- `README.md` said iOS 26.0; the project has targeted 18.0 since `8143b3e`.
+- Test counts below supersede the 79/6 recorded in `RELEASE_CHECKLIST.md`.
+
+Results:
+
+- Unit tests: 146/146 (127 before, plus 19 covering every fix above), including
+  the widened greeting-boundary cases.
+- UI tests: 9/9, including the Today and editor accessibility audits, which now
+  run against the added banner and catch-up card.
+- Release static analysis on the app target: succeeded, no warnings beyond
+  Xcode's no-AppIntents metadata-skip message.
+- Hands-on simulator pass on iPhone 17: catch-up card logs and re-flows, Take Now
+  reconciles with Today, notification banner renders and offers its action.
+
+Still hands-on, unchanged from the passes below: App Store Connect upload and
+server-side validation, tip IAP setup, locked-device reminder actions, the
+VoiceOver order/rotor pass, the Focus-breakthrough check, and a physical-device
+re-check of torch + live preview. **The banner's denied-permission and
+partly-scheduled states have been driven in the simulator but not on a device.**
+
 ## August 28, 2026 (second pass) — torch fix, log-all-due, medication list PDF
 
 - Fixed the hands-on finding that turning the flashlight on froze the live

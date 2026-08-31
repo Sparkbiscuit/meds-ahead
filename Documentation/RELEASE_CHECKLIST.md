@@ -4,8 +4,8 @@
 
 - [x] Debug build passes for iOS Simulator
 - [x] Release build passes for iOS Simulator and generic iOS device
-- [x] Seventy-nine unit tests pass, including Latin-only stable multi-side evidence, ROI crop mapping, RxNorm-backed compound-fragment repair, low-confidence live-camera, noisy-label and printed-NDC parsing, scheduling, supply, grouped notifications, and time-of-day greetings
-- [x] Six UI tests pass, including Today and medication-editor accessibility audits, largest accessibility text in the editor, and overdue-state coverage
+- [x] One hundred and forty-six unit tests pass, including Latin-only stable multi-side evidence, ROI crop mapping, RxNorm-backed compound-fragment repair, low-confidence live-camera, noisy-label and printed-NDC parsing, scheduling, supply, grouped notifications, time-of-day greetings, Take Now dose reconciliation, as-needed rate windows, unit-denominated strengths, expiration plausibility, last-refill alerts, and medication-list pagination
+- [x] Nine UI tests pass, including Today and medication-editor accessibility audits, largest accessibility text in the editor, and overdue-state coverage
 - [x] Static analysis passes for the Release app target
 - [x] No source/compiler warnings; Xcode 26 emits only its no-AppIntents metadata-skip message
 - [x] Privacy manifest is present in the built app, declares required-reason access for app-only UserDefaults and elapsed-event system uptime, and declares no collection or tracking

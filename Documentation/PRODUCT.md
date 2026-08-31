@@ -24,13 +24,18 @@ Meds Ahead V1 is an iPhone-only, offline-first application with:
 - Still-photo import for accessibility, testing, and unsupported devices
 - Mandatory review of every scanned medication before saving
 - Manual medication entry
+- An optional Brand name field: scanning either a recognised generic or brand puts the generic and brand together on the editable review screen; entering a recognised name manually can fill the brand, which appears in medication subtitles and the printable list
 - Multiple daily and selected-weekday schedules, each with its own dose amount and days
+- Dose amounts that accept half and fractional values, including 2.5 tablets; tablet and capsule steppers use half-unit increments
 - As-needed medication support
-- Taken and skipped dose logging
+- Taken and skipped dose logging, including two days of catch-up for doses never logged
 - Reversible inventory adjustments and refill additions
 - Forecasted depletion dates with explicit uncertainty
 - Configurable low-supply lead times
 - Consolidated time-slot notifications for simultaneous medications, privacy-safe `Taken` and `Skip` actions for single-dose alerts, and refill-to-Supply routing
+- A stated reminder-delivery state on Today when notifications are refused, never asked for, or partly rejected by iOS
+- Earlier, differently worded low-supply warnings when a prescription has no refills left
+- A paginated, printable medication list for appointments and pharmacy visits, available from the Share Medication List button in the Medications screen toolbar rather than Settings
 - Full edit, archive, and delete controls
 - Dynamic Type, VoiceOver, Reduce Motion, Reduce Transparency, dark mode, and high-contrast support
 - Optional, non-recurring StoreKit tips that unlock no features

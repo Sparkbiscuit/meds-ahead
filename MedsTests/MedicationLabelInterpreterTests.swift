@@ -200,4 +200,96 @@ final class MedicationLabelInterpreterTests: XCTestCase {
         // the person retype a strength the parser already read off the label.
         XCTAssertEqual(result.strength, "5 mg")
     }
+
+    func testOfflineDraftAddsBrandForGenericName() {
+        let draft = MedicationLabelInterpreter.offlineDraft([
+            ScanEvidence(kind: .text, value: "SERTRALINE HCL 50MG")
+        ])
+
+        XCTAssertEqual(draft.name, "Sertraline")
+        XCTAssertEqual(draft.brandName, "Zoloft")
+    }
+
+    func testOfflineDraftResolvesPrintedBrandToGenericName() {
+        let draft = MedicationLabelInterpreter.offlineDraft([
+            ScanEvidence(kind: .text, value: "PROGRAF 5MG CAPSULE")
+        ])
+
+        XCTAssertEqual(draft.name, "Tacrolimus")
+        XCTAssertEqual(draft.brandName, "Prograf")
+    }
+
+    func testOfflineDraftLeavesUnindexedMedicationNameAndBrandUnchanged() {
+        let draft = MedicationLabelInterpreter.offlineDraft([
+            ScanEvidence(kind: .text, value: "MELATONIN 5MG")
+        ])
+
+        XCTAssertEqual(draft.name, "Melatonin")
+        XCTAssertEqual(draft.brandName, "")
+    }
+
+    func testOfflineDraftDoesNotAddBrandWhenVocabularyGateRejectsName() {
+        let draft = MedicationLabelInterpreter.offlineDraft([
+            ScanEvidence(kind: .text, value: "Open 9 to 6")
+        ])
+
+        XCTAssertEqual(draft.name, "")
+        XCTAssertEqual(draft.brandName, "")
+    }
+
+    func testCandidateBuilderKeepsCombinationStrengthCompleteAndCanonical() {
+        let strengths = LabelCandidateBuilder.build(from: [
+            ScanEvidence(kind: .text, value: "SULFAMETHOXAZOLE/TRIMETHOPRIM 400-80 MG")
+        ]).strengths.map(\.value)
+
+        XCTAssertTrue(strengths.contains("400-80 mg"))
+        XCTAssertFalse(strengths.contains("80 mg"))
+    }
+
+    func testCandidateBuilderStrengthCandidatesDoNotContainUncanonicalizedForms() {
+        let strengths = LabelCandidateBuilder.build(from: [
+            ScanEvidence(kind: .text, value: "SERTRALINE 50MG")
+        ]).strengths.map(\.value)
+
+        XCTAssertTrue(strengths.contains("50 mg"))
+        XCTAssertFalse(strengths.contains("50MG"))
+    }
+
+    func testCandidateBuilderDirectionsExcludePharmacyGarbageAndStayTrusted() {
+        let garbage = "is Filled: 8/13/2026 RPh: Mg by mouth 1 time each chew."
+        let trusted = "TAKE 1 TABLET BY MOUTH TWICE DAILY"
+        let candidates = LabelCandidateBuilder.build(from: [
+            ScanEvidence(kind: .text, value: garbage),
+            ScanEvidence(kind: .text, value: trusted)
+        ])
+        let directions = candidates.directions.map(\.value)
+
+        XCTAssertFalse(directions.contains { $0.localizedCaseInsensitiveContains("is filled") })
+        XCTAssertTrue(directions.contains(trusted))
+        XCTAssertTrue(directions.allSatisfy { ScanParser.isTrustedDirections($0) })
+    }
+
+    func testCandidateBuilderOffersJoinedTrustedWrappedDirections() {
+        let captureID = UUID()
+        let evidence = [
+            ScanEvidence(
+                kind: .text,
+                value: "TAKE 2 TABLETS BY MOUTH ON MONDAYS,",
+                captureID: captureID,
+                lineIndex: 0
+            ),
+            ScanEvidence(
+                kind: .text,
+                value: "WEDNESDAYS, AND FRIDAYS",
+                captureID: captureID,
+                lineIndex: 1
+            )
+        ]
+
+        let candidates = LabelCandidateBuilder.build(from: evidence)
+
+        XCTAssertTrue(candidates.directions.contains {
+            $0.value == "TAKE 2 TABLETS BY MOUTH ON MONDAYS, WEDNESDAYS, AND FRIDAYS"
+        })
+    }
 }

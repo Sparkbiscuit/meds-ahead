@@ -50,6 +50,7 @@ enum MedicationListDocument {
     ) -> MedicationListEntry {
         var subtitleParts: [String] = []
         if !medication.nickname.isEmpty { subtitleParts.append(medication.name) }
+        if !medication.brandName.isEmpty { subtitleParts.append("Brand: \(medication.brandName)") }
         if !medication.strength.isEmpty { subtitleParts.append(medication.strength) }
         subtitleParts.append(medication.form.displayName)
 
@@ -118,75 +119,188 @@ enum MedicationListDocument {
     }
 }
 
-/// Renders the document to a single-page PDF sized to its content. Returns nil
-/// rather than sharing a blank or clipped page when rendering fails.
+/// Renders the document as a real US Letter PDF, paginated.
+///
+/// It used to emit one page sized to its own content, which for the household this
+/// was built for — a dozen medications and more — meant a single page some three
+/// feet tall. Printing that scales it to illegibility, which is precisely the moment
+/// the sheet is meant to be useful. Entries are measured and packed onto Letter-sized
+/// pages instead, and nothing is broken across a page boundary.
 @MainActor
 enum MedicationListPDFRenderer {
+    private static let pageSize = CGSize(width: 612, height: 792)
+    private static let margin: CGFloat = 44
+    private static let entrySpacing: CGFloat = 14
+    private static let pageNumberAllowance: CGFloat = 24
+
+    private static var exportURL: URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("Meds Ahead Medication List.pdf")
+    }
+
+    /// The rendered list is a full medication history in the clear, and it used to be
+    /// left in the temporary directory indefinitely. Sweeping it at launch bounds how
+    /// long it survives without racing a share that may still be reading it — an
+    /// AirDrop finishes long after the sheet that started it has gone.
+    static func removePreviousExport() {
+        try? FileManager.default.removeItem(at: exportURL)
+    }
+
     static func render(entries: [MedicationListEntry], generatedAt: Date = .now) -> URL? {
         guard !entries.isEmpty else { return nil }
-        let document = MedicationListDocumentView(entries: entries, generatedAt: generatedAt)
-            .environment(\.colorScheme, .light)
-        let renderer = ImageRenderer(content: document)
-        renderer.proposedSize = ProposedViewSize(width: 612, height: nil)
+        let contentWidth = pageSize.width - margin * 2
+        let usableHeight = pageSize.height - margin * 2 - pageNumberAllowance
 
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("Meds Ahead Medication List.pdf")
-        var rendered = false
-        renderer.render { size, render in
-            var mediaBox = CGRect(origin: .zero, size: size)
-            guard let context = CGContext(url as CFURL, mediaBox: &mediaBox, nil) else { return }
+        let headerHeight = measuredHeight(MedicationListHeaderView(generatedAt: generatedAt), width: contentWidth)
+        let disclaimerHeight = measuredHeight(MedicationListDisclaimerView(), width: contentWidth)
+        let pages = paginate(
+            entries: entries,
+            heights: entries.map { measuredHeight(MedicationListEntryView(entry: $0), width: contentWidth) },
+            headerHeight: headerHeight,
+            disclaimerHeight: disclaimerHeight,
+            usableHeight: usableHeight
+        )
+
+        let url = exportURL
+        var mediaBox = CGRect(origin: .zero, size: pageSize)
+        guard let context = CGContext(url as CFURL, mediaBox: &mediaBox, nil) else { return nil }
+        for (index, pageEntries) in pages.enumerated() {
+            let page = MedicationListPageView(
+                entries: pageEntries,
+                generatedAt: index == 0 ? generatedAt : nil,
+                showsDisclaimer: index == pages.count - 1,
+                pageNumber: index + 1,
+                pageCount: pages.count,
+                size: pageSize,
+                margin: margin,
+                spacing: entrySpacing
+            )
+            let renderer = ImageRenderer(content: page)
+            renderer.proposedSize = ProposedViewSize(pageSize)
             context.beginPDFPage(nil)
-            render(context)
+            renderer.render { _, draw in draw(context) }
             context.endPDFPage()
-            context.closePDF()
-            rendered = true
         }
-        return rendered ? url : nil
+        context.closePDF()
+        return url
+    }
+
+    /// Greedy packing. An entry taller than a whole page is left to overflow its own
+    /// page rather than being split mid-medication, which would be worse to read.
+    private static func paginate(
+        entries: [MedicationListEntry],
+        heights: [CGFloat],
+        headerHeight: CGFloat,
+        disclaimerHeight: CGFloat,
+        usableHeight: CGFloat
+    ) -> [[MedicationListEntry]] {
+        var pages: [[MedicationListEntry]] = []
+        var current: [MedicationListEntry] = []
+        var used = headerHeight + entrySpacing
+
+        for (entry, height) in zip(entries, heights) {
+            let needed = height + entrySpacing
+            if !current.isEmpty, used + needed > usableHeight {
+                pages.append(current)
+                current = []
+                used = 0
+            }
+            current.append(entry)
+            used += needed
+        }
+        if !current.isEmpty, used + disclaimerHeight > usableHeight {
+            pages.append(current)
+            current = []
+        }
+        pages.append(current)
+        return pages
+    }
+
+    private static func measuredHeight(_ view: some View, width: CGFloat) -> CGFloat {
+        let renderer = ImageRenderer(content: view.frame(width: width, alignment: .leading))
+        renderer.proposedSize = ProposedViewSize(width: width, height: nil)
+        var height: CGFloat = 0
+        renderer.render { size, _ in height = size.height }
+        return height
     }
 }
 
-/// Print styling: deliberately monochrome, ink-on-paper, and fixed to a US
-/// Letter width so it reads as a document rather than a screenshot.
-struct MedicationListDocumentView: View {
+/// Print styling: deliberately monochrome, ink-on-paper, and fixed to a US Letter
+/// page so it reads as a document rather than a screenshot.
+struct MedicationListPageView: View {
     let entries: [MedicationListEntry]
+    let generatedAt: Date?
+    let showsDisclaimer: Bool
+    let pageNumber: Int
+    let pageCount: Int
+    let size: CGSize
+    let margin: CGFloat
+    let spacing: CGFloat
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: spacing) {
+            if let generatedAt {
+                MedicationListHeaderView(generatedAt: generatedAt)
+            }
+            ForEach(entries) { entry in
+                MedicationListEntryView(entry: entry)
+            }
+            if showsDisclaimer {
+                MedicationListDisclaimerView()
+            }
+            Spacer(minLength: 0)
+            HStack {
+                Spacer()
+                Text("Page \(pageNumber) of \(pageCount)")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Color(white: 0.45))
+            }
+        }
+        .padding(margin)
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .background(Color.white)
+        .foregroundStyle(.black)
+        .environment(\.colorScheme, .light)
+    }
+}
+
+struct MedicationListHeaderView: View {
     let generatedAt: Date
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Medication List")
-                    .font(.system(size: 26, weight: .bold, design: .rounded))
-                Text("As recorded in Meds Ahead on \(generatedAt.formatted(date: .long, time: .shortened))")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color(white: 0.35))
-            }
-
-            ForEach(entries) { entry in
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(entry.title)
-                        .font(.system(size: 16, weight: .semibold))
-                    Text(entry.subtitle)
-                        .font(.system(size: 12))
-                        .foregroundStyle(Color(white: 0.35))
-                    if !entry.directions.isEmpty {
-                        documentLine(label: "Directions", value: entry.directions)
-                    }
-                    documentLine(label: "Schedule", value: entry.scheduleLines.joined(separator: "\n"))
-                    documentLine(label: "Supply", value: entry.supplyLine)
-                    if !entry.detailLine.isEmpty {
-                        documentLine(label: "Prescription", value: entry.detailLine)
-                    }
-                    Divider()
-                }
-            }
-
-            Text("Recorded by the person using Meds Ahead; not a pharmacy or clinical record. Confirm details against current labels.")
-                .font(.system(size: 10))
-                .foregroundStyle(Color(white: 0.45))
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Medication List")
+                .font(.system(size: 26, weight: .bold, design: .rounded))
+            Text("As recorded in Meds Ahead on \(generatedAt.formatted(date: .long, time: .shortened))")
+                .font(.system(size: 12))
+                .foregroundStyle(Color(white: 0.35))
         }
-        .padding(44)
-        .frame(width: 612, alignment: .leading)
-        .background(Color.white)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .foregroundStyle(.black)
+    }
+}
+
+struct MedicationListEntryView: View {
+    let entry: MedicationListEntry
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(entry.title)
+                .font(.system(size: 16, weight: .semibold))
+            Text(entry.subtitle)
+                .font(.system(size: 12))
+                .foregroundStyle(Color(white: 0.35))
+            if !entry.directions.isEmpty {
+                documentLine(label: "Directions", value: entry.directions)
+            }
+            documentLine(label: "Schedule", value: entry.scheduleLines.joined(separator: "\n"))
+            documentLine(label: "Supply", value: entry.supplyLine)
+            if !entry.detailLine.isEmpty {
+                documentLine(label: "Prescription", value: entry.detailLine)
+            }
+            Divider()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .foregroundStyle(.black)
     }
 
@@ -200,6 +314,16 @@ struct MedicationListDocumentView: View {
                 .font(.system(size: 12))
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+}
+
+struct MedicationListDisclaimerView: View {
+    var body: some View {
+        Text("Recorded by the person using Meds Ahead; not a pharmacy or clinical record. Confirm details against current labels.")
+            .font(.system(size: 10))
+            .foregroundStyle(Color(white: 0.45))
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

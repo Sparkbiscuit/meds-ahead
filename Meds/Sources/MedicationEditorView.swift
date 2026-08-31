@@ -22,6 +22,7 @@ struct MedicationEditorView: View {
 
     @State private var name: String
     @State private var nickname: String
+    @State private var brandName: String
     @State private var strength: String
     @State private var form: MedicationForm
     @State private var directions: String
@@ -50,6 +51,7 @@ struct MedicationEditorView: View {
         let resolvedForm = medication?.form ?? draft.form
         _name = State(initialValue: medication?.name ?? draft.name)
         _nickname = State(initialValue: medication?.nickname ?? draft.nickname)
+        _brandName = State(initialValue: medication?.brandName ?? draft.brandName)
         _strength = State(initialValue: medication?.strength ?? draft.strength)
         _form = State(initialValue: resolvedForm)
         _directions = State(initialValue: medication?.directions ?? draft.directions)
@@ -127,6 +129,22 @@ struct MedicationEditorView: View {
                     TextField("Medication name", text: $name)
                         .textInputAutocapitalization(.words)
                         .accessibilityIdentifier("medication-name")
+                        .onChange(of: name) { oldValue, newValue in
+                            // Replace a brand this screen filled in, leave one the
+                            // person typed. Renaming Sertraline to Tacrolimus used to
+                            // keep Zoloft, and the shared list printed it.
+                            let previousAutofill = MedicationBrandIndex.resolve(oldValue)?.brand ?? ""
+                            guard brandName.isEmpty || brandName == previousAutofill else { return }
+                            brandName = MedicationBrandIndex.resolve(newValue)?.brand ?? ""
+                        }
+                }
+                .padding(.vertical, 3)
+                VStack(alignment: .leading, spacing: 4) {
+                    MedicationFieldTitle("Brand name")
+                    TextField("Brand name", text: $brandName)
+                        .textInputAutocapitalization(.words)
+                        .accessibilityHint("Optional; filled in automatically for medications Meds Ahead recognises")
+                        .accessibilityIdentifier("medication-brand-name")
                 }
                 .padding(.vertical, 3)
                 VStack(alignment: .leading, spacing: 4) {
@@ -195,7 +213,8 @@ struct MedicationEditorView: View {
                             }
                             ScheduleDoseQuantityField(
                                 quantity: $schedule.doseQuantity,
-                                unitName: form.unitName
+                                unitName: form.unitName,
+                                allowsHalfSteps: form == .tablet || form == .capsule
                             )
                             WeekdayPicker(mask: $schedule.weekdayMask)
                         }
@@ -223,7 +242,7 @@ struct MedicationEditorView: View {
             } header: {
                 Text("Schedule")
             } footer: {
-                Text(isAsNeeded ? "As-needed forecasts require at least three recent logged doses." : "This schedule drives reminders and the supply forecast. Confirm it against the current label or clinician instructions.")
+                Text(isAsNeeded ? "As-needed forecasts require at least three recent logged doses." : "This schedule drives reminders and the supply forecast. Confirm it against the current label or clinician instructions. Half doses are fine — enter 2.5 for two and a half tablets.")
             }
 
             Section("Reminders") {
@@ -268,6 +287,9 @@ struct MedicationEditorView: View {
                     .foregroundStyle(.secondary)
             }
         }
+        // Several fields use the decimal pad, which has no return key. Without this,
+        // the only way out of one is to tap another field.
+        .scrollDismissesKeyboard(.interactively)
         .navigationTitle(isEditing ? "Edit Medication" : (draftEvidence.isEmpty ? "Add Medication" : "Review Medication"))
         .navigationBarTitleDisplayMode(.inline)
         .interactiveDismissDisabled(hasUnsavedRequiredData)
@@ -344,12 +366,12 @@ struct MedicationEditorView: View {
     }
 
     private var hasUnsavedRequiredData: Bool {
-        !name.isEmpty || !strength.isEmpty || !currentSupplyText.isEmpty
+        !name.isEmpty || !brandName.isEmpty || !strength.isEmpty || !currentSupplyText.isEmpty
     }
 
     private func redactedEvidence(_ evidence: ScanEvidence) -> String {
         if evidence.kind == .barcode, evidence.value.lowercased().hasPrefix("http") {
-            return "Web link detected — not opened"
+            return "Web link detected, not opened"
         }
         return evidence.value
     }
@@ -377,6 +399,7 @@ struct MedicationEditorView: View {
             target = medication
             target.name = cleanedName
             target.nickname = nickname.trimmingCharacters(in: .whitespacesAndNewlines)
+            target.brandName = brandName.trimmingCharacters(in: .whitespacesAndNewlines)
             target.strength = strength.trimmingCharacters(in: .whitespacesAndNewlines)
             target.form = form
             target.directions = directions.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -385,6 +408,7 @@ struct MedicationEditorView: View {
             let newMedication = Medication(
                 name: cleanedName,
                 nickname: nickname.trimmingCharacters(in: .whitespacesAndNewlines),
+                brandName: brandName.trimmingCharacters(in: .whitespacesAndNewlines),
                 strength: strength.trimmingCharacters(in: .whitespacesAndNewlines),
                 form: form,
                 directions: directions.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -540,35 +564,92 @@ private struct WeekdayPicker: View {
 private struct ScheduleDoseQuantityField: View {
     @Binding var quantity: Double
     let unitName: String
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    let allowsHalfSteps: Bool
+    @State private var text: String = ""
+    @FocusState private var focused: Bool
 
+    private var step: Double { allowsHalfSteps ? 0.5 : 1 }
+
+    /// The stepper's floor cannot be the step size: a 0.5 mL liquid dose already
+    /// on file sits below a step of 1, and the first tap would silently round it up.
+    private static let minimumQuantity = 0.25
+
+    /// Label above control, matching the "Days" picker directly below it. A single
+    /// row cannot hold the label, the field, the stepper and a unit as long as
+    /// "applications" without clipping one of them at either edge.
     var body: some View {
-        let entry = HStack {
-            TextField(
-                "Dose",
-                value: $quantity,
-                format: .number.precision(.fractionLength(0...2))
-            )
-            .keyboardType(.decimalPad)
-            .multilineTextAlignment(.trailing)
-            .frame(maxWidth: 72)
-            .padding(.vertical, 3)
-            Text(unitName + (quantity == 1 ? "" : "s"))
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Amount per dose")
+                .font(.subheadline.weight(.semibold))
+            HStack(spacing: 10) {
+                TextField("Dose", text: $text)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.center)
+                    .frame(minWidth: 54)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(
+                        Color(uiColor: .tertiarySystemFill),
+                        in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    )
+                    .focused($focused)
+                    .accessibilityIdentifier("dose-quantity")
+                    .accessibilityLabel("Amount per dose")
+                    .accessibilityValue("\(quantity.medicationQuantityText) \(unitName)")
+                Stepper(value: $quantity, in: Self.minimumQuantity...999, step: step) {
+                    Text("Amount per dose")
+                }
+                .labelsHidden()
+                Text(unitName + (quantity == 1 ? "" : "s"))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Spacer(minLength: 0)
+            }
         }
+        .onAppear { text = quantity.medicationQuantityText }
+        .onChange(of: text) { _, newValue in
+            // Track the typing rather than waiting for the field to lose focus:
+            // tapping Add with the keyboard still up saved the previous amount.
+            guard focused,
+                  let value = Double.medicationQuantity(from: newValue),
+                  value.isFinite,
+                  value > 0 else { return }
+            quantity = value
+        }
+        .onChange(of: quantity) { _, newValue in
+            // Never rewrite the field under the person typing in it.
+            guard !focused else { return }
+            text = newValue.medicationQuantityText
+        }
+        .onChange(of: focused) { _, isFocused in
+            if !isFocused { commit() }
+        }
+        .onSubmit { commit() }
+        .toolbar {
+            // Scoped to this field's own focus: an unscoped keyboard toolbar shows
+            // a Done button above every other field in the form, where tapping it
+            // does nothing.
+            if focused {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { focused = false }
+                }
+            }
+        }
+    }
 
-        if dynamicTypeSize.isAccessibilitySize {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Amount per dose")
-                entry
-            }
-        } else {
-            HStack {
-                Text("Amount per dose")
-                Spacer()
-                entry
-            }
+    /// The field always ends up showing the number that was actually stored. The
+    /// parse is lenient — "1.5.5" reads as 1.5 — so rewriting the text only from
+    /// `quantity`'s change left a rejected-looking entry on screen whenever the
+    /// parsed value happened to equal what was already there.
+    private func commit() {
+        guard let value = Double.medicationQuantity(from: text), value.isFinite, value > 0 else {
+            text = quantity.medicationQuantityText
+            return
         }
+        quantity = value
+        text = value.medicationQuantityText
     }
 }
 

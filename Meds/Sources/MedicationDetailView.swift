@@ -379,9 +379,33 @@ struct MedicationDetailView: View {
         return (doses + inventory).sorted { $0.date > $1.date }
     }
 
+    /// Take Now claims the dose Today is already offering, when there is one, so the
+    /// same dose cannot be logged once here and once there — an unattached log stayed
+    /// invisible to Today's cards, which left the dose showing as due and invited a
+    /// second tap that spent the supply twice. With no dose to claim this records an
+    /// unscheduled one, at the amount belonging to the nearest time of day.
     private func recordNow() {
-        let quantity = schedules.first?.doseQuantity ?? 1
-        let event = DoseEvent(medicationID: medication.id, doseQuantity: quantity, status: .taken)
+        let now = Date.now
+        let claimed = ScheduleEngine.actionableDose(
+            schedules: allSchedules,
+            medicationID: medication.id,
+            doseEvents: allDoseEvents,
+            now: now
+        )
+        let quantity = claimed?.quantity
+            ?? ScheduleEngine.nearestScheduledQuantity(
+                schedules: allSchedules,
+                medicationID: medication.id,
+                now: now
+            )
+            ?? 1
+        let event = DoseEvent(
+            medicationID: medication.id,
+            scheduleID: claimed?.scheduleID,
+            scheduledAt: claimed?.date,
+            doseQuantity: quantity,
+            status: .taken
+        )
         modelContext.insert(event)
         medication.updatedAt = .now
         if saveChanges() {

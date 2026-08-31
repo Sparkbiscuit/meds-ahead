@@ -114,6 +114,64 @@ final class NotificationPlannerTests: XCTestCase {
         XCTAssertEqual(calendar.component(.hour, from: date), 9)
     }
 
+    /// No refills left means a prescriber has to be reached before a pharmacy can do
+    /// anything, so the warning comes earlier and says which call to make.
+    func testLastRefillWarnsEarlierAndNamesTheRealTask() throws {
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 1, hour: 12)))
+        let depletion = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 20, hour: 8)))
+        let plan = makePlan(
+            doseRemindersEnabled: false,
+            detailedNotifications: true,
+            refillLeadDays: 7,
+            refillsRemaining: 0,
+            depletionDate: depletion
+        )
+        let refill = try XCTUnwrap(NotificationPlanner.notifications(for: plan, now: now, calendar: calendar).first)
+
+        guard case let .date(date) = refill.trigger else {
+            return XCTFail("Expected a calendar date trigger")
+        }
+        XCTAssertEqual(calendar.component(.day, from: date), 10, "ten days of lead, not the seven a refillable one gets")
+        XCTAssertTrue(refill.title.contains("Renew"))
+        XCTAssertTrue(refill.body.contains("no refills".lowercased()) || refill.body.contains("No refills"))
+    }
+
+    func testAChosenLeadTimeLongerThanThePrescriberDefaultIsKept() throws {
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 1, hour: 12)))
+        let depletion = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 30, hour: 8)))
+        let plan = makePlan(
+            doseRemindersEnabled: false,
+            refillLeadDays: 21,
+            refillsRemaining: 0,
+            depletionDate: depletion
+        )
+        let refill = try XCTUnwrap(NotificationPlanner.notifications(for: plan, now: now, calendar: calendar).first)
+
+        guard case let .date(date) = refill.trigger else {
+            return XCTFail("Expected a calendar date trigger")
+        }
+        XCTAssertEqual(calendar.component(.day, from: date), 9)
+    }
+
+    func testRefillsRemainingStaysQuietWhenItWasNeverEntered() throws {
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 1, hour: 12)))
+        let depletion = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 20, hour: 8)))
+        let plan = makePlan(
+            doseRemindersEnabled: false,
+            detailedNotifications: true,
+            refillLeadDays: 7,
+            refillsRemaining: nil,
+            depletionDate: depletion
+        )
+        let refill = try XCTUnwrap(NotificationPlanner.notifications(for: plan, now: now, calendar: calendar).first)
+
+        guard case let .date(date) = refill.trigger else {
+            return XCTFail("Expected a calendar date trigger")
+        }
+        XCTAssertEqual(calendar.component(.day, from: date), 13)
+        XCTAssertTrue(refill.title.contains("Plan a refill"))
+    }
+
     func testPassedLeadDayCreatesNoRefillReminder() throws {
         // Lead day is 13 August; "now" is already past it, so the moment to warn
         // has gone. Re-announcing it here would fire again on every launch once
@@ -211,6 +269,7 @@ final class NotificationPlannerTests: XCTestCase {
         refillRemindersEnabled: Bool = true,
         detailedNotifications: Bool = false,
         refillLeadDays: Int = 7,
+        refillsRemaining: Int? = nil,
         depletionDate: Date? = nil,
         weekdayMask: Int = 0b1111111,
         minutesAfterMidnight: Int = 8 * 60 + 30
@@ -225,6 +284,7 @@ final class NotificationPlannerTests: XCTestCase {
             refillRemindersEnabled: refillRemindersEnabled,
             detailedNotifications: detailedNotifications,
             refillLeadDays: refillLeadDays,
+            refillsRemaining: refillsRemaining,
             depletionDate: depletionDate,
             schedules: [
                 ScheduleNotificationPlan(

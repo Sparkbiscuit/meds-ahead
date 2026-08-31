@@ -152,10 +152,22 @@ enum ForecastEngine {
             $0.recordedAt <= now
         }
         let quantity = recent.reduce(0) { $0 + $1.doseQuantity }
-        guard recent.count >= 3, quantity > 0 else {
+        guard recent.count >= 3, quantity > 0,
+              let earliest = recent.map(\.recordedAt).min() else {
             return unknownAsNeeded(supply: supply)
         }
-        let dailyAverage = quantity / 30
+        // The rate is measured over the history that exists, not over a fixed thirty
+        // days. Three doses taken this week divided by thirty reports four times the
+        // runway a person actually has, and of the two directions this estimate can
+        // be wrong in, telling someone their supply lasts longer than it does is the
+        // one that leaves them without medication.
+        let observed = calendar.dateComponents(
+            [.day],
+            from: calendar.startOfDay(for: earliest),
+            to: calendar.startOfDay(for: now)
+        ).day ?? 0
+        let window = min(30, max(1, observed + 1))
+        let dailyAverage = quantity / Double(window)
         let rawDays = supply / dailyAverage
         let days = max(1, Int(rawDays.rounded(.down)))
         let date = calendar.date(byAdding: .day, value: days, to: now)
@@ -164,7 +176,9 @@ enum ForecastEngine {
             depletionDate: date,
             daysRemaining: days,
             confidence: .estimated,
-            explanation: "Estimated from the last 30 days of as-needed use."
+            explanation: window == 1
+                ? "Estimated from today's as-needed use."
+                : "Estimated from the last \(window) days of as-needed use."
         )
     }
 

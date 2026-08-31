@@ -71,6 +71,7 @@ struct MedicationsView: View {
                     Button(action: onAdd) {
                         Label("Add Medication", systemImage: "plus")
                     }
+                    MedicationListShareButton()
                 }
                 Button {
                     showsArchived.toggle()

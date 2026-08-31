@@ -14,6 +14,7 @@ struct RootView: View {
     @Query private var inventoryEvents: [InventoryEvent]
     @Query private var doseEvents: [DoseEvent]
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @State private var selection: AppTab
     @State private var isPresentingAdd = false
     @State private var isPresentingSettings = false
@@ -80,19 +81,36 @@ struct RootView: View {
         }
         .task {
             applyPendingNotificationRoute()
+            MedicationListPDFRenderer.removePreviousExport()
 #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("-seed-demo-data") {
-                try? DemoData.seed(in: modelContext)
+                try? DemoData.seed(
+                    in: modelContext,
+                    backdatingSchedulesByDays: ProcessInfo.processInfo.arguments.contains("-seed-missed-doses") ? 3 : 0
+                )
             }
 #endif
-            let plans = NotificationPlanBuilder.makeAll(
-                medications: medications,
-                schedules: schedules,
-                inventoryEvents: inventoryEvents,
-                doseEvents: doseEvents
-            )
-            await NotificationService.shared.replaceAllNotifications(for: plans)
+            await replanNotifications()
         }
+        // `task` runs once for the life of this view, which is not the same thing as
+        // once per use: coming back after days in the background never re-ran it.
+        // Dose reminders repeat and survive that, but a refill alert is a one-shot
+        // date whose replacement is only ever scheduled while the app is open, so
+        // lead time quietly stopped arriving for anyone who left the app closed.
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            Task { await replanNotifications() }
+        }
+    }
+
+    private func replanNotifications() async {
+        let plans = NotificationPlanBuilder.makeAll(
+            medications: medications,
+            schedules: schedules,
+            inventoryEvents: inventoryEvents,
+            doseEvents: doseEvents
+        )
+        await NotificationService.shared.replaceAllNotifications(for: plans)
     }
 
     private func applyPendingNotificationRoute() {

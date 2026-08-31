@@ -147,4 +147,16 @@ final class QuantityAndExpirationParsingTests: XCTestCase {
         XCTAssertNil(Double.medicationQuantity(from: "tablets"))
         XCTAssertNil(Double.medicationQuantity(from: "inf"))
     }
+
+    /// A year sixty years out is an OCR slip on a digit, not a date worth offering
+    /// for confirmation. Dates in the past are kept: an expired package is real.
+    func testImplausiblyDistantExpirationIsRejected() {
+        XCTAssertNil(expirationComponents(from: "EXP 05/2096"))
+    }
+
+    func testAnAlreadyExpiredPackageStillParses() {
+        let parts = expirationComponents(from: "EXP 05/2019")
+        XCTAssertEqual(parts?.year, 2019)
+        XCTAssertEqual(parts?.month, 5)
+    }
 }
