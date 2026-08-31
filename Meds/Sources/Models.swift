@@ -296,6 +296,11 @@ final class InventoryEvent {
 enum MedicationNameProvenance: String, Hashable, Sendable {
     case none
     case soleCandidate
+    /// Read from a line next to the one carrying the strength. Weaker than
+    /// `strengthAnchored`: a pharmacy address, a manufacturer and a patient name all
+    /// sit next to the strength on a real label, so this must be confirmed against
+    /// the vocabulary before it may fill the name field.
+    case adjacentToStrength
     case strengthAnchored
     case vocabulary
 }

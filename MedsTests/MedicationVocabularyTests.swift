@@ -108,4 +108,53 @@ final class MedicationVocabularyTests: XCTestCase {
             MedicationVocabulary.matchIgnoringTrailingNoise(for: "Metoprolol Succ ER")
         )
     }
+
+    func testExactMatchSetsAsideInterchangeableHydrochlorideSalt() {
+        XCTAssertEqual(
+            MedicationVocabulary.exactMatch(for: "SERTRALINE HCL"),
+            "sertraline"
+        )
+        XCTAssertEqual(
+            MedicationVocabulary.exactMatch(for: "VALGANCICLOVIR HCL"),
+            "valganciclovir"
+        )
+    }
+
+    func testExactMatchPreservesDistinguishingMetoprololSalts() {
+        let expectedMatches = [
+            ("METOPROLOL SUCCINATE", "metoprolol succinate"),
+            ("METOPROLOL TARTRATE", "metoprolol tartrate")
+        ]
+
+        for (reading, expected) in expectedMatches {
+            let match = MedicationVocabulary.exactMatch(for: reading)
+            XCTAssertEqual(match, expected, reading)
+            XCTAssertNotEqual(match, "metoprolol", reading)
+        }
+    }
+
+    func testExactMatchRejectsNameShapedNearMisses() {
+        for reading in ["SERTRALIN", "EDRONATE"] {
+            XCTAssertNil(MedicationVocabulary.exactMatch(for: reading), reading)
+        }
+    }
+
+    func testSuffixCompletionRequiresTheDistinguishingBeginning() {
+        XCTAssertNil(MedicationVocabulary.uniqueMatch(for: "edronate"))
+        XCTAssertEqual(
+            MedicationVocabulary.uniqueMatch(for: "isedronate"),
+            "risedronate"
+        )
+    }
+
+    func testPrefixCompletionStillResolvesVisibleLeadingFragments() {
+        XCTAssertEqual(
+            MedicationVocabulary.uniqueMatch(for: "METOPROLOL SUCC"),
+            "metoprolol succinate"
+        )
+        XCTAssertEqual(
+            MedicationVocabulary.uniqueMatch(for: "MYCOPHENOLATE MOF"),
+            "mycophenolate mofetil"
+        )
+    }
 }

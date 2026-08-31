@@ -40,7 +40,8 @@ enum MedicationLabelInterpreter {
     static func offlineDraft(_ evidence: [ScanEvidence]) -> MedicationDraft {
         var draft = ScanParser.parse(evidence)
         let candidates = LabelCandidateBuilder.build(from: draft.evidence)
-        if let resolvedName = uniqueOfflineMedicationName(in: candidates.medicationNames) {
+        if let resolvedName = uniqueExactMedicationName(in: candidates.medicationNames),
+           corroborates(resolvedName, parserName: draft.name) {
             draft.name = formattedMedicationName(resolvedName)
             draft.nameProvenance = .vocabulary
         } else if let deterministicMatch = MedicationVocabulary.uniqueMatch(for: draft.name) {
@@ -56,6 +57,9 @@ enum MedicationLabelInterpreter {
         } else if let noiseTrimmedMatch = MedicationVocabulary.matchIgnoringTrailingNoise(for: draft.name) {
             draft.name = formattedMedicationName(noiseTrimmedMatch)
             draft.nameProvenance = .vocabulary
+        // Only a name printed on the strength line itself survives unconfirmed. A
+        // pharmacy address, a manufacturer and a patient name all sit beside the
+        // strength, and each of those reached the name field on a real bottle.
         } else if draft.nameProvenance != .strengthAnchored
                     || MedicationVocabulary.isFragmentOfLongerName(draft.name) {
             draft.name = ""
@@ -212,10 +216,39 @@ enum MedicationLabelInterpreter {
         return candidates.first { $0.id == id }
     }
 
-    private static func uniqueOfflineMedicationName(in candidates: [LabelFieldCandidate]) -> String? {
+    /// A vocabulary hit taken from anywhere on the label only counts when the
+    /// parser independently read the same medication off the line carrying the
+    /// strength.
+    ///
+    /// The candidate builder joins adjacent OCR lines into synthetic strings, and a
+    /// busy label produces dozens. On a real sertraline bottle one of them matched
+    /// risedronate; `FOLIC` on one line and `ACID` on the next join into an exact
+    /// match for a medication that is nowhere in the bottle. Being the label's only
+    /// match is not evidence — it mostly means the real product line was misread.
+    private static func corroborates(_ resolvedName: String, parserName: String) -> Bool {
+        let resolvedKey = medicationNameKey(resolvedName)
+        let parserKey = medicationNameKey(parserName)
+        guard resolvedKey.count >= 4, parserKey.count >= 4 else { return false }
+        return parserKey.contains(resolvedKey) || resolvedKey.contains(parserKey)
+    }
+
+    /// Exact readings only.
+    ///
+    /// This used to accept any *approximate* vocabulary match too, from any
+    /// candidate — including the synthetic strings the candidate builder makes by
+    /// joining adjacent OCR lines. A label yields dozens of those, and on a real
+    /// sertraline bottle the genuine product line matched nothing while one piece
+    /// of junk resembled risedronate closely enough to score. Being the only match
+    /// on the label, it was accepted, and accepted with vocabulary provenance —
+    /// the app's highest confidence — for a medication that was not in the bottle.
+    ///
+    /// Approximate matching still happens, but only against the name the parser
+    /// derived from the line carrying the strength, back in `offlineDraft`. A guess
+    /// now has to be anchored to the product line to count.
+    private static func uniqueExactMedicationName(in candidates: [LabelFieldCandidate]) -> String? {
         var matchesByKey: [String: String] = [:]
         for candidate in candidates {
-            guard let match = MedicationVocabulary.uniqueMatch(for: candidate.value) else { continue }
+            guard let match = MedicationVocabulary.exactMatch(for: candidate.value) else { continue }
             matchesByKey[medicationNameKey(match)] = match
         }
         guard matchesByKey.count == 1 else { return nil }
@@ -261,7 +294,9 @@ enum MedicationLabelInterpreter {
 
     private static func formattedMedicationName(_ value: String) -> String {
         if value == value.uppercased() { return value.capitalized }
-        if value == value.lowercased(), let first = value.first {
+        // Only the first character. Vocabulary entries such as "vitamin B12" carry
+        // meaningful capitals of their own further along.
+        if let first = value.first, first.isLowercase {
             return first.uppercased() + value.dropFirst()
         }
         return value
@@ -516,6 +551,7 @@ enum LabelCandidateBuilder {
 
     private static func isPlausibleName(_ value: String) -> Bool {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !ScanParser.isAddressOrPersonName(trimmed) else { return false }
         guard (3...64).contains(trimmed.count),
               trimmed.rangeOfCharacter(from: .letters) != nil,
               trimmed.rangeOfCharacter(from: .decimalDigits) == nil,

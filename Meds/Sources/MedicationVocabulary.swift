@@ -80,7 +80,38 @@ enum MedicationVocabulary {
             guard isNoise else { break }
             tokens.removeLast()
         }
-        return tokens.joined().filter(\.isLetter)
+        return tokens.joined().filter { $0.isLetter || $0.isNumber }
+    }
+
+    /// Salt forms that name the same medicine the bare ingredient does. Deliberately
+    /// excludes `succinate` and `tartrate`: metoprolol succinate and metoprolol
+    /// tartrate are different products with different brands, and collapsing them
+    /// would be the same class of error this gate exists to prevent.
+    private static let interchangeableSaltTokens: Set<String> = [
+        "hcl", "hydrochloride", "hbr", "hydrobromide", "sulfate", "sulphate",
+        "mesylate", "besylate", "maleate", "citrate", "phosphate", "acetate", "fumarate"
+    ]
+
+    /// A reading that *is* a medication name, rather than one that resembles a
+    /// medication name. Exact on the key, or exact once a salt that names the same
+    /// medicine is set aside, so a label printing "SERTRALINE HCL" — which matched
+    /// nothing at all before, and so left the field open to whatever junk elsewhere
+    /// on the label happened to resemble a drug — resolves to sertraline.
+    static func exactMatch(for source: String) -> String? {
+        let sourceKey = key(source)
+        guard sourceKey.count >= 5 else { return nil }
+        if let hit = entries.first(where: { $0.parts.key == sourceKey }) { return hit.name }
+
+        var tokens = parts(source).tokens
+        var stripped = false
+        while tokens.count > 1, let last = tokens.last, interchangeableSaltTokens.contains(last) {
+            tokens.removeLast()
+            stripped = true
+        }
+        guard stripped else { return nil }
+        let strippedKey = tokens.joined()
+        guard strippedKey.count >= 5 else { return nil }
+        return entries.first(where: { $0.parts.key == strippedKey })?.name
     }
 
     static func uniqueMatch(for source: String) -> String? {
@@ -124,10 +155,15 @@ enum MedicationVocabulary {
 
         let missing = nameKey.count - sourceKey.count
         let coverage = Double(sourceKey.count) / Double(nameKey.count)
-        if missing > 0,
-           missing <= 5,
-           coverage >= 0.66,
-           nameKey.hasPrefix(sourceKey) || nameKey.hasSuffix(sourceKey) {
+        // A reading clipped at the end keeps the beginning, which is what tells two
+        // drugs apart, so completing it is comparatively safe. A reading clipped at
+        // the *start* asks us to invent the distinguishing part: "edronate" was
+        // being completed to risedronate, and that is how a sertraline bottle came
+        // back as a bisphosphonate. Completing backwards has to be near-certain.
+        if missing > 0, nameKey.hasPrefix(sourceKey), missing <= 5, coverage >= 0.66 {
+            return 10 + missing
+        }
+        if missing > 0, nameKey.hasSuffix(sourceKey), missing <= 3, coverage >= 0.80 {
             return 10 + missing
         }
 
@@ -169,14 +205,16 @@ enum MedicationVocabulary {
         return 30 + missingCharacterCount
     }
 
+    /// Digits are part of a name, not decoration. Dropping them collapsed
+    /// "vitamin b12" and "vitamin b6" onto one key, and a B12 bottle resolved as B6.
     private static func key(_ value: String) -> String {
-        value.lowercased().filter(\.isLetter)
+        value.lowercased().filter { $0.isLetter || $0.isNumber }
     }
 
     private static func parts(_ value: String) -> NameParts {
         let tokens = value
             .lowercased()
-            .split(whereSeparator: { !$0.isLetter })
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
             .map(String.init)
         return NameParts(key: tokens.joined(), tokens: tokens)
     }

@@ -428,8 +428,6 @@ struct MedicationEditorView: View {
                     .padding(.vertical, 3)
                 }
             }
-        } footer: {
-            Text("Codes can identify a product, prescription, or web link. Meds Ahead never assumes they contain a complete regimen.")
         }
     }
 
