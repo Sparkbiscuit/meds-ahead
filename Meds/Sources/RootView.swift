@@ -9,10 +9,11 @@ enum AppTab: Hashable {
 }
 
 struct RootView: View {
-    @Query private var medications: [Medication]
-    @Query private var schedules: [DoseSchedule]
-    @Query private var inventoryEvents: [InventoryEvent]
-    @Query private var doseEvents: [DoseEvent]
+    // Deliberately no `@Query` here. This view owns the TabView, so an observed
+    // query would re-render every tab on every ledger write — and these values are
+    // only read at launch and on returning to the foreground. Every screen that
+    // mutates data replans notifications itself, so a fetch at those two moments
+    // is both cheaper and fresher than a query that also invalidates the world.
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
     @State private var selection: AppTab
@@ -36,7 +37,7 @@ struct RootView: View {
     }
 
     var body: some View {
-        TabView(selection: $selection) {
+        TabView(selection: tabSelection) {
             Tab("Today", systemImage: "sun.max.fill", value: .today) {
                 NavigationStack {
                     TodayView(onAdd: { isPresentingAdd = true })
@@ -60,14 +61,6 @@ struct RootView: View {
 
             Tab("Add", systemImage: "viewfinder", value: .add) {
                 Color.clear
-            }
-        }
-        .onChange(of: selection) { oldValue, newValue in
-            if newValue == .add {
-                isPresentingAdd = true
-                // Return to the tab the person was on, so closing the add sheet
-                // does not teleport them from Supply or Medications to Today.
-                selection = oldValue == .add ? .today : oldValue
             }
         }
         .sheet(isPresented: $isPresentingAdd) {
@@ -105,17 +98,39 @@ struct RootView: View {
 
     private func replanNotifications() async {
         let plans = NotificationPlanBuilder.makeAll(
-            medications: medications,
-            schedules: schedules,
-            inventoryEvents: inventoryEvents,
-            doseEvents: doseEvents
+            medications: fetch(Medication.self),
+            schedules: fetch(DoseSchedule.self),
+            inventoryEvents: fetch(InventoryEvent.self),
+            doseEvents: fetch(DoseEvent.self)
         )
         await NotificationService.shared.replaceAllNotifications(for: plans)
+    }
+
+    private func fetch<T: PersistentModel>(_ type: T.Type) -> [T] {
+        (try? modelContext.fetch(FetchDescriptor<T>())) ?? []
     }
 
     private func applyPendingNotificationRoute() {
         guard let destination = MedicationNotificationRouter.shared.consumeDestination() else { return }
         selection = destination
+    }
+
+    /// Add is a button wearing a tab's clothes. Committing `.add` as a selection
+    /// switched the TabView to an empty tab and straight back while a sheet was
+    /// presenting, and the tab it bounced off came back with its pushed detail
+    /// view scrolled under the navigation bar and unable to scroll back up.
+    /// Refusing the value keeps the person on the tab they were already on.
+    private var tabSelection: Binding<AppTab> {
+        Binding(
+            get: { selection },
+            set: { newValue in
+                if newValue == .add {
+                    isPresentingAdd = true
+                } else {
+                    selection = newValue
+                }
+            }
+        )
     }
 
     @ToolbarContentBuilder
@@ -124,7 +139,7 @@ struct RootView: View {
             Button {
                 isPresentingSettings = true
             } label: {
-                Image(systemName: "person.crop.circle")
+                Image(systemName: "gearshape")
             }
             .accessibilityLabel("Settings")
         }

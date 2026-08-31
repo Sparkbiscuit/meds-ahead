@@ -106,7 +106,8 @@ struct ScannerScreen: View {
                     style: StrokeStyle(lineWidth: 2, dash: hasUsefulProgress ? [] : [9, 8])
                 )
                 .padding(.horizontal, ScanFrameLayout.horizontalInset)
-                .padding(.vertical, ScanFrameLayout.verticalInset)
+                .padding(.top, ScanFrameLayout.topInset)
+                .padding(.bottom, ScanFrameLayout.bottomInset)
                 .allowsHitTesting(false)
                 .animation(reduceMotion ? nil : .medsSpring, value: hasUsefulProgress)
 
@@ -152,14 +153,14 @@ struct ScannerScreen: View {
             }
             .accessibilityLabel(scannerController.isTorchOn ? "Turn flashlight off" : "Turn flashlight on")
             .padding(.trailing, ScanFrameLayout.horizontalInset + 12)
-            .padding(.bottom, ScanFrameLayout.verticalInset + 12)
+            .padding(.bottom, ScanFrameLayout.bottomInset + 12)
         }
     }
 
     @ViewBuilder
     private var scanProgress: some View {
         if hasUsefulProgress {
-            HStack(spacing: 7) {
+            ScanProgressFlow(spacing: 7, rowSpacing: 7) {
                 if !preview.medicationName.isEmpty {
                     ScanProgressPill(title: "Name", systemImage: "pills.fill")
                 }
@@ -416,6 +417,63 @@ struct ScannerScreen: View {
     }
 }
 
+/// Pills keep their own size and wrap onto another row. An `HStack` squeezes
+/// every pill the moment a fifth one appears, which is exactly when the labels
+/// carry the most information and are least readable compressed.
+private struct ScanProgressFlow: Layout {
+    var spacing: CGFloat = 7
+    var rowSpacing: CGFloat = 7
+
+    private struct Row {
+        var indices: [Int] = []
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        let rows = rows(subviews: subviews, maxWidth: maxWidth)
+        let height = rows.reduce(0) { $0 + $1.height } + rowSpacing * CGFloat(max(0, rows.count - 1))
+        return CGSize(width: min(rows.map(\.width).max() ?? 0, maxWidth), height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for row in rows(subviews: subviews, maxWidth: bounds.width) {
+            var x = bounds.minX + (bounds.width - row.width) / 2
+            for index in row.indices {
+                let size = subviews[index].sizeThatFits(.unspecified)
+                subviews[index].place(
+                    at: CGPoint(x: x, y: y + (row.height - size.height) / 2),
+                    anchor: .topLeading,
+                    proposal: ProposedViewSize(size)
+                )
+                x += size.width + spacing
+            }
+            y += row.height + rowSpacing
+        }
+    }
+
+    private func rows(subviews: Subviews, maxWidth: CGFloat) -> [Row] {
+        var rows: [Row] = []
+        var current = Row()
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(.unspecified)
+            let extended = current.indices.isEmpty ? size.width : current.width + spacing + size.width
+            if !current.indices.isEmpty, extended > maxWidth {
+                rows.append(current)
+                current = Row(indices: [index], width: size.width, height: size.height)
+            } else {
+                current.indices.append(index)
+                current.width = extended
+                current.height = max(current.height, size.height)
+            }
+        }
+        if !current.indices.isEmpty { rows.append(current) }
+        return rows
+    }
+}
+
 private struct ScanProgressPill: View {
     let title: String
     let systemImage: String
@@ -423,6 +481,8 @@ private struct ScanProgressPill: View {
     var body: some View {
         Label(title, systemImage: systemImage)
             .font(.caption2.weight(.semibold))
+            .lineLimit(1)
+            .fixedSize()
             .foregroundStyle(.white)
             .padding(.horizontal, 10)
             .padding(.vertical, 7)

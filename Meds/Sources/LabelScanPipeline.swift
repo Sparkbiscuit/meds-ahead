@@ -190,10 +190,24 @@ struct LiveEvidenceTracker<ID: Hashable> {
 
 enum ScanFrameLayout {
     static let horizontalInset: CGFloat = 24
-    static let verticalInset: CGFloat = 64
+    /// The top band holds the progress pills, which wrap onto a second row once a
+    /// label has yielded four or five facts, so it is deeper than the bottom band
+    /// that holds the one-line guidance banner.
+    ///
+    /// Both the drawn outline and `region` are inset by these same numbers. They
+    /// have to stay one source of truth: the green frame is a promise about where
+    /// the scanner is reading, and a frame that disagreed with the recognition
+    /// region would be pointing somewhere the app is not looking.
+    static let topInset: CGFloat = 92
+    static let bottomInset: CGFloat = 64
 
     static func region(in bounds: CGRect) -> CGRect {
-        bounds.insetBy(dx: horizontalInset, dy: verticalInset)
+        CGRect(
+            x: bounds.minX + horizontalInset,
+            y: bounds.minY + topInset,
+            width: max(0, bounds.width - horizontalInset * 2),
+            height: max(0, bounds.height - topInset - bottomInset)
+        )
     }
 }
 

@@ -1,5 +1,53 @@
 # Verification record
 
+## August 30, 2026 (second pass) — responsiveness, tab routing, scanner pills
+
+Four reports from using the previous build, each reproduced on the simulator
+before acting.
+
+- **App-wide sluggishness.** `MedicationListShareButton` declared four
+  unfiltered `@Query` properties, and it lives in the Medications toolbar, so it
+  is mounted for the whole session. Moving the share action out of Settings had
+  quietly promoted four full-ledger observations — every dose and inventory event
+  — from "only while a sheet is open" to "always". Only the active-medication
+  check stays observed; the rest is fetched when the button is tapped.
+  `RootView` was the larger lever and was already like this before today: it owns
+  the `TabView`, so its four queries re-rendered every tab on every ledger write,
+  while the values were only ever read at launch and on foregrounding. Every
+  screen that mutates data replans notifications itself, so those became fetches
+  too. Verified by hand: logging a dose still updates Today's counter and card.
+  The PDF renderer was measured and exonerated — 25 medications render in 55 ms.
+
+- **A detail view opened scrolled under the navigation bar and would not scroll
+  back up.** Reported after using the scanner; the scanner turned out to be
+  innocent. Bisected to opening and closing the Add sheet at all, then confirmed
+  identical on the previous commit — pre-existing, not a regression. Cause: the
+  Add tab committed `.add` as a selection and an `onChange` handler set it back,
+  so the TabView switched to an empty tab and returned while a sheet was
+  presenting, and the tab it bounced off came back with a stale scroll inset.
+  Selection now routes through a binding that never commits `.add`. Confirmed
+  fixed by the same reproduction.
+
+- **Settings wore a person glyph**, which implies an account this app
+  deliberately does not have. It is a gear now.
+
+- **Scanner progress pills squashed instead of wrapping.** A fifth pill appeared
+  with this pass's Refills indicator, and an `HStack` compresses every pill
+  rather than wrapping. They now flow onto a second row at full size via a small
+  `Layout`. Because the pills share the top band with the scan frame,
+  `ScanFrameLayout` gained separate `topInset` (92) and `bottomInset` (64) in
+  place of one symmetric `verticalInset`. Both the drawn outline and the
+  recognition region use the same numbers, so the green frame still describes
+  exactly where the scanner is reading.
+
+Verified: 187 unit tests pass; scanner, Today, Supply, and the detail view
+checked by hand on the iPhone 17 Pro simulator at default and accessibility text
+sizes.
+
+Known: at accessibility text sizes a wrapped second row of pills can still graze
+the top of the scan frame. The band cannot grow without shrinking the region the
+scanner actually reads, which is the worse trade.
+
 ## August 30, 2026 — pill-box session findings: doses, combination strengths, brand names
 
 Seven defects found while entering a real week of a transplant patient's
