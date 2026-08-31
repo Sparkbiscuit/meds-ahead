@@ -1,5 +1,83 @@
 # Verification record
 
+## August 31, 2026 (second pass) — the name field, fail-closed
+
+A sertraline bottle autofilled as **Risedronate, brand Actonel**, and a hospital
+label's **patient address** reached the name field. Both were reproduced before
+anything was changed, and both turned out to be the same defect wearing two
+faces: a name was accepted on evidence that never established it came from the
+product line.
+
+**How the wrong drug got in.** `SERTRALINE HCL` matched no vocabulary entry at
+all — the bare ingredient is shorter than the reading, and the spelled-out salt
+is too far by edit distance — so the genuine product line contributed nothing.
+The candidate builder joins adjacent OCR lines into synthetic strings and a busy
+label yields dozens; one of them resembled `risedronate` closely enough to score
+through suffix completion, which was willing to invent up to five leading
+characters. Being the label's *only* match, it was accepted — and accepted with
+`.vocabulary` provenance, the app's highest confidence. `withBrandNames` then
+added Actonel. Every step behaved as designed.
+
+Four changes, each reproduced before and after:
+
+- Suffix completion now has to be near-certain (missing ≤ 3, coverage ≥ 0.80),
+  while prefix completion is unchanged. A reading clipped at the end keeps the
+  part that distinguishes one drug from another; a reading clipped at the start
+  asks us to invent it. `edronate` no longer completes to risedronate.
+- `MedicationVocabulary.exactMatch` sets aside a salt that names the same
+  medicine, so `SERTRALINE HCL` and `VALGANCICLOVIR HCL` resolve. It deliberately
+  refuses to strip `succinate` or `tartrate`: those distinguish two metoprolol
+  products with different brands.
+- A vocabulary hit taken from anywhere on the label now has to corroborate the
+  name the parser read off the strength line. `SERTRALIN 50 MG` beside `FOLIC`
+  and `ACID` produced `Folic acid / Folvite` before this; it now yields
+  `Sertraline / Zoloft`.
+- A name read from a line *beside* the strength carries new provenance,
+  `.adjacentToStrength`, and must be vocabulary-confirmed. Only a name printed on
+  the strength line itself still stands unconfirmed, which is what the
+  strength-anchored path was for. `PFIZER INC`, `JOHN SMITH`, `MEMBER ID: 1234`
+  and `42 ELM` now leave the field blank; `AMPHETAMINE SALT COMBO 20 MG TAB`
+  still resolves.
+
+`ScanParser.isAddressOrPersonName` rejects street types, postal codes, hospital
+and pharmacy words, and the `LAST, FIRST` shape, and `isPlausibleName` routes
+through it on both the parser and candidate paths.
+
+**A separate wrong name found while auditing.** Vocabulary keys dropped digits,
+so `vitamin b12` and `vitamin b6` shared a key and a B12 bottle resolved as B6.
+Keys keep digits now.
+
+**Directions were assembling on no real scan at all.** The wrapped-sig join
+tested adjacency by evidence *item*. The photo path emits one `ScanEvidence` per
+recognised line — sharing a capture, numbered top to bottom — so no two lines
+were ever adjacent; the live camera emits neither a capture nor a line number.
+Adjacency now uses the capture and line number when present and reading order
+when not, and refuses to join across two captures. The Bactrim label's
+`TAKE 2 TABLETS BY MOUTH ON MONDAYS, / WEDNESDAYS, AND FRIDAYS` assembles again
+on both paths.
+
+The trust gate itself was also too strict and rejected ordinary sigs. It now
+accepts sig abbreviations (`BID`, `TID`, `QID`, `PRN`, `Q4H`, `QHS`), common
+administration phrases (`WITH FOOD`, `AT NIGHT`, `BEFORE MEALS`), a bounded
+course length (`FOR 7 DAYS`), `SWISH`, an `ADULTS:`/`CHILDREN:` qualifier, and
+compact openings (`1/2 TABLET`, `2.5 ML`, `1 TO 2 TABLETS`, `1 TAB PO BID`). All
+three original garbage strings are still rejected, and so is a dangling
+`TAKE 1 TABLET BY MOUTH TWICE`.
+
+The review screen's explanation of scanned codes was removed. Nothing in the app
+looks a code up, so it described a caveat about a feature that does not exist.
+
+Verified: 217 unit tests pass, up from 199. Release app-target static analysis
+succeeds. Both reported labels, the folic-acid case, the B12 case, the label
+furniture cases and the Bactrim sig were each reproduced failing and then
+confirmed fixed.
+
+Residual risk accepted for now, recorded rather than silently carried: a
+two-token junk line can still complete through `compoundEdgeScore` when one
+token is exact and the other is within one character of a real prefix, and a
+foreign-language or unusual English dosing line printed on the strength line can
+still stand as a strength-anchored name.
+
 ## August 31, 2026 — clipped names, one row of pills, names that swap
 
 - **A clipped label name reached the medication field.** Scanning metoprolol

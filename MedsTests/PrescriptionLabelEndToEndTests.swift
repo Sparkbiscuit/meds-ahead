@@ -80,4 +80,134 @@ final class PrescriptionLabelEndToEndTests: XCTestCase {
         ]))
         XCTAssertTrue(draft.name.isEmpty, "invented a name from label furniture: \(draft.name)")
     }
+
+    func testSertralineLabelReturnsTheCorrectDrugBrandAndStrength() {
+        let draft = MedicationLabelInterpreter.offlineDraft(evidence([
+            "WALGREENS PHARMACY", "1200 MAIN ST", "SPRINGFIELD MA 01103",
+            "RX# 8842197", "DOE, JOHN",
+            "SERTRALINE HCL 100MG TABLET",
+            "TAKE 1 TABLET BY MOUTH ONCE DAILY",
+            "QTY: 30"
+        ]))
+
+        XCTAssertEqual(draft.name, "Sertraline")
+        XCTAssertEqual(draft.brandName, "Zoloft")
+        XCTAssertEqual(draft.strength, "100 mg")
+    }
+
+    func testSertralineLabelJunkCandidateCannotBecomeRisedronate() {
+        let draft = MedicationLabelInterpreter.offlineDraft(evidence([
+            "WALGREENS PHARMACY", "1200 MAIN ST", "SPRINGFIELD MA 01103",
+            "RX# 8842197", "DOE, JOHN",
+            "SERTRALINE HCL 100MG TABLET",
+            "EDRONATE",
+            "TAKE 1 TABLET BY MOUTH ONCE DAILY",
+            "QTY: 30"
+        ]))
+
+        XCTAssertEqual(draft.name, "Sertraline")
+        XCTAssertNotEqual(draft.name, "Risedronate")
+        XCTAssertEqual(draft.brandName, "Zoloft")
+        XCTAssertNotEqual(draft.brandName, "Actonel")
+        XCTAssertEqual(draft.strength, "100 mg")
+    }
+
+    func testHospitalPatientAddressCannotBecomeTheMedicationName() {
+        let draft = MedicationLabelInterpreter.offlineDraft(evidence([
+            "BOSTON CHILDREN'S HOSPITAL", "300 LONGWOOD AVENUE", "BOSTON MA 02115",
+            "RX# 7719204", "CHRISTOFORAKIS, LUKAS", "41 MAPLE TERRACE",
+            "AZATHIOPRINE 50 MG TABLET",
+            "TAKE 1 TABLET BY MOUTH ONCE DAILY",
+            "QTY: 90"
+        ]))
+
+        XCTAssertEqual(draft.name, "Azathioprine")
+        XCTAssertEqual(draft.brandName, "Imuran")
+        XCTAssertEqual(draft.strength, "50 mg")
+        for rejectedLine in [
+            "BOSTON CHILDREN'S HOSPITAL", "300 LONGWOOD AVENUE", "BOSTON MA 02115",
+            "CHRISTOFORAKIS, LUKAS", "41 MAPLE TERRACE"
+        ] {
+            XCTAssertNotEqual(draft.name, rejectedLine, rejectedLine)
+        }
+    }
+
+    func testValganciclovirLabelReturnsTheCorrectDrugBrandAndStrength() {
+        let draft = MedicationLabelInterpreter.offlineDraft(evidence([
+            "VALGANCICLOVIR HCL 450 MG TABLET",
+            "TAKE 1 TABLET BY MOUTH ONCE DAILY"
+        ]))
+
+        XCTAssertEqual(draft.name, "Valganciclovir")
+        XCTAssertEqual(draft.brandName, "Valcyte")
+        XCTAssertEqual(draft.strength, "450 mg")
+    }
+
+    // MARK: - Names that must never be invented
+
+    /// A busy label joins into dozens of synthetic candidates. `FOLIC` on one line
+    /// and `ACID` on the next form an exact vocabulary match for a medication that
+    /// is nowhere in the bottle, and being the label's only match used to be enough.
+    func testASyntheticExactMatchCannotOutvoteTheProductLine() {
+        let draft = MedicationLabelInterpreter.offlineDraft(evidence([
+            "SERTRALIN 50 MG",
+            "FOLIC",
+            "ACID"
+        ]))
+
+        XCTAssertNotEqual(draft.name, "Folic acid")
+        XCTAssertNotEqual(draft.brandName, "Folvite")
+        XCTAssertEqual(draft.name, "Sertraline")
+    }
+
+    /// Vocabulary keys dropped digits, so "vitamin b12" and "vitamin b6" collided
+    /// and a B12 bottle resolved as B6 — a different vitamin, stated confidently.
+    func testVitaminNumbersAreNotInterchangeable() {
+        let draft = MedicationLabelInterpreter.offlineDraft(evidence([
+            "VITAMIN B12 1000 MCG",
+            "TAKE 1 TABLET BY MOUTH DAILY"
+        ]))
+
+        XCTAssertTrue(draft.name.lowercased().contains("b12"), "got \(draft.name)")
+        XCTAssertFalse(draft.name.lowercased().contains("b6"))
+    }
+
+    /// A manufacturer, a prescriber and an insurance line all sit next to the
+    /// strength on a real label. Only a name printed on the strength line itself may
+    /// stand without the vocabulary confirming it.
+    func testLabelFurnitureBesideTheStrengthIsNotAName() {
+        for furniture in ["PFIZER INC", "JOHN SMITH", "MEMBER ID: 1234", "42 ELM"] {
+            let draft = MedicationLabelInterpreter.offlineDraft(evidence([
+                "50 MG TABLET",
+                furniture
+            ]))
+            XCTAssertEqual(draft.name, "", "\(furniture) reached the name field")
+            XCTAssertEqual(draft.nameProvenance, .none)
+        }
+    }
+
+    /// The reason the strength-anchored path exists: a pharmacy's own wording for a
+    /// drug the vocabulary lists under four salt names, printed on the strength line.
+    func testAPharmacysOwnWordingOnTheStrengthLineStillSurvives() {
+        let draft = MedicationLabelInterpreter.offlineDraft(evidence([
+            "AMPHETAMINE SALT COMBO 20 MG TAB",
+            "TAKE 1 TABLET BY MOUTH TWICE DAILY"
+        ]))
+
+        XCTAssertEqual(draft.name, "Amphetamine Salt Combo")
+        XCTAssertEqual(draft.nameProvenance, .strengthAnchored)
+    }
+
+    /// A name on its own line above the strength is the commonest label layout, and
+    /// must keep working now that adjacent reads need confirming.
+    func testANameOnTheLineAboveTheStrengthStillResolves() {
+        let draft = MedicationLabelInterpreter.offlineDraft(evidence([
+            "SERTRALINE HCL",
+            "100 MG TABLET",
+            "TAKE 1 TABLET BY MOUTH DAILY"
+        ]))
+
+        XCTAssertEqual(draft.name, "Sertraline")
+        XCTAssertEqual(draft.brandName, "Zoloft")
+    }
 }

@@ -152,9 +152,27 @@ enum ScanParser {
         let value: String
         let confidence: Double
         let order: Int
-        /// Which evidence item this line came from. Lines from two different
-        /// photos are never adjacent, whatever their position in the flat list.
-        let group: Int
+        /// Where this line sat on the capture it came from. A photo yields one
+        /// evidence item per recognised line, sorted top to bottom, sharing a
+        /// capture and numbered in order; the live camera yields items with neither.
+        let captureID: UUID?
+        let lineIndex: Int?
+    }
+
+    /// Two lines are adjacent when the label says they are.
+    ///
+    /// Reading adjacency off the evidence *item* was wrong in both directions: the
+    /// photo path makes one item per line, so nothing was ever adjacent to anything
+    /// and a wrapped sig never assembled; the live path carries no capture identity
+    /// at all. With a capture, consecutive line numbers within it decide. Without
+    /// one, the order the lines were read in is all there is.
+    private static func areAdjacent(_ line: TextLine, _ next: TextLine) -> Bool {
+        if let capture = line.captureID, let index = line.lineIndex {
+            guard next.captureID == capture, let nextIndex = next.lineIndex else { return false }
+            return nextIndex == index + 1
+        }
+        guard next.captureID == nil else { return false }
+        return next.order == line.order + 1
     }
 
     static func parse(_ evidence: [ScanEvidence], now: Date = .now) -> MedicationDraft {
@@ -190,12 +208,20 @@ enum ScanParser {
     private static func makeTextLines(from evidence: [ScanEvidence]) -> [TextLine] {
         var seen: Set<String> = []
         var result: [TextLine] = []
-        for (group, item) in evidence.enumerated() where item.kind == .text {
-            for rawLine in item.value.components(separatedBy: .newlines) {
+        for item in evidence where item.kind == .text {
+            for (offset, rawLine) in item.value.components(separatedBy: .newlines).enumerated() {
                 let value = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
                 let key = value.lowercased().split(whereSeparator: \Character.isWhitespace).joined(separator: " ")
                 guard !value.isEmpty, seen.insert(key).inserted else { continue }
-                result.append(TextLine(value: value, confidence: item.confidence, order: result.count, group: group))
+                result.append(
+                    TextLine(
+                        value: value,
+                        confidence: item.confidence,
+                        order: result.count,
+                        captureID: item.captureID,
+                        lineIndex: item.lineIndex.map { $0 + offset }
+                    )
+                )
             }
         }
         return result
@@ -234,7 +260,7 @@ enum ScanParser {
                     let nearby = lines[nearbyIndex]
                     if !isMetadataValue(at: nearbyIndex, in: lines),
                        isPlausibleName(nearby.value, stopWords: stopWords) {
-                        return (titleCasedDrugName(nearby.value), .strengthAnchored)
+                        return (titleCasedDrugName(nearby.value), .adjacentToStrength)
                     }
                 }
             }
@@ -311,12 +337,71 @@ enum ScanParser {
 
     private static func isPlausibleName(_ value: String, stopWords: [String]) -> Bool {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count >= 3,
+        guard !isAddressOrPersonName(trimmed),
+              trimmed.count >= 3,
               trimmed.count <= 64,
               trimmed.rangeOfCharacter(from: .letters) != nil,
               !trimmed.contains("http") else { return false }
         let lower = trimmed.lowercased()
         return !stopWords.contains(where: lower.contains)
+    }
+
+    /// True when a line names a place or a person rather than a medication.
+    static func isAddressOrPersonName(_ value: String) -> Bool {
+        let tokens = value
+            .lowercased()
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .map(String.init)
+        let addressTokens: Set<String> = [
+            "st", "street", "ave", "avenue", "rd", "road", "blvd", "boulevard",
+            "ln", "lane", "dr", "drive", "ct", "court", "way", "suite", "ste",
+            "apt", "unit", "floor", "fl", "box", "po", "hospital", "clinic",
+            "pharmacy", "medical", "center", "centre", "hosp", "terrace"
+        ]
+        if tokens.contains(where: addressTokens.contains) { return true }
+
+        func isDigits(_ token: String, count: Int) -> Bool {
+            token.count == count && token.allSatisfy { $0.isNumber }
+        }
+        if tokens.contains(where: { isDigits($0, count: 5) }) { return true }
+        for index in tokens.indices where tokens.indices.contains(index + 1) {
+            if isDigits(tokens[index], count: 5) && isDigits(tokens[index + 1], count: 4) {
+                return true
+            }
+        }
+
+        var personName = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if personName.last == "." {
+            personName.removeLast()
+            personName = personName.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let parts = personName.split(separator: ",", omittingEmptySubsequences: false)
+        guard parts.count == 2 else { return false }
+        return parts.allSatisfy { part in
+            isPersonNamePart(String(part))
+        }
+    }
+
+    private static func isPersonNamePart(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let characters = Array(trimmed)
+        guard let first = characters.first,
+              let last = characters.last,
+              first.isLetter,
+              last.isLetter else { return false }
+
+        var previousWasSeparator = false
+        for character in characters {
+            if character.isLetter {
+                previousWasSeparator = false
+            } else if character == "'" || character == "\u{2019}" || character == "-" {
+                guard !previousWasSeparator else { return false }
+                previousWasSeparator = true
+            } else {
+                return false
+            }
+        }
+        return !previousWasSeparator
     }
 
     private static func titleCasedDrugName(_ value: String) -> String {
@@ -536,10 +621,11 @@ enum ScanParser {
 
     private static let trustedDirectionVerbs = [
         "take", "use", "apply", "inhale", "instill", "inject", "place",
-        "give", "chew", "swallow", "dissolve", "spray"
+        "give", "chew", "swallow", "dissolve", "spray", "swish"
     ]
     private static let directionsDatePattern = /\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/
     private static let directionsPhonePattern = /\d{3}[-.\s]\d{3}[-.\s]\d{4}/
+    private static let directionsCourseLengthPattern = /(?i)\b(?:for|x)\s+\d+(?:\.\d+)?\s+days?\b/
 
     /// A pharmacy sig may omit the verb entirely — "ONE CAPSULE TWICE DAILY" is a
     /// complete instruction — so a leading dose phrase opens the same door a verb
@@ -552,24 +638,71 @@ enum ScanParser {
         "tablet", "tablets", "capsule", "capsules", "puff", "puffs", "drop", "drops",
         "spray", "sprays", "patch", "patches", "ml", "teaspoon", "teaspoons", "tsp",
         "tablespoon", "tablespoons", "tbsp", "unit", "units", "dose", "doses",
-        "lozenge", "lozenges", "suppository", "suppositories"
+        "lozenge", "lozenges", "suppository", "suppositories", "tab", "tabs", "cap", "caps"
     ]
 
     private static func startsWithDosePhrase(_ value: String) -> Bool {
-        let tokens = value
+        let opening = value.drop(while: { $0.isWhitespace || $0.isPunctuation })
+        let tokens = String(opening)
             .lowercased()
-            .split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "." })
-            .prefix(2)
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "." && $0 != "/" && $0 != "-" })
             .map(String.init)
-        guard tokens.count == 2 else { return false }
-        let opensWithAmount = doseQuantityWords.contains(tokens[0])
-            || tokens[0].allSatisfy { $0.isNumber || $0 == "." }
-        return opensWithAmount && doseFormWords.contains(tokens[1])
+        guard let first = tokens.first else { return false }
+
+        var doseFormIndex: Int
+        if isNumericDoseAmount(first) {
+            if tokens.count > 2,
+               (tokens[1] == "to" || tokens[1] == "-"),
+               isNumericDoseAmount(tokens[2]) {
+                doseFormIndex = 3
+            } else {
+                doseFormIndex = 1
+            }
+        } else if doseQuantityWords.contains(first) || first == "one-half" {
+            doseFormIndex = 1
+        } else {
+            return false
+        }
+        guard tokens.indices.contains(doseFormIndex) else { return false }
+        return doseFormWords.contains(tokens[doseFormIndex])
+    }
+
+    private static func isNumericDoseAmount(_ value: String) -> Bool {
+        func isUnsignedInteger(_ part: Substring) -> Bool {
+            !part.isEmpty && part.allSatisfy { $0.isNumber }
+        }
+
+        let decimalParts = value.split(separator: ".", omittingEmptySubsequences: false)
+        if decimalParts.count <= 2,
+           decimalParts.allSatisfy(isUnsignedInteger) {
+            return true
+        }
+        let fractionParts = value.split(separator: "/", omittingEmptySubsequences: false)
+        if fractionParts.count == 2,
+           fractionParts.allSatisfy(isUnsignedInteger) {
+            return true
+        }
+        let rangeParts = value.split(separator: "-", omittingEmptySubsequences: false)
+        return rangeParts.count == 2 && rangeParts.allSatisfy(isUnsignedInteger)
+    }
+
+    private static func directionOpening(afterQualifier value: String) -> String {
+        let candidate = value.drop(while: { $0.isWhitespace })
+        let lower = String(candidate).lowercased()
+        for qualifier in ["adults", "children"] {
+            guard lower.hasPrefix(qualifier) else { continue }
+            let remainder = candidate.dropFirst(qualifier.count)
+            guard let first = remainder.first,
+                  first == ":" || first.isWhitespace else { continue }
+            return String(remainder.drop(while: { $0 == ":" || $0.isWhitespace }))
+        }
+        return String(candidate)
     }
 
     /// True when the line opens the way a direction opens, by verb or by dose phrase.
     private static func opensLikeDirections(_ value: String) -> Bool {
-        directionVerb(in: value) != nil || startsWithDosePhrase(value)
+        let opening = directionOpening(afterQualifier: value)
+        return directionVerb(in: opening) != nil || startsWithDosePhrase(opening)
     }
 
     private static func directionVerb(in value: String) -> String? {
@@ -593,9 +726,22 @@ enum ScanParser {
             " once daily", " twice daily", " daily", " times a day", " time a day",
             " times daily", " time daily", " every ", " as needed", " at bedtime", " in the morning",
             " in the evening", " once a day", " twice a day", " each day", " per day",
-            " weekly", " nightly", " monthly", " a week", " per week", " a month", " per month"
+            " weekly", " nightly", " monthly", " a week", " per week", " a month", " per month",
+            " with food", " with meals", " before meals", " after meals", " before breakfast",
+            " after breakfast", " before bed", " at night", " each night", " each morning",
+            " each evening"
         ]
         if frequencyMarkers.contains(where: padded.contains) { return true }
+
+        let frequencyAbbreviations: Set<String> = [
+            "qd", "bid", "tid", "qid", "prn", "qhs", "hs", "qam", "qpm", "qod",
+            "q4h", "q6h", "q8h", "q12h", "q24h", "ac", "pc"
+        ]
+        let tokens = lower
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .map(String.init)
+        if tokens.contains(where: frequencyAbbreviations.contains) { return true }
+        if value.firstMatch(of: directionsCourseLengthPattern) != nil { return true }
 
         let weekdays: Set<String> = [
             "mon", "monday", "mondays", "tue", "tues", "tuesday", "tuesdays",
@@ -683,7 +829,7 @@ enum ScanParser {
             for additionalLines in 1...2 {
                 let endIndex = index + additionalLines
                 guard lines.indices.contains(endIndex),
-                      lines[endIndex].group == line.group else { break }
+                      areAdjacent(lines[endIndex - 1], lines[endIndex]) else { break }
                 let joined = (index...endIndex).map { lines[$0].value }.joined(separator: " ")
                 if isTrustedDirections(joined) { return joined }
             }

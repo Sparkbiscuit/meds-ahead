@@ -555,4 +555,101 @@ final class ScanParserTests: XCTestCase {
             "Sertraline HCl"
         )
     }
+
+    func testDirectionsGateAllowsCompleteBottleSigsButRejectsBottleOCRGarbage() {
+        let trustedValues = [
+            "TAKE 1 TABLET BY MOUTH BID",
+            "1 TABLET PO BID",
+            "INHALE 2 PUFFS Q4H PRN WHEEZING",
+            "TAKE 1 TABLET WITH FOOD",
+            "TAKE 1 TABLET FOR 7 DAYS",
+            "SWISH AND SWALLOW 15 ML BY MOUTH 4 TIMES DAILY",
+            "1/2 TABLET PO DAILY",
+            "2.5 ML PO BID",
+            "1 TO 2 TABLETS PO Q6H",
+            "1 TAB PO BID",
+            "CHILDREN: 5 ML BY MOUTH TWICE DAILY"
+        ]
+        for value in trustedValues {
+            XCTAssertTrue(ScanParser.isTrustedDirections(value), value)
+        }
+
+        let rejectedValues = [
+            "is Filled: 8/13/2026 RPh: Mg by mouth 1 time each chew.",
+            "- capsule by mouth 2 tim agNe 8.5 mg total twice da",
+            "like 2 tablets by mouth rednesdays, and fridays",
+            "TAKE 1 TABLET BY MOUTH TWICE"
+        ]
+        for value in rejectedValues {
+            XCTAssertFalse(ScanParser.isTrustedDirections(value), value)
+        }
+    }
+
+    func testAddressAndPersonLinesCannotBecomeMedicationNames() {
+        let addressOrPersonLines = [
+            "300 LONGWOOD AVENUE",
+            "BOSTON MA 02115",
+            "41 MAPLE TERRACE",
+            "CHRISTOFORAKIS, LUKAS",
+            "BOSTON CHILDREN'S HOSPITAL",
+            "1200 MAIN ST"
+        ]
+        for value in addressOrPersonLines {
+            XCTAssertTrue(ScanParser.isAddressOrPersonName(value), value)
+        }
+
+        let medicationLines = [
+            "SERTRALINE HCL",
+            "METOPROLOL SUCCINATE",
+            "MYCOPHENOLATE MOFETIL",
+            "SULFAMETHOXAZOLE / TRIMETHOPRIM"
+        ]
+        for value in medicationLines {
+            XCTAssertFalse(ScanParser.isAddressOrPersonName(value), value)
+        }
+    }
+
+    /// A photo yields one `ScanEvidence` per recognised line, sharing a capture and
+    /// numbered top to bottom — not one evidence carrying newlines. Adjacency was
+    /// being read off the evidence item, so on a real scan no two lines were ever
+    /// adjacent and a wrapped sig never assembled. The live camera supplies neither
+    /// a capture nor a line number, so reading order has to carry it there.
+    func testWrappedSigAssemblesAcrossSeparateEvidenceLines() {
+        let capture = UUID()
+        let lines = [
+            "SULFAMETHOXAZOLE/TRIMETHOPRIM 400-80 MG TAB",
+            "TAKE 2 TABLETS BY MOUTH ON MONDAYS,",
+            "WEDNESDAYS, AND FRIDAYS",
+            "QTY: 64"
+        ]
+        let photo = lines.enumerated().map { index, value in
+            ScanEvidence(
+                kind: .text, value: value, confidence: 0.9,
+                origin: .cameraCapture, captureID: capture, lineIndex: index
+            )
+        }
+        XCTAssertEqual(
+            ScanParser.parse(photo).directions,
+            "TAKE 2 TABLETS BY MOUTH ON MONDAYS, WEDNESDAYS, AND FRIDAYS"
+        )
+
+        let live = lines.map { ScanEvidence(kind: .text, value: $0, confidence: 0.9, origin: .liveCamera) }
+        XCTAssertEqual(
+            ScanParser.parse(live).directions,
+            "TAKE 2 TABLETS BY MOUTH ON MONDAYS, WEDNESDAYS, AND FRIDAYS"
+        )
+    }
+
+    /// Two separate photos must never be joined into one instruction.
+    func testWrappedSigDoesNotAssembleAcrossTwoCaptures() {
+        let first = ScanEvidence(
+            kind: .text, value: "TAKE 2 TABLETS BY MOUTH ON MONDAYS,",
+            confidence: 0.9, origin: .cameraCapture, captureID: UUID(), lineIndex: 0
+        )
+        let second = ScanEvidence(
+            kind: .text, value: "WEDNESDAYS, AND FRIDAYS",
+            confidence: 0.9, origin: .cameraCapture, captureID: UUID(), lineIndex: 0
+        )
+        XCTAssertEqual(ScanParser.parse([first, second]).directions, "")
+    }
 }
