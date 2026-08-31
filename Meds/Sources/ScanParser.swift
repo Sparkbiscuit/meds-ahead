@@ -245,8 +245,12 @@ enum ScanParser {
 
         if !strength.isEmpty,
            let strengthLineIndex = lines.firstIndex(where: {
-               $0.value.localizedCaseInsensitiveContains(strength)
-                   || strengthMatches(in: $0.value).contains(strength)
+               // A sig that happens to carry the strength is still a sig. This is the
+               // same rule `capturedStrength` applies in the other direction, and
+               // without it "1 WEEK, THEN INCREAS EVERY EVENING 50 MG" became a name.
+               !isDirectionLike($0.value)
+                   && ($0.value.localizedCaseInsensitiveContains(strength)
+                       || strengthMatches(in: $0.value).contains(strength))
            }) {
             let line = lines[strengthLineIndex].value
             let cleaned = cleanedNameLine(line, removing: strength)
@@ -259,6 +263,7 @@ enum ScanParser {
                     where lines.indices.contains(nearbyIndex) {
                     let nearby = lines[nearbyIndex]
                     if !isMetadataValue(at: nearbyIndex, in: lines),
+                       !isDirectionLike(nearby.value),
                        isPlausibleName(nearby.value, stopWords: stopWords) {
                         return (titleCasedDrugName(nearby.value), .adjacentToStrength)
                     }
@@ -333,6 +338,23 @@ enum ScanParser {
             .lowercased()
             .trimmingCharacters(in: CharacterSet(charactersIn: " :#"))
         return markers.contains(preceding)
+    }
+
+    /// Whether a reading has the *shape* of a medication name, as opposed to a
+    /// phrase that happens to sit where a name would.
+    ///
+    /// This gates the one path that fills the name field without the vocabulary
+    /// confirming it, which exists so a pharmacy's own wording — "Amphetamine salt
+    /// combo", a real label for a drug listed under four salt names — is not thrown
+    /// away. That wording is three short words. A clipped sig is a run of words with
+    /// digits and commas in it, and telling the two apart by shape keeps the useful
+    /// half of the path without keeping the dangerous half.
+    static func looksLikeMedicationName(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !isDirectionLike(trimmed), !trimmed.contains(",") else { return false }
+        guard trimmed.rangeOfCharacter(from: .decimalDigits) == nil else { return false }
+        let tokens = trimmed.split(whereSeparator: \Character.isWhitespace)
+        return (1...4).contains(tokens.count)
     }
 
     private static func isPlausibleName(_ value: String, stopWords: [String]) -> Bool {

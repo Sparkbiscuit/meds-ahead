@@ -61,6 +61,7 @@ enum MedicationLabelInterpreter {
         // pharmacy address, a manufacturer and a patient name all sit beside the
         // strength, and each of those reached the name field on a real bottle.
         } else if draft.nameProvenance != .strengthAnchored
+                    || !ScanParser.looksLikeMedicationName(draft.name)
                     || MedicationVocabulary.isFragmentOfLongerName(draft.name) {
             draft.name = ""
             draft.nameProvenance = .none
