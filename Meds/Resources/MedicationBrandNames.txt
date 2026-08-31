@@ -1,8 +1,10 @@
 abaloparatide|Tymlos
 acetaminophen|Tylenol
 acetaminophen / oxycodone|Percocet
+acyclovir|Zovirax
 adalimumab|Humira
 adapalene|Differin
+alendronate|Fosamax
 aliskiren|Tekturna
 alogliptin|Nesina
 alprazolam|Xanax
@@ -17,6 +19,7 @@ atomoxetine|Strattera
 atorvastatin|Lipitor
 atovaquone|Mepron
 atropine / diphenoxylate|Lomotil
+azathioprine|Imuran
 azithromycin|Zithromax
 balsalazide|Colazal
 belimumab|Benlysta
@@ -67,12 +70,14 @@ diphenhydramine|Benadryl
 dipyridamole|Persantine
 dofetilide|Tikosyn
 donepezil|Aricept
+dornase alfa|Pulmozyme
 dorzolamide|Trusopt
 doxazosin|Cardura
 dulaglutide|Trulicity
 duloxetine|Cymbalta
 edoxaban|Savaysa
 eletriptan|Relpax
+elexacaftor / ivacaftor / tezacaftor|Trikafta
 empagliflozin|Jardiance
 enalapril|Vasotec
 enoxaparin|Lovenox
@@ -116,15 +121,20 @@ insulin degludec|Tresiba
 insulin glargine|Lantus
 insulin lispro|Humalog
 irbesartan|Avapro
+isavuconazonium|Cresemba
 isosorbide dinitrate|Isordil
 itraconazole|Sporanox
 ivabradine|Corlanor
+ivacaftor|Kalydeco
+ivacaftor / lumacaftor|Orkambi
+ivacaftor / tezacaftor|Symdeko
 labetalol|Trandate
 lacosamide|Vimpat
 lamotrigine|Lamictal
 lansoprazole|Prevacid
 latanoprost|Xalatan
 leflunomide|Arava
+letermovir|Prevymis
 letrozole|Femara
 levalbuterol|Xopenex
 levetiracetam|Keppra
@@ -133,6 +143,7 @@ levofloxacin|Levaquin
 levothyroxine|Synthroid
 linaclotide|Linzess
 linagliptin|Tradjenta
+linezolid|Zyvox
 liothyronine|Cytomel
 lisdexamfetamine|Vyvanse
 loperamide|Imodium
@@ -142,12 +153,14 @@ losartan|Cozaar
 loteprednol|Lotemax
 lubiprostone|Amitiza
 magnesium oxide|Mag-Ox
+maribavir|Livtencity
 meclizine|Bonine
 meloxicam|Mobic
 mepolizumab|Nucala
 mercaptopurine|Purinethol
 metformin|Glucophage
 methylphenidate|Ritalin
+methylprednisolone|Medrol
 metoclopramide|Reglan
 metoprolol succinate|Toprol XL
 metoprolol tartrate|Lopressor
@@ -156,10 +169,12 @@ mirtazapine|Remeron
 modafinil|Provigil
 montelukast|Singulair
 mycophenolate mofetil|CellCept
+mycophenolate sodium|Myfortic
 mycophenolic acid|Myfortic
 naloxegol|Movantik
 naproxen|Aleve
 nebivolol|Bystolic
+nintedanib|Ofev
 nitazoxanide|Alinia
 olanzapine|Zyprexa
 olmesartan|Benicar
@@ -173,8 +188,10 @@ paricalcitol|Zemplar
 paroxetine|Paxil
 phenytoin|Dilantin
 pioglitazone|Actos
+pirfenidone|Esbriet
 pitavastatin|Livalo
 polyethylene glycol 3350|MiraLAX
+posaconazole|Noxafil
 pramipexole|Mirapex
 prasugrel|Effient
 pregabalin|Lyrica
@@ -231,6 +248,7 @@ umeclidinium|Incruse Ellipta
 upadacitinib|Rinvoq
 valacyclovir|Valtrex
 valbenazine|Ingrezza
+valganciclovir|Valcyte
 valproic acid|Depakene
 valsartan|Diovan
 vedolizumab|Entyvio
@@ -240,6 +258,7 @@ vilazodone|Viibryd
 vonoprazan|Voquezna
 voriconazole|Vfend
 vortioxetine|Trintellix
+warfarin|Coumadin
 zaleplon|Sonata
 ziprasidone|Geodon
 zolmitriptan|Zomig

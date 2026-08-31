@@ -23,6 +23,7 @@ struct MedicationEditorView: View {
     @State private var name: String
     @State private var nickname: String
     @State private var brandName: String
+    @State private var isBrandNameVisible: Bool
     @State private var strength: String
     @State private var form: MedicationForm
     @State private var directions: String
@@ -51,7 +52,9 @@ struct MedicationEditorView: View {
         let resolvedForm = medication?.form ?? draft.form
         _name = State(initialValue: medication?.name ?? draft.name)
         _nickname = State(initialValue: medication?.nickname ?? draft.nickname)
-        _brandName = State(initialValue: medication?.brandName ?? draft.brandName)
+        let resolvedBrandName = medication?.brandName ?? draft.brandName
+        _brandName = State(initialValue: resolvedBrandName)
+        _isBrandNameVisible = State(initialValue: !resolvedBrandName.isEmpty)
         _strength = State(initialValue: medication?.strength ?? draft.strength)
         _form = State(initialValue: resolvedForm)
         _directions = State(initialValue: medication?.directions ?? draft.directions)
@@ -136,17 +139,38 @@ struct MedicationEditorView: View {
                             let previousAutofill = MedicationBrandIndex.resolve(oldValue)?.brand ?? ""
                             guard brandName.isEmpty || brandName == previousAutofill else { return }
                             brandName = MedicationBrandIndex.resolve(newValue)?.brand ?? ""
+                            // Reveal it filled in, and leave it revealed: taking the
+                            // row away again mid-edit is worse than an empty one.
+                            if !brandName.isEmpty, !isBrandNameVisible {
+                                withAnimation(.medsSpring) { isBrandNameVisible = true }
+                            }
                         }
                 }
                 .padding(.vertical, 3)
-                VStack(alignment: .leading, spacing: 4) {
-                    MedicationFieldTitle("Brand name")
-                    TextField("Brand name", text: $brandName)
-                        .textInputAutocapitalization(.words)
-                        .accessibilityHint("Optional; filled in automatically for medications Meds Ahead recognises")
-                        .accessibilityIdentifier("medication-brand-name")
+                // An empty Brand name row is a field to skip past on every
+                // medication that has no brand worth printing, which is most of a
+                // household's list once supplements and old generics are counted.
+                // It earns its place only once it has an answer.
+                if isBrandNameVisible {
+                    VStack(alignment: .leading, spacing: 4) {
+                        MedicationFieldTitle("Brand name")
+                        TextField("Brand name", text: $brandName)
+                            .textInputAutocapitalization(.words)
+                            .accessibilityHint("Optional; filled in automatically for medications Meds Ahead recognises")
+                            .accessibilityIdentifier("medication-brand-name")
+                    }
+                    .padding(.vertical, 3)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                } else {
+                    Button {
+                        withAnimation(.medsSpring) { isBrandNameVisible = true }
+                    } label: {
+                        Label("Add brand name", systemImage: "plus.circle")
+                            .font(.subheadline)
+                    }
+                    .accessibilityIdentifier("add-brand-name")
+                    .accessibilityHint("Medications Meds Ahead recognises fill this in for you")
                 }
-                .padding(.vertical, 3)
                 VStack(alignment: .leading, spacing: 4) {
                     MedicationFieldTitle("Strength")
                     TextField("Strength", text: $strength)
