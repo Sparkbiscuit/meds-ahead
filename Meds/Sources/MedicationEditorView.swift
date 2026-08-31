@@ -9,6 +9,11 @@ private struct EditableDoseSchedule: Identifiable {
 }
 
 struct MedicationEditorView: View {
+    private enum NameField: Hashable {
+        case medication
+        case brand
+    }
+
     private let medication: Medication?
     private let draftEvidence: [ScanEvidence]
     private let onSaved: (() -> Void)?
@@ -44,6 +49,7 @@ struct MedicationEditorView: View {
     @State private var showingValidation = false
     @State private var validationMessage = ""
     @State private var showingDiscardConfirmation = false
+    @FocusState private var focusedNameField: NameField?
 
     init(medication: Medication? = nil, draft: MedicationDraft = MedicationDraft(), onSaved: (() -> Void)? = nil) {
         self.medication = medication
@@ -131,6 +137,7 @@ struct MedicationEditorView: View {
                     MedicationFieldTitle("Medication name")
                     TextField("Medication name", text: $name)
                         .textInputAutocapitalization(.words)
+                        .focused($focusedNameField, equals: .medication)
                         .accessibilityIdentifier("medication-name")
                         .onChange(of: name) { oldValue, newValue in
                             // Replace a brand this screen filled in, leave one the
@@ -138,7 +145,7 @@ struct MedicationEditorView: View {
                             // keep Zoloft, and the shared list printed it.
                             let previousAutofill = MedicationBrandIndex.resolve(oldValue)?.brand ?? ""
                             guard brandName.isEmpty || brandName == previousAutofill else { return }
-                            brandName = MedicationBrandIndex.resolve(newValue)?.brand ?? ""
+                            brandName = MedicationBrandIndex.brandName(forGeneric: newValue) ?? ""
                             // Reveal it filled in, and leave it revealed: taking the
                             // row away again mid-edit is worse than an empty one.
                             if !brandName.isEmpty, !isBrandNameVisible {
@@ -156,6 +163,7 @@ struct MedicationEditorView: View {
                         MedicationFieldTitle("Brand name")
                         TextField("Brand name", text: $brandName)
                             .textInputAutocapitalization(.words)
+                            .focused($focusedNameField, equals: .brand)
                             .accessibilityHint("Optional; filled in automatically for medications Meds Ahead recognises")
                             .accessibilityIdentifier("medication-brand-name")
                     }
@@ -353,7 +361,43 @@ struct MedicationEditorView: View {
         } message: {
             Text("The information you reviewed or entered will not be saved.")
         }
+        .onChange(of: focusedNameField) { oldValue, _ in
+            guard let oldValue else { return }
+            reconcileNames(after: oldValue)
+        }
         .task { loadExistingSchedulesIfNeeded() }
+    }
+
+    /// A label prints one of a medication's two names, and a person copying from it
+    /// can put either one in either field. Both fields end up correct whichever way
+    /// round they were entered, because the shared list a clinician reads has a
+    /// column for each.
+    private func reconcileNames(after field: NameField) {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedBrandName = brandName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        switch field {
+        case .medication:
+            guard let pair = MedicationBrandIndex.resolve(trimmedName) else { return }
+            name = MedicationBrandIndex.displayName(forGeneric: pair.generic)
+            brandName = pair.brand
+            if !pair.brand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               !isBrandNameVisible {
+                withAnimation(.medsSpring) { isBrandNameVisible = true }
+            }
+
+        case .brand:
+            guard !trimmedBrandName.isEmpty,
+                  let pair = MedicationBrandIndex.resolve(trimmedBrandName) else { return }
+            brandName = pair.brand
+            if trimmedName.isEmpty || MedicationBrandIndex.resolve(trimmedName)?.generic == pair.generic {
+                name = MedicationBrandIndex.displayName(forGeneric: pair.generic)
+            }
+            if !pair.brand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               !isBrandNameVisible {
+                withAnimation(.medsSpring) { isBrandNameVisible = true }
+            }
+        }
     }
 
     private var scanSummarySection: some View {

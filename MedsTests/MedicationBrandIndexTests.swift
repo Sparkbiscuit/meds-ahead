@@ -171,6 +171,20 @@ final class MedicationBrandIndexTests: XCTestCase {
         XCTAssertEqual(MedicationBrandIndex.genericName(forBrand: "Prevymis"), "letermovir")
     }
 
+    func testDisplayNameUppercasesOnlyTheFirstCharacter() {
+        XCTAssertEqual(MedicationBrandIndex.displayName(forGeneric: "sertraline"), "Sertraline")
+        XCTAssertEqual(
+            MedicationBrandIndex.displayName(forGeneric: "mycophenolate sodium"),
+            "Mycophenolate sodium"
+        )
+        XCTAssertEqual(
+            MedicationBrandIndex.displayName(forGeneric: "sulfamethoxazole / trimethoprim"),
+            "Sulfamethoxazole / trimethoprim"
+        )
+        XCTAssertEqual(MedicationBrandIndex.displayName(forGeneric: ""), "")
+        XCTAssertEqual(MedicationBrandIndex.displayName(forGeneric: "Sertraline"), "Sertraline")
+    }
+
     /// Deliberate blanks. Each of these has either no brand still in use or several
     /// competing ones, and a confident wrong brand on a clinician's sheet is worse
     /// than an empty field. Pinning them stops a future expansion from adding one

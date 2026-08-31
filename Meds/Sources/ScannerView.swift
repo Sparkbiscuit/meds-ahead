@@ -157,41 +157,38 @@ struct ScannerScreen: View {
         }
     }
 
-    @ViewBuilder
+    /// All four facts, always on screen. Pills that appeared only once found gave
+    /// no sense of what was still outstanding, and the row changed width every time
+    /// one arrived. Standing there dimmed, they say what the scanner is looking for
+    /// before it finds any of it.
+    ///
+    /// A barcode has no pill. One is captured and kept when it happens to be in
+    /// frame, but nothing in the app looks a code up, so announcing it only asked
+    /// someone to keep turning a bottle for a fact that changes nothing.
     private var scanProgress: some View {
-        if hasUsefulProgress {
-            ScanProgressFlow(spacing: 7, rowSpacing: 7) {
-                if !preview.medicationName.isEmpty {
-                    ScanProgressPill(title: "Name", systemImage: "pills.fill")
-                }
-                if preview.hasStrength {
-                    ScanProgressPill(title: "Strength", systemImage: "checkmark")
-                }
-                if preview.hasQuantity {
-                    ScanProgressPill(title: "Quantity", systemImage: "number")
-                }
-                if preview.hasRefills {
-                    ScanProgressPill(title: "Refills", systemImage: "arrow.clockwise")
-                }
-                if preview.hasProductIdentifier {
-                    ScanProgressPill(title: "Code", systemImage: "barcode")
-                }
-            }
-            .padding(.top, 14)
-            .padding(.horizontal, 12)
-            .transition(.move(edge: .top).combined(with: .opacity))
+        ScanProgressFlow(spacing: 7, rowSpacing: 7) {
+            ScanProgressPill(title: "Name", systemImage: "pills.fill", isFound: !preview.medicationName.isEmpty)
+            ScanProgressPill(title: "Strength", systemImage: "scalemass.fill", isFound: preview.hasStrength)
+            ScanProgressPill(title: "Quantity", systemImage: "number", isFound: preview.hasQuantity)
+            ScanProgressPill(title: "Refills", systemImage: "arrow.clockwise", isFound: preview.hasRefills)
         }
+        // Clear of the system scanner's own "Slow down" hint, which sits just under
+        // the title and was reading through the pills.
+        .padding(.top, 44)
+        .padding(.horizontal, 12)
+        .animation(reduceMotion ? nil : .medsSpring, value: preview)
     }
 
     /// Guidance must match the input actually available: telling someone to
     /// rotate a bottle in front of a camera that is off is worse than silence.
     private var scanGuidance: String? {
-        // Only the facts every label carries. A refill count is absent from an OTC
-        // bottle altogether, so asking for one left the banner nagging forever.
+        // The same four facts the pills show. A banner that said everything was
+        // found while a pill sat dimmed above it contradicted the screen.
         let missing = [
             preview.medicationName.isEmpty ? "name" : nil,
             !preview.hasStrength ? "strength" : nil,
-            !preview.hasQuantity ? "quantity" : nil
+            !preview.hasQuantity ? "quantity" : nil,
+            !preview.hasRefills ? "refill count" : nil
         ].compactMap { $0 }
         let missingDescription: String = {
             switch missing.count {
@@ -228,6 +225,8 @@ struct ScannerScreen: View {
             HStack(spacing: 12) {
                 PhotosPicker(selection: $selectedPhoto, matching: .images) {
                     Label("Choose Photo", systemImage: "photo")
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
@@ -236,8 +235,19 @@ struct ScannerScreen: View {
                 .disabled(isInterpreting)
 
                 Button(action: reviewScan) {
-                    Label(evidence.isEmpty ? "Capture & Review" : "Review", systemImage: "arrow.right")
-                        .frame(maxWidth: .infinity)
+                    // "Capture & Review" needs the whole half-width to itself; with
+                    // the arrow beside it the label truncated. The arrow belongs to
+                    // the shorter title anyway, where it reads as "onward".
+                    Group {
+                        if evidence.isEmpty {
+                            Text("Capture & Review")
+                        } else {
+                            Label("Review", systemImage: "arrow.right")
+                        }
+                    }
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
@@ -245,7 +255,10 @@ struct ScannerScreen: View {
             }
             Button("Clear Scan", action: clearScan)
                 .font(.footnote.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.78))
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .buttonBorderShape(.capsule)
+                .tint(.white)
                 .disabled(
                     evidence.isEmpty || isInterpreting
                 )
@@ -477,16 +490,24 @@ private struct ScanProgressFlow: Layout {
 private struct ScanProgressPill: View {
     let title: String
     let systemImage: String
+    let isFound: Bool
 
     var body: some View {
-        Label(title, systemImage: systemImage)
+        Label(title, systemImage: isFound ? "checkmark" : systemImage)
             .font(.caption2.weight(.semibold))
             .lineLimit(1)
             .fixedSize()
-            .foregroundStyle(.white)
+            // The checkmark carries the state on its own, so the green reads as
+            // confirmation rather than as the only thing saying so.
+            .foregroundStyle(.white.opacity(isFound ? 1 : 0.62))
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
             .background(.regularMaterial, in: Capsule())
+            .overlay {
+                Capsule()
+                    .strokeBorder(isFound ? Color.green : .white.opacity(0.18), lineWidth: 1.5)
+            }
+            .accessibilityLabel(isFound ? "\(title) found" : "\(title) not found yet")
     }
 }
 

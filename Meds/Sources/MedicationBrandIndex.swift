@@ -64,6 +64,13 @@ enum MedicationBrandIndex {
         matchingEntry(for: name, in: brandIndex)?.generic
     }
 
+    /// The table stores generics lowercase, the way the bundled vocabulary does.
+    /// This is the form a field shows.
+    static func displayName(forGeneric generic: String) -> String {
+        guard !generic.isEmpty else { return generic }
+        return String(generic.prefix(1)).uppercased() + String(generic.dropFirst())
+    }
+
     /// Resolves any medication name — generic or brand — to the curated pair.
     static func resolve(_ name: String) -> (generic: String, brand: String)? {
         let entry = matchingEntry(for: name, in: genericIndex)

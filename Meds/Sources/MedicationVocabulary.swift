@@ -26,6 +26,63 @@ enum MedicationVocabulary {
         }
     }()
 
+    private static let entryKeys: Set<String> = Set(entries.map(\.parts.key))
+
+    /// True when `source` reads as a piece of a longer medication name rather than
+    /// a name in its own right.
+    ///
+    /// A curved bottle clips the ends off the product line, and what survives —
+    /// "Rolol Succin" out of "Metoprolol succinate" — is name-shaped enough to pass
+    /// every other check while naming no real drug. The strength-anchored path
+    /// exists so a pharmacy's own wording ("Amphetamine salt combo") is not thrown
+    /// away for missing from the vocabulary, and that wording is not a substring of
+    /// anything; a clipped reading is. Anything that is contained in a real name,
+    /// without being one, is the clipping and not the drug.
+    static func isFragmentOfLongerName(_ source: String) -> Bool {
+        isFragment(key(source)) || isFragment(coreKey(source))
+    }
+
+    /// The entry a noisy reading resolves to once the trailing release form and
+    /// imprint code a pharmacy prints after the name are set aside, so
+    /// "METOPROLOL SUCCINATE ER 50 MG TAB GG 263" is still metoprolol succinate.
+    /// Exact equality only: this drops known noise, it does not guess.
+    static func matchIgnoringTrailingNoise(for source: String) -> String? {
+        let core = coreKey(source)
+        guard core.count >= 5, !key(source).isEmpty, key(source) != core else { return nil }
+        return entries.first { $0.parts.key == core }?.name
+    }
+
+    private static func isFragment(_ candidate: String) -> Bool {
+        guard candidate.count >= 4, !entryKeys.contains(candidate) else { return false }
+        return entries.contains { entry in
+            entry.parts.key.count > candidate.count && entry.parts.key.contains(candidate)
+        }
+    }
+
+    /// A release form or an imprint code trails the name on a dispensing label and
+    /// belongs to the package, not the drug. Stripping it is deliberately eager:
+    /// this feeds a check whose failure mode is a blank name, and a blank beats a
+    /// clipped one.
+    private static let trailingNoiseTokens: Set<String> = [
+        "er", "xl", "xr", "sr", "cr", "dr", "odt", "la", "ec", "tab", "cap"
+    ]
+
+    private static func coreKey(_ value: String) -> String {
+        var tokens = value
+            .lowercased()
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .map(String.init)
+        while tokens.count > 1, let last = tokens.last {
+            let isNoise = trailingNoiseTokens.contains(last)
+                || last.allSatisfy(\.isNumber)
+                || last.count <= 2
+                || (last.count <= 3 && last.contains(where: \.isNumber))
+            guard isNoise else { break }
+            tokens.removeLast()
+        }
+        return tokens.joined().filter(\.isLetter)
+    }
+
     static func uniqueMatch(for source: String) -> String? {
         uniqueMatch(source: parts(source), among: entries)
     }

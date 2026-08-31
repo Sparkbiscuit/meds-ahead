@@ -46,7 +46,18 @@ enum MedicationLabelInterpreter {
         } else if let deterministicMatch = MedicationVocabulary.uniqueMatch(for: draft.name) {
             draft.name = formattedMedicationName(deterministicMatch)
             draft.nameProvenance = .vocabulary
-        } else if draft.nameProvenance != .strengthAnchored {
+        } else if let pair = MedicationBrandIndex.resolve(draft.name) {
+            // Ahead of the noise trimming below, because a brand can end in the very
+            // token that trimming treats as noise: "Toprol XL" is the whole name, not
+            // "Toprol" with a release form after it.
+            draft.name = formattedMedicationName(pair.generic)
+            draft.brandName = pair.brand
+            draft.nameProvenance = .vocabulary
+        } else if let noiseTrimmedMatch = MedicationVocabulary.matchIgnoringTrailingNoise(for: draft.name) {
+            draft.name = formattedMedicationName(noiseTrimmedMatch)
+            draft.nameProvenance = .vocabulary
+        } else if draft.nameProvenance != .strengthAnchored
+                    || MedicationVocabulary.isFragmentOfLongerName(draft.name) {
             draft.name = ""
             draft.nameProvenance = .none
         }
