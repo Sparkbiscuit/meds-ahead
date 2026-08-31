@@ -1,5 +1,41 @@
 # Verification record
 
+## August 31, 2026 (third pass) — a sig is not a product line
+
+Scanning sertraline put `1 Week, Then Increas Every Evening If Tole Sertraline
+HCl` in the name field. Reported as possibly-just-messy-OCR; it was not. The OCR
+line carrying the strength was a clipped sig, and `medicationName` takes its name
+from whichever line carries the strength without asking what kind of line it is.
+`capturedStrength` already refuses to read a strength off a directions line; the
+name search did not apply the same rule in the other direction.
+
+Two changes:
+
+- `medicationName` skips direction-like lines, both when locating the
+  strength-bearing line and when scanning the lines beside it.
+- `ScanParser.looksLikeMedicationName` gates the one remaining path that fills
+  the name without the vocabulary confirming it. A reading must have the *shape*
+  of a name: not direction-like, no digits, no comma, at most four tokens.
+
+This was the residual risk recorded in the previous pass, and the shape rule is
+the reason it did not become a blanket fail-closed. Requiring vocabulary
+confirmation for every name would have been simpler, but it would throw away a
+pharmacy's own wording — "Amphetamine salt combo" is a real label for a drug the
+vocabulary lists under four salt names — and that wording is three short words,
+while a clipped sig is a run of words with digits and commas in it. The two are
+separable by shape, so the useful half of the path is kept and the dangerous half
+is not.
+
+Verified: 220 unit tests pass, up from 217, including the existing expectation
+that the stimulant label still fills every field it prints. Release app-target
+static analysis succeeds. The reported string now yields a blank name with a
+correctly captured `50 mg` strength, and the same label read with the product
+line intact still resolves to Sertraline / Zoloft.
+
+Still open, and deliberately: a foreign-language dosing line, or an unusual
+English one, printed on the strength line in four words or fewer with no digits
+or commas would still stand as a name.
+
 ## August 31, 2026 (second pass) — the name field, fail-closed
 
 A sertraline bottle autofilled as **Risedronate, brand Actonel**, and a hospital

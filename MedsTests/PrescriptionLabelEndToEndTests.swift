@@ -210,4 +210,40 @@ final class PrescriptionLabelEndToEndTests: XCTestCase {
         XCTAssertEqual(draft.name, "Sertraline")
         XCTAssertEqual(draft.brandName, "Zoloft")
     }
+
+    /// A real sertraline bottle put a clipped sig into the name field: the OCR line
+    /// carried the strength, so the name search treated it as the product line.
+    func testASigCarryingTheStrengthIsNotTheProductLine() {
+        let draft = MedicationLabelInterpreter.offlineDraft(evidence([
+            "1 WEEK, THEN INCREAS EVERY EVENING 50 MG",
+            "QTY: 30"
+        ]))
+
+        XCTAssertEqual(draft.name, "")
+        XCTAssertEqual(draft.nameProvenance, .none)
+        XCTAssertEqual(draft.strength, "50 mg")
+    }
+
+    /// The same bottle read correctly once the product line survives separately.
+    func testTheProductLineStillWinsOnThatSameLabel() {
+        let draft = MedicationLabelInterpreter.offlineDraft(evidence([
+            "WALGREENS #04821",
+            "TAKE 1/2 A TABLET BY I",
+            "1 WEEK, THEN INCREAS EVERY EVENING IF TOLE",
+            "SERTRALINE HCL 50 MG",
+            "QTY: 30"
+        ]))
+
+        XCTAssertEqual(draft.name, "Sertraline")
+        XCTAssertEqual(draft.brandName, "Zoloft")
+    }
+
+    /// The shape rule that separates a pharmacy's own wording from a clipped sig.
+    func testUnconfirmedNamesMustLookLikeAName() {
+        XCTAssertTrue(ScanParser.looksLikeMedicationName("Amphetamine Salt Combo"))
+        XCTAssertTrue(ScanParser.looksLikeMedicationName("Sertraline HCl"))
+        XCTAssertFalse(ScanParser.looksLikeMedicationName("1 Week, Then Increas Every Evening"))
+        XCTAssertFalse(ScanParser.looksLikeMedicationName("Then Increas Every Evening If Tole"))
+        XCTAssertFalse(ScanParser.looksLikeMedicationName("Take 1 Tablet By Mouth Daily"))
+    }
 }
