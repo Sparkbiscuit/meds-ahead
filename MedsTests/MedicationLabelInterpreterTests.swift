@@ -292,4 +292,107 @@ final class MedicationLabelInterpreterTests: XCTestCase {
             $0.value == "TAKE 2 TABLETS BY MOUTH ON MONDAYS, WEDNESDAYS, AND FRIDAYS"
         })
     }
+
+    func testOfflineDraftDropsClippedStrengthAnchoredMedicationNames() {
+        for clippedName in ["TOPROLOL SUCCINA", "ROLOL SUCCIN", "OPROLOL SUCCINATE ER"] {
+            let draft = MedicationLabelInterpreter.offlineDraft([
+                ScanEvidence(
+                    kind: .text,
+                    value: "\(clippedName) 50 MG",
+                    confidence: 0.9,
+                    origin: .cameraCapture
+                ),
+                ScanEvidence(
+                    kind: .text,
+                    value: "TAKE 1 TABLET BY MOUTH DAILY",
+                    confidence: 0.9,
+                    origin: .cameraCapture
+                )
+            ])
+
+            XCTAssertEqual(draft.name, "", clippedName)
+            XCTAssertEqual(draft.nameProvenance, .none, clippedName)
+            XCTAssertEqual(draft.strength, "50 mg", clippedName)
+        }
+    }
+
+    func testOfflineDraftResolvesNoisyMetoprololNameAndBrand() {
+        let draft = MedicationLabelInterpreter.offlineDraft([
+            ScanEvidence(
+                kind: .text,
+                value: "METOPROLOL SUCCINATE ER 50 MG TAB GG 263",
+                confidence: 0.9,
+                origin: .cameraCapture
+            ),
+            ScanEvidence(
+                kind: .text,
+                value: "TAKE 1 TABLET BY MOUTH DAILY",
+                confidence: 0.9,
+                origin: .cameraCapture
+            )
+        ])
+
+        XCTAssertEqual(draft.name, "Metoprolol succinate")
+        XCTAssertEqual(draft.brandName, "Toprol XL")
+        XCTAssertEqual(draft.strength, "50 mg")
+    }
+
+    func testOfflineDraftResolvesBrandBeforeTrimmingReleaseNoise() {
+        let draft = MedicationLabelInterpreter.offlineDraft([
+            ScanEvidence(
+                kind: .text,
+                value: "TOPROL XL 50 MG TABLET",
+                confidence: 0.9,
+                origin: .cameraCapture
+            ),
+            ScanEvidence(
+                kind: .text,
+                value: "TAKE 1 TABLET BY MOUTH DAILY",
+                confidence: 0.9,
+                origin: .cameraCapture
+            )
+        ])
+
+        XCTAssertEqual(draft.name, "Metoprolol succinate")
+        XCTAssertEqual(draft.brandName, "Toprol XL")
+        XCTAssertEqual(draft.strength, "50 mg")
+    }
+
+    func testOfflineDraftKeepsMetoprololSaltNamesDistinct() {
+        let succinate = MedicationLabelInterpreter.offlineDraft([
+            ScanEvidence(
+                kind: .text,
+                value: "METOPROLOL SUCCINATE ER 50 MG TAB",
+                confidence: 0.9,
+                origin: .cameraCapture
+            ),
+            ScanEvidence(
+                kind: .text,
+                value: "TAKE 1 TABLET BY MOUTH DAILY",
+                confidence: 0.9,
+                origin: .cameraCapture
+            )
+        ])
+        let tartrate = MedicationLabelInterpreter.offlineDraft([
+            ScanEvidence(
+                kind: .text,
+                value: "METOPROLOL TARTRATE 25 MG TAB",
+                confidence: 0.9,
+                origin: .cameraCapture
+            ),
+            ScanEvidence(
+                kind: .text,
+                value: "TAKE 1 TABLET BY MOUTH DAILY",
+                confidence: 0.9,
+                origin: .cameraCapture
+            )
+        ])
+
+        XCTAssertEqual(succinate.name, "Metoprolol succinate")
+        XCTAssertEqual(succinate.brandName, "Toprol XL")
+        XCTAssertEqual(succinate.strength, "50 mg")
+        XCTAssertEqual(tartrate.name, "Metoprolol tartrate")
+        XCTAssertEqual(tartrate.brandName, "Lopressor")
+        XCTAssertEqual(tartrate.strength, "25 mg")
+    }
 }

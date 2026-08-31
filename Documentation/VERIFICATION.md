@@ -1,5 +1,64 @@
 # Verification record
 
+## August 31, 2026 — clipped names, one row of pills, names that swap
+
+- **A clipped label name reached the medication field.** Scanning metoprolol
+  succinate produced a fragment from the middle of the name. Probing the parser
+  showed it was systematic, not a one-off: the strength-anchored path exists so a
+  pharmacy's own wording survives ("Amphetamine salt combo" is a real label for a
+  drug the vocabulary lists under four salt names), and it applies no vocabulary
+  check at all. A bottle's curve clips the ends off the product line, and
+  `OPROLOL SUCCINATE ER`, `TOPROLOL SUCCINA` and `ROLOL SUCCIN` were all
+  name-shaped enough to pass every other gate while naming no real drug.
+  `MedicationVocabulary.isFragmentOfLongerName` now rejects a reading that is
+  contained in a longer real name without being one; a pharmacy's own wording is
+  not a substring of anything, so it still survives.
+  `matchIgnoringTrailingNoise` recovers the opposite case, resolving
+  `METOPROLOL SUCCINATE ER 50 MG TAB GG 263` by setting aside the release form
+  and imprint code. The brand table is consulted before that trimming, because
+  `Toprol XL` is a whole name rather than `Toprol` with a release form after it.
+  All five degraded readings now leave the field blank; all six clean ones
+  resolve.
+
+- **Medication name and brand name now fill each other in.** Entering a brand in
+  the name field left it in both fields, and entering a brand in the brand field
+  filled nothing. Both are reconciled when a field loses focus — commit time, not
+  per keystroke, since rewriting a name under the cursor is hostile. Confirmed by
+  hand: typing `Prograf` into Medication name and moving on leaves name
+  `Tacrolimus`, brand `Prograf`, with the brand row revealed. The live
+  as-you-type fill now uses `brandName(forGeneric:)` rather than `resolve`, so
+  the same word never sits in both fields at once.
+
+- **Scanner progress is one row of four.** The Code pill is gone: a barcode is
+  still captured and shown on the review screen, but nothing in the app looks a
+  code up, so announcing it asked someone to keep turning a bottle for a fact
+  that changes nothing. That brings Name, Strength, Quantity and Refills back to
+  a single row at full size. All four are now permanently on screen — dimmed with
+  a faint outline until found, then full strength with a green edge and a
+  checkmark, so the change reads without relying on colour.
+
+- **The banner agrees with the pills.** `Everything found` previously fired on
+  name, strength and quantity while the Refills pill sat dark above it. The
+  banner now waits for all four.
+
+- **Controls.** `Clear Scan` is a capsule button rather than bare text. Both
+  primary buttons hold one line, so their heights match; `Capture & Review` drops
+  its arrow, which was pushing the label into truncation.
+
+- The progress row moved down to clear the system scanner's own "Slow down"
+  hint, which was reading through the pills.
+
+Verified: 199 unit tests pass, up from 191. Release app-target static analysis
+succeeds. Scanner, editor and the name swap checked by hand on the iPhone 17 Pro
+simulator.
+
+Still hands-on only: the "Slow down" clearance, which only appears with a live
+camera and cannot be reproduced in the simulator.
+
+Known: at accessibility text sizes four pills wrap to a second row that can graze
+the top of the scan frame. Deepening the band further would shrink the region the
+scanner actually reads.
+
 ## August 30, 2026 (third pass) — brand field earns its place, transplant coverage
 
 The brand field no longer occupies a row until it has an answer. An empty
