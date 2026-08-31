@@ -63,9 +63,10 @@ struct ScanPreview: Equatable, Sendable {
     var hasStrength = false
     var hasQuantity = false
     var hasProductIdentifier = false
+    var hasRefills = false
 
     var hasUsefulProgress: Bool {
-        !medicationName.isEmpty || hasStrength || hasQuantity || hasProductIdentifier
+        !medicationName.isEmpty || hasStrength || hasQuantity || hasProductIdentifier || hasRefills
     }
 
     /// One pass over the pipeline. `offlineDraft` already begins from a full
@@ -77,7 +78,8 @@ struct ScanPreview: Equatable, Sendable {
             medicationName: draft.name,
             hasStrength: !draft.strength.isEmpty,
             hasQuantity: draft.currentSupply != nil,
-            hasProductIdentifier: !draft.productIdentifier.isEmpty
+            hasProductIdentifier: !draft.productIdentifier.isEmpty,
+            hasRefills: draft.refillsRemaining != nil
         )
     }
 }

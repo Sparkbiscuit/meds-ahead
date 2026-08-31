@@ -48,4 +48,38 @@ final class ScanPreviewTests: XCTestCase {
     func testUnreadableEvidenceProducesNoName() {
         XCTAssertTrue(ScanPreview.make(from: evidence(["....", "!!"])).medicationName.isEmpty)
     }
+
+    func testPreviewReportsWhetherRefillsWereCaptured() {
+        let withRefills = ScanPreview.make(from: evidence(["Refills: 2"]))
+        let withoutRefills = ScanPreview.make(from: evidence(["FUROSEMIDE 20 MG"]))
+
+        XCTAssertTrue(withRefills.hasRefills)
+        XCTAssertFalse(withoutRefills.hasRefills)
+    }
+
+    func testRefillOnlyPreviewCountsAsUsefulProgress() {
+        let preview = ScanPreview.make(from: evidence(["Refills: 2"]))
+
+        XCTAssertTrue(preview.medicationName.isEmpty)
+        XCTAssertFalse(preview.hasStrength)
+        XCTAssertFalse(preview.hasQuantity)
+        XCTAssertFalse(preview.hasProductIdentifier)
+        XCTAssertTrue(preview.hasRefills)
+        XCTAssertTrue(preview.hasUsefulProgress)
+    }
+
+    func testPreviewPinsAllCapturedFieldFlagsTogether() {
+        let preview = ScanPreview.make(from: evidence([
+            "FUROSEMIDE 20 MG",
+            "QTY: 60 TABLETS",
+            "Refills: 2",
+            "NDC: 00093-1045-98"
+        ]))
+
+        XCTAssertEqual(preview.medicationName, "Furosemide")
+        XCTAssertTrue(preview.hasStrength)
+        XCTAssertTrue(preview.hasQuantity)
+        XCTAssertTrue(preview.hasProductIdentifier)
+        XCTAssertTrue(preview.hasRefills)
+    }
 }

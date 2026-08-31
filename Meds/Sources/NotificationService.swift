@@ -22,16 +22,26 @@ actor NotificationService {
             withIdentifiers: managedDelivered.filter { !plannedIdentifiers.contains($0) }
         )
 
-        guard !planned.isEmpty else { return }
-        let status = await center.notificationSettings().authorizationStatus
-        let authorized: Bool
-        if status == .notDetermined, requestAuthorization {
-            authorized = (try? await center.requestAuthorization(options: [.alert, .sound, .badge])) == true
-        } else {
-            authorized = status == .authorized || status == .provisional || status == .ephemeral
+        // The status is read and reported even when nothing is planned, so Settings
+        // and the Today banner describe the current permission rather than the one
+        // that happened to apply the last time a medication existed.
+        var status = await center.notificationSettings().authorizationStatus
+        if status == .notDetermined, requestAuthorization, !planned.isEmpty {
+            _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
+            status = await center.notificationSettings().authorizationStatus
         }
-        guard authorized else { return }
+        let authorized = status == .authorized || status == .provisional || status == .ephemeral
 
+        guard authorized, !planned.isEmpty else {
+            await NotificationHealth.shared.record(
+                authorization: status,
+                planned: planned.count,
+                failed: 0
+            )
+            return
+        }
+
+        var failed = 0
         let deliveredIdentifiers = Set(managedDelivered)
         for item in planned {
             if item.kind == .refill, deliveredIdentifiers.contains(item.identifier) {
@@ -85,7 +95,21 @@ actor NotificationService {
                 )
                 trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
             }
-            try? await center.add(UNNotificationRequest(identifier: item.identifier, content: content, trigger: trigger))
+            // A refusal here is the difference between a reminder existing and not
+            // existing, so it is counted rather than dropped on the floor.
+            do {
+                try await center.add(
+                    UNNotificationRequest(identifier: item.identifier, content: content, trigger: trigger)
+                )
+            } catch {
+                failed += 1
+            }
         }
+
+        await NotificationHealth.shared.record(
+            authorization: status,
+            planned: planned.count,
+            failed: failed
+        )
     }
 }

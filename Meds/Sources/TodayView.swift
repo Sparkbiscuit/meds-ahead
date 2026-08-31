@@ -1,26 +1,22 @@
 import SwiftData
 import SwiftUI
+import UIKit
+import UserNotifications
 
 enum TimeOfDayGreeting {
+    /// Four bands, not three. Evening used to be the fallback, so every hour before
+    /// five in the morning was greeted as evening. Three in the morning is a real
+    /// hour to be awake and giving a dose in a house like the one this was built
+    /// for, and it should be met with the right words.
     static func text(for date: Date, calendar: Calendar = .autoupdatingCurrent) -> String {
         let hour = calendar.component(.hour, from: date)
         return switch hour {
         case 5..<12: "Good morning"
         case 12..<18: "Good afternoon"
-        default: "Good evening"
+        case 18..<22: "Good evening"
+        default: "Good night"
         }
     }
-}
-
-/// One shared answer to "is this dose actionable right now", including the
-/// UI-test override, so the cards and the log-all shortcut can never disagree.
-private func effectiveTimingState(for date: Date, now: Date) -> DoseTimingState {
-#if DEBUG
-    if ProcessInfo.processInfo.arguments.contains("-force-overdue-dose-state") {
-        return .overdue
-    }
-#endif
-    return ScheduleEngine.timingState(for: date, now: now)
 }
 
 struct TodayView: View {
@@ -31,29 +27,57 @@ struct TodayView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.openURL) private var openURL
     @State private var savingDoseIDs: Set<String> = []
     @State private var showingSaveError = false
     @State private var showingLogAllConfirmation = false
+    /// Set aside for the rest of the day rather than forever: someone who tracks
+    /// supply without logging every dose should not be nagged permanently, and
+    /// someone who simply has not caught up yet should be asked again tomorrow.
+    @AppStorage("missedDosesSetAsideOn") private var missedDosesSetAsideOn = ""
     let onAdd: () -> Void
+
+    private static let missedDoseLookbackDays = 2
+    private static let missedDoseRowLimit = 3
 
     private var activeMedications: [Medication] {
         medications.filter { !$0.isArchived }
     }
 
     private func todaysDoses(now: Date) -> [(Medication, ScheduledDose)] {
+        activeMedications.flatMap { medication in
+            ScheduleEngine.doses(
+                schedules: schedules,
+                medicationID: medication.id,
+                onDayOf: now
+            ).map { (medication, $0) }
+        }
+        .sorted { $0.1.date < $1.1.date }
+    }
+
+    /// Scheduled doses from the two days before today that were never logged. Today
+    /// used to end at midnight, so an evening dose nobody confirmed simply vanished
+    /// and there was no screen left that could answer "did last night happen?". The
+    /// supply ledger has the same gap: an unlogged dose reads as an unspent one, so
+    /// the forecast quietly runs long until someone corrects the count by hand.
+    private func missedDoses(now: Date) -> [(Medication, ScheduledDose)] {
         let calendar = Calendar.autoupdatingCurrent
-        let start = calendar.startOfDay(for: now)
-        let end = calendar.date(byAdding: DateComponents(day: 1, second: -1), to: start) ?? now
+        let startOfToday = calendar.startOfDay(for: now)
+        guard let start = calendar.date(byAdding: .day, value: -Self.missedDoseLookbackDays, to: startOfToday) else {
+            return []
+        }
         return activeMedications.flatMap { medication in
             ScheduleEngine.doses(
                 schedules: schedules,
                 medicationID: medication.id,
                 from: start,
-                through: end,
+                through: startOfToday.addingTimeInterval(-1),
                 calendar: calendar
-            ).map { (medication, $0) }
+            )
+            .filter { ScheduleEngine.loggedStatus(for: $0, in: doseEvents) == nil }
+            .map { (medication, $0) }
         }
-        .sorted { $0.1.date < $1.1.date }
+        .sorted { $0.1.date > $1.1.date }
     }
 
     private func completedCount(in doses: [(Medication, ScheduledDose)]) -> Int {
@@ -73,6 +97,8 @@ struct TodayView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 18) {
                     header(now: now)
+                    notificationBanner
+                    missedDosesCard(now: now)
                     if activeMedications.isEmpty {
                         EmptyStateCard(
                             symbol: "viewfinder",
@@ -111,6 +137,117 @@ struct TodayView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text("This dose wasn't logged. Try again.")
+        }
+    }
+
+    @ViewBuilder
+    private var notificationBanner: some View {
+        let state = NotificationHealth.shared.state
+        if state != .fine {
+            NotificationHealthBanner(
+                state: state,
+                onAllow: {
+                    Task {
+                        _ = try? await UNUserNotificationCenter.current()
+                            .requestAuthorization(options: [.alert, .sound, .badge])
+                        await replanNotifications()
+                    }
+                },
+                onOpenSettings: {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        openURL(url)
+                    }
+                },
+                onRetry: { Task { await replanNotifications() } }
+            )
+        }
+    }
+
+    private func replanNotifications() async {
+        let plans = NotificationPlanBuilder.makeAll(
+            medications: medications,
+            schedules: schedules,
+            inventoryEvents: inventoryEvents,
+            doseEvents: doseEvents
+        )
+        await NotificationService.shared.replaceAllNotifications(for: plans)
+    }
+
+    private func dayKey(_ date: Date) -> String {
+        let parts = Calendar.autoupdatingCurrent.dateComponents([.year, .month, .day], from: date)
+        return "\(parts.year ?? 0)-\(parts.month ?? 0)-\(parts.day ?? 0)"
+    }
+
+    /// A day label a person reads the way they'd say it out loud.
+    private func missedDoseLabel(_ date: Date) -> String {
+        let calendar = Calendar.autoupdatingCurrent
+        let time = date.formatted(date: .omitted, time: .shortened)
+        if calendar.isDateInYesterday(date) { return "Yesterday, \(time)" }
+        return "\(date.formatted(.dateTime.weekday(.wide))), \(time)"
+    }
+
+    @ViewBuilder
+    private func missedDosesCard(now: Date) -> some View {
+        let missed = missedDosesSetAsideOn == dayKey(now) ? [] : missedDoses(now: now)
+        if !missed.isEmpty {
+            let shown = Array(missed.prefix(Self.missedDoseRowLimit))
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label(
+                        missed.count == 1 ? "One dose isn't logged" : "\(missed.count) doses aren't logged",
+                        systemImage: "clock.badge.questionmark"
+                    )
+                    .font(.headline)
+                    Text("From the last two days. Logging what happened keeps your supply count honest.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                // Catching up is secondary to the day in front of you, so each entry
+                // stays one line tall and the day's own doses keep the screen.
+                ForEach(shown, id: \.1.id) { medication, dose in
+                    let rowLayout = dynamicTypeSize.isAccessibilitySize
+                        ? AnyLayout(VStackLayout(alignment: .leading, spacing: 9))
+                        : AnyLayout(HStackLayout(alignment: .center, spacing: 10))
+                    rowLayout {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(medication.displayName)
+                                .font(.subheadline.weight(.semibold))
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text(missedDoseLabel(dose.date))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        HStack(spacing: 8) {
+                            Button("Skip") { record(dose, for: medication, status: .skipped) }
+                                .buttonStyle(.bordered)
+                                .frame(minHeight: 44)
+                                .accessibilityLabel("Skip \(medication.displayName) from \(missedDoseLabel(dose.date))")
+                            Button("Taken") { record(dose, for: medication, status: .taken) }
+                                .buttonStyle(.borderedProminent)
+                                .frame(minHeight: 44)
+                                .accessibilityLabel("Mark \(medication.displayName) from \(missedDoseLabel(dose.date)) taken")
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    if dose.id != shown.last?.1.id { Divider() }
+                }
+
+                if missed.count > shown.count {
+                    Text("\(missed.count - shown.count) more are waiting in each medication's history.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Button("Not Now") { missedDosesSetAsideOn = dayKey(now) }
+                    .font(.subheadline)
+                    .accessibilityHint("Hides these until tomorrow")
+            }
+            .padding(18)
+            .cardSurface()
         }
     }
 
@@ -181,7 +318,7 @@ struct TodayView: View {
 
     private func dueDoses(in doses: [(Medication, ScheduledDose)], now: Date) -> [(Medication, ScheduledDose)] {
         doses.filter {
-            status(for: $0.1) == nil && effectiveTimingState(for: $0.1.date, now: now) != .upcoming
+            status(for: $0.1) == nil && ScheduleEngine.timingState(for: $0.1.date, now: now) != .upcoming
         }
     }
 
@@ -252,10 +389,7 @@ struct TodayView: View {
     }
 
     private func status(for dose: ScheduledDose) -> DoseEventStatus? {
-        doseEvents.first {
-            $0.scheduleID == dose.scheduleID &&
-            $0.scheduledAt.map { abs($0.timeIntervalSince(dose.date)) < 60 } == true
-        }?.status
+        ScheduleEngine.loggedStatus(for: dose, in: doseEvents)
     }
 
     private func record(_ dose: ScheduledDose, for medication: Medication, status: DoseEventStatus) {
@@ -385,7 +519,7 @@ private struct DoseCard: View {
     }
 
     private func timingState(now: Date) -> DoseTimingState {
-        effectiveTimingState(for: dose.date, now: now)
+        ScheduleEngine.timingState(for: dose.date, now: now)
     }
 
     private func timingTitle(now: Date) -> String {

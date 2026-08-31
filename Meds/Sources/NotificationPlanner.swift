@@ -10,6 +10,7 @@ struct MedicationNotificationPlan: Sendable {
     let refillRemindersEnabled: Bool
     let detailedNotifications: Bool
     let refillLeadDays: Int
+    let refillsRemaining: Int?
     let depletionDate: Date?
     let schedules: [ScheduleNotificationPlan]
 }
@@ -53,6 +54,11 @@ enum NotificationPlanner {
     /// repeating dose reminders ahead of one-shot refill alerts, means a heavy
     /// regimen degrades by dropping the farthest-out refill alert — never a dose.
     static let maximumScheduledRequests = 60
+
+    /// The least warning worth giving when a prescription has to be renewed before it
+    /// can be filled: reaching a prescriber, and their reaching the pharmacy, is not
+    /// a same-day errand. A longer lead time the person chose themselves still wins.
+    static let prescriberLeadDays = 10
 
     static func notifications(
         for plan: MedicationNotificationPlan,
@@ -143,7 +149,15 @@ enum NotificationPlanner {
         for plan in plans where !plan.isArchived {
             guard plan.refillRemindersEnabled, let depletionDate = plan.depletionDate else { continue }
             let depletionDay = calendar.startOfDay(for: depletionDate)
-            let leadDay = calendar.date(byAdding: .day, value: -max(1, plan.refillLeadDays), to: depletionDay) ?? depletionDay
+            // A prescription with no refills left needs a prescriber, not a pharmacy,
+            // and that takes longer than picking up a bag. It is the situation with
+            // the least slack in it and it used to get exactly the same warning as
+            // every other, at exactly the same moment.
+            let needsPrescriber = plan.refillsRemaining == 0
+            let leadDays = needsPrescriber
+                ? max(plan.refillLeadDays, prescriberLeadDays)
+                : plan.refillLeadDays
+            let leadDay = calendar.date(byAdding: .day, value: -max(1, leadDays), to: depletionDay) ?? depletionDay
             let reminderDate = calendar.date(bySettingHour: 9, minute: 0, second: 0, of: leadDay) ?? leadDay
             let dateCode = depletionDay.formatted(.dateTime.year().month(.twoDigits).day(.twoDigits).locale(Locale(identifier: "en_US_POSIX")))
                 .filter(\.isNumber)
@@ -156,10 +170,8 @@ enum NotificationPlanner {
                 PlannedNotification(
                     identifier: "meds.\(plan.medicationID.uuidString).refill.\(dateCode)",
                     kind: .refill,
-                    title: plan.detailedNotifications ? "Plan a refill for \(plan.displayName)" : "Supply reminder",
-                    body: plan.detailedNotifications
-                        ? "Your confirmed supply may run out around \(depletionDay.formatted(date: .abbreviated, time: .omitted))."
-                        : "Open Meds Ahead to review a medication that may be running low.",
+                    title: refillTitle(for: plan, needsPrescriber: needsPrescriber),
+                    body: refillBody(for: plan, needsPrescriber: needsPrescriber, depletionDay: depletionDay),
                     trigger: .date(reminderDate),
                     medicationID: plan.medicationID,
                     scheduleID: nil,
@@ -174,6 +186,31 @@ enum NotificationPlanner {
             return left < right
         }
         return Array((notifications + refillNotifications).prefix(maximumScheduledRequests))
+    }
+
+    private static func refillTitle(for plan: MedicationNotificationPlan, needsPrescriber: Bool) -> String {
+        guard plan.detailedNotifications else {
+            return needsPrescriber ? "Prescription reminder" : "Supply reminder"
+        }
+        return needsPrescriber
+            ? "Renew \(plan.displayName)"
+            : "Plan a refill for \(plan.displayName)"
+    }
+
+    private static func refillBody(
+        for plan: MedicationNotificationPlan,
+        needsPrescriber: Bool,
+        depletionDay: Date
+    ) -> String {
+        let runsOut = depletionDay.formatted(date: .abbreviated, time: .omitted)
+        guard plan.detailedNotifications else {
+            return needsPrescriber
+                ? "Open Meds Ahead: a medication is running low and has no refills left."
+                : "Open Meds Ahead to review a medication that may be running low."
+        }
+        return needsPrescriber
+            ? "No refills remain, so this one needs a new prescription. Your confirmed supply may run out around \(runsOut)."
+            : "Your confirmed supply may run out around \(runsOut)."
     }
 
     private static func doseNotification(
@@ -309,6 +346,7 @@ enum NotificationPlanBuilder {
             refillRemindersEnabled: medication.refillRemindersEnabled,
             detailedNotifications: medication.detailedNotifications,
             refillLeadDays: medication.refillLeadDays,
+            refillsRemaining: medication.refillsRemaining,
             depletionDate: forecast.depletionDate,
             schedules: schedules
                 .filter { $0.medicationID == medication.id }

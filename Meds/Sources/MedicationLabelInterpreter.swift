@@ -56,7 +56,7 @@ enum MedicationLabelInterpreter {
         // match emptied the name on most genuine prescription labels. A merely
         // name-shaped line still gets dropped: label furniture like "Open 9 to 6" is
         // worse in the name field than nothing at all.
-        return draft
+        return withBrandNames(draft)
     }
 
     static func interpret(_ evidence: [ScanEvidence]) async -> MedicationDraft {
@@ -153,6 +153,18 @@ enum MedicationLabelInterpreter {
             candidates: candidates.refills,
             fallback: draft.refillsRemaining
         )
+        return withBrandNames(result)
+    }
+
+    /// A label prints one of the two names a medication has. The curated table
+    /// supplies the other so the shared list a clinician reads carries both.
+    private static func withBrandNames(_ draft: MedicationDraft) -> MedicationDraft {
+        guard !draft.name.isEmpty, draft.brandName.isEmpty else { return draft }
+        guard let pair = MedicationBrandIndex.resolve(draft.name) else { return draft }
+
+        var result = draft
+        result.brandName = pair.brand
+        result.name = formattedMedicationName(pair.generic)
         return result
     }
 
@@ -319,7 +331,6 @@ enum LabelCandidateBuilder {
         let lineIndex: Int?
     }
 
-    private static let strengthPattern = /(?i)\b\d+(?:\.\d+)?\s?(?:mcg|mg|g|mL|%)(?:\s*\/\s*\d+(?:\.\d+)?\s?(?:mcg|mg|g|mL))?\b/
     private static let excludedNameFragments = [
         "patient", "prescriber", "provider", "doctor", "pharmacy", "walgreens", "cvs",
         "rite aid", "rx#", "rx #", "quantity", "qty", "contents", "refill", "take ",
@@ -376,13 +387,32 @@ enum LabelCandidateBuilder {
         var refillValues: [String] = []
 
         for line in lines {
-            for match in line.matches(of: strengthPattern) {
-                appendUnique(String(match.output), to: &strengthValues)
+            for strength in ScanParser.strengthMatches(in: line) {
+                appendUnique(strength, to: &strengthValues)
             }
             let parsed = ScanParser.parse([ScanEvidence(kind: .text, value: line)])
-            if !parsed.directions.isEmpty { appendUnique(parsed.directions, to: &directionValues) }
+            if !parsed.directions.isEmpty,
+               ScanParser.isTrustedDirections(parsed.directions) {
+                appendUnique(parsed.directions, to: &directionValues)
+            }
             if let quantity = parsed.currentSupply { appendUnique(quantity.medicationQuantityText, to: &quantityValues) }
             if let refills = parsed.refillsRemaining { appendUnique(String(refills), to: &refillValues) }
+        }
+
+        for index in entries.indices.dropLast() {
+            guard areAdjacent(inSameCapture: entries[index], entries[index + 1]) else { continue }
+            let joined = "\(entries[index].value) \(entries[index + 1].value)"
+            if ScanParser.isTrustedDirections(joined) {
+                appendUnique(joined, to: &directionValues)
+            }
+
+            if index + 2 < entries.count,
+               areAdjacent(inSameCapture: entries[index + 1], entries[index + 2]) {
+                let joined = "\(entries[index].value) \(entries[index + 1].value) \(entries[index + 2].value)"
+                if ScanParser.isTrustedDirections(joined) {
+                    appendUnique(joined, to: &directionValues)
+                }
+            }
         }
 
         return LabelInterpretationCandidates(
@@ -426,16 +456,42 @@ enum LabelCandidateBuilder {
     }
 
     private static func cleanedName(_ line: String) -> String? {
-        var cleaned = line
-        while let match = cleaned.firstMatch(of: strengthPattern) {
-            cleaned.replaceSubrange(match.range, with: "")
+        let cleanedStrengths = ScanParser.strengthMatches(in: line).reduce(line) { value, strength in
+            let canonical = ScanParser.normalizedStrength(strength) ?? strength
+            return removingStrength(canonical, from: value)
         }
+        var cleaned = cleanedStrengths
         for word in dosageWords {
             cleaned = cleaned.replacingOccurrences(of: word, with: "", options: [.caseInsensitive])
         }
         cleaned = ScanParser.tidiedNameResidue(cleaned)
             .trimmingCharacters(in: CharacterSet(charactersIn: " :-,.#"))
         return isPlausibleName(cleaned) ? cleaned : nil
+    }
+
+    private static func removingStrength(_ strength: String, from value: String) -> String {
+        let source = Array(value)
+        let target = Array(strength.filter { !$0.isWhitespace })
+        guard !target.isEmpty else { return value }
+
+        for start in source.indices {
+            var sourceIndex = start
+            var targetIndex = 0
+            while sourceIndex < source.count, targetIndex < target.count {
+                if source[sourceIndex].isWhitespace {
+                    sourceIndex += 1
+                    continue
+                }
+                guard String(source[sourceIndex]).lowercased() == String(target[targetIndex]).lowercased() else {
+                    break
+                }
+                sourceIndex += 1
+                targetIndex += 1
+            }
+            guard targetIndex == target.count else { continue }
+            return String(source[..<start]) + String(source[sourceIndex...])
+        }
+        return value
     }
 
     private static func joinableFragment(_ line: String) -> String? {

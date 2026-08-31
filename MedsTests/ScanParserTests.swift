@@ -265,4 +265,294 @@ final class ScanParserTests: XCTestCase {
         XCTAssertEqual(draft.name, "Melatonin")
         XCTAssertEqual(draft.evidence.map(\.value), ["Melatonin", "5 mg"])
     }
+
+    /// Insulin, heparin and vitamin D are dosed in units, and leaving the strength
+    /// blank on those labels made someone retype what the vial plainly says.
+    func testUnitDenominatedStrengthsAreRecognized() {
+        XCTAssertEqual(
+            ScanParser.parse([ScanEvidence(kind: .text, value: "INSULIN GLARGINE 100 units/mL")]).strength,
+            "100 units/mL"
+        )
+        XCTAssertEqual(
+            ScanParser.parse([ScanEvidence(kind: .text, value: "VITAMIN D3 2000 IU SOFTGEL")]).strength,
+            "2000 IU"
+        )
+    }
+
+    /// A directions line quotes an amount to take, not the strength of the product.
+    /// On an insulin label both are units, so the product line has to win.
+    func testStrengthPrefersTheProductLineOverTheDirections() {
+        let draft = ScanParser.parse([
+            ScanEvidence(kind: .text, value: "Inject 10 units subcutaneously once daily", lineIndex: 0),
+            ScanEvidence(kind: .text, value: "INSULIN GLARGINE 100 units/mL", lineIndex: 1)
+        ])
+        XCTAssertEqual(draft.strength, "100 units/mL")
+    }
+
+    func testHyphenatedCombinationStrengthKeepsBothComponents() {
+        XCTAssertEqual(
+            ScanParser.parse([
+                ScanEvidence(
+                    kind: .text,
+                    value: "SULFAMETHOXAZOLE/TRIMETHOPRIM 400-80 MG TAB",
+                    confidence: 0.98
+                )
+            ]).strength,
+            "400-80 mg"
+        )
+    }
+
+    func testSlashedCombinationStrengthKeepsBothComponents() {
+        XCTAssertEqual(
+            ScanParser.parse([
+                ScanEvidence(
+                    kind: .text,
+                    value: "HYDROCODONE/ACETAMINOPHEN 5/325 MG",
+                    confidence: 0.98
+                )
+            ]).strength,
+            "5/325 mg"
+        )
+    }
+
+    func testCombinationStrengthWithUnitsOnBothHalvesKeepsBothUnits() {
+        XCTAssertEqual(
+            ScanParser.parse([
+                ScanEvidence(kind: .text, value: "800 MG / 160 MG", confidence: 0.98)
+            ]).strength,
+            // Separators carry no surrounding spaces, so "400-80 mg" and
+            // "800 mg/160 mg" read as one strength rather than two.
+            "800 mg/160 mg"
+        )
+    }
+
+    func testUnitsPerMilliliterRatioStrengthRemainsSupported() {
+        XCTAssertEqual(
+            ScanParser.parse([
+                ScanEvidence(kind: .text, value: "INSULIN GLARGINE 100 UNITS/ML", confidence: 0.98)
+            ]).strength,
+            "100 units/mL"
+        )
+    }
+
+    func testCompactStrengthTextIsCanonicalizedWhenParsing() {
+        XCTAssertEqual(
+            ScanParser.parse([
+                ScanEvidence(kind: .text, value: "SERTRALINE HCL 50MG", confidence: 0.98)
+            ]).strength,
+            "50 mg"
+        )
+    }
+
+    func testNormalizedStrengthReturnsCanonicalValueOnlyForStrengthText() {
+        XCTAssertEqual(ScanParser.normalizedStrength("50MG"), "50 mg")
+        XCTAssertNil(ScanParser.normalizedStrength("Take one tablet"))
+    }
+
+    func testStrengthMatchesReturnsCanonicalStrengthsInOrder() {
+        XCTAssertEqual(
+            ScanParser.strengthMatches(in: "AMOXICILLIN 875 MG / CLAVULANATE 125 MG"),
+            ["875 mg", "125 mg"]
+        )
+    }
+
+    func testFilledPharmacyLineIsNotTrustedAsDirections() {
+        let value = "is Filled: 8/13/2026 RPh: Mg by mouth 1 time each chew."
+
+        XCTAssertEqual(
+            ScanParser.parse([
+                ScanEvidence(kind: .text, value: value, confidence: 0.98)
+            ]).directions,
+            ""
+        )
+        XCTAssertFalse(ScanParser.isTrustedDirections(value))
+    }
+
+    func testOCRFragmentWithoutDirectionOpeningIsNotTrustedAsDirections() {
+        let value = "- capsule by mouth 2 tim agNe 8.5 mg total twice da"
+
+        XCTAssertEqual(
+            ScanParser.parse([
+                ScanEvidence(kind: .text, value: value, confidence: 0.98)
+            ]).directions,
+            ""
+        )
+        XCTAssertFalse(ScanParser.isTrustedDirections(value))
+    }
+
+    func testMangledWeekdayFragmentIsNotTrustedAsDirections() {
+        let value = "like 2 tablets by mouth rednesdays, and fridays"
+
+        XCTAssertEqual(
+            ScanParser.parse([
+                ScanEvidence(kind: .text, value: value, confidence: 0.98)
+            ]).directions,
+            ""
+        )
+        XCTAssertFalse(ScanParser.isTrustedDirections(value))
+    }
+
+    func testVerbDirectionsRemainTrusted() {
+        let value = "Take 1 tablet by mouth twice daily"
+
+        XCTAssertEqual(
+            ScanParser.parse([
+                ScanEvidence(kind: .text, value: value, confidence: 0.98)
+            ]).directions,
+            value
+        )
+    }
+
+    func testNoVerbCompleteSigRemainsTrusted() {
+        XCTAssertTrue(ScanParser.isTrustedDirections("ONE CAPSULE TWICE DAILY"))
+    }
+
+    func testAsDirectedDirectionsRemainTrusted() {
+        let value = "TAKE 2 TABLETS BY MOUTH AS DIRECTED"
+
+        XCTAssertEqual(
+            ScanParser.parse([
+                ScanEvidence(kind: .text, value: value, confidence: 0.98)
+            ]).directions,
+            value
+        )
+    }
+
+    func testWrappedDirectionsJoinAdjacentOCRLines() {
+        let evidence = [
+            ScanEvidence(
+                kind: .text,
+                value: "TAKE 2 TABLETS BY MOUTH ON MONDAYS,\nWEDNESDAYS, AND FRIDAYS",
+                confidence: 0.98
+            )
+        ]
+
+        XCTAssertEqual(
+            ScanParser.parse(evidence).directions,
+            "TAKE 2 TABLETS BY MOUTH ON MONDAYS, WEDNESDAYS, AND FRIDAYS"
+        )
+    }
+
+    func testUntrustedAdjacentLinesAreNotJoinedAsDirections() {
+        let evidence = [
+            ScanEvidence(
+                kind: .text,
+                value: "TAKE 2 TABLETS BY MOUTH\nWITH WATER",
+                confidence: 0.98
+            )
+        ]
+
+        XCTAssertEqual(ScanParser.parse(evidence).directions, "")
+    }
+
+    func testTrailingPharmacyImprintIsRemovedFromStrengthAnchoredName() {
+        XCTAssertEqual(
+            ScanParser.parse([
+                ScanEvidence(kind: .text, value: "SERTRALINE HCL 50MG G1", confidence: 0.98)
+            ]).name,
+            "Sertraline HCl"
+        )
+    }
+
+    func testLegitimateMultiWordNameIsNotTruncatedAfterStrengthRemoval() {
+        XCTAssertEqual(
+            ScanParser.parse([
+                ScanEvidence(
+                    kind: .text,
+                    value: "METOPROLOL SUCCINATE 50 MG",
+                    confidence: 0.98
+                )
+            ]).name,
+            "Metoprolol Succinate"
+        )
+    }
+
+    func testWrappedDirectionsDoNotJoinAcrossEvidenceCaptures() {
+        let separateCaptures = [
+            ScanEvidence(kind: .text, value: "TAKE 1 TABLET"),
+            ScanEvidence(kind: .text, value: "Patient: Jane Doe"),
+            ScanEvidence(kind: .text, value: "TWICE DAILY")
+        ]
+
+        XCTAssertEqual(ScanParser.parse(separateCaptures).directions, "")
+
+        XCTAssertEqual(
+            ScanParser.parse([
+                ScanEvidence(
+                    kind: .text,
+                    value: "TAKE 1 TABLET\nBY MOUTH TWICE DAILY"
+                )
+            ]).directions,
+            "TAKE 1 TABLET BY MOUTH TWICE DAILY"
+        )
+    }
+
+    func testDispensingMarkersMatchWholeWords() {
+        XCTAssertTrue(
+            ScanParser.isTrustedDirections("Apply lotion to affected area twice daily")
+        )
+        XCTAssertTrue(
+            ScanParser.isTrustedDirections("Use on exposed skin twice daily")
+        )
+        XCTAssertFalse(
+            ScanParser.isTrustedDirections("Apply LOT to affected area twice daily")
+        )
+        XCTAssertFalse(
+            ScanParser.isTrustedDirections("Take 1 tablet by mouth twice daily RPh")
+        )
+    }
+
+    func testDirectionsNamingAPatientAreNotTrusted() {
+        XCTAssertFalse(
+            ScanParser.isTrustedDirections(
+                "Take 1 tablet by mouth daily Patient: Jane Doe"
+            )
+        )
+    }
+
+    func testDanglingFrequencyWordIsNotTrustedButWrappedDailyRecoversSig() {
+        XCTAssertFalse(
+            ScanParser.isTrustedDirections("TAKE 1 TABLET BY MOUTH TWICE")
+        )
+
+        XCTAssertEqual(
+            ScanParser.parse([
+                ScanEvidence(
+                    kind: .text,
+                    value: "TAKE 1 TABLET BY MOUTH TWICE\nDAILY"
+                )
+            ]).directions,
+            "TAKE 1 TABLET BY MOUTH TWICE DAILY"
+        )
+
+        XCTAssertTrue(
+            ScanParser.isTrustedDirections("Take 1 tablet by mouth twice daily")
+        )
+    }
+
+    func testCommaGroupedStrengthsAreCanonicalizedWithoutDroppingDigits() {
+        XCTAssertEqual(ScanParser.normalizedStrength("1,000 IU"), "1000 IU")
+        XCTAssertEqual(
+            ScanParser.parse([
+                ScanEvidence(kind: .text, value: "VITAMIN D3 1,000 IU")
+            ]).strength,
+            "1000 IU"
+        )
+        XCTAssertEqual(ScanParser.normalizedStrength("5,000 units"), "5000 units")
+    }
+
+    func testNameResiduePreservesAlphanumericNameTokensAndDropsTrailingImprint() {
+        XCTAssertEqual(
+            ScanParser.parse([
+                ScanEvidence(kind: .text, value: "VITAMIN B12 1000 MCG")
+            ]).name,
+            "Vitamin B12"
+        )
+        XCTAssertEqual(
+            ScanParser.parse([
+                ScanEvidence(kind: .text, value: "SERTRALINE HCL 50MG G1")
+            ]).name,
+            "Sertraline HCl"
+        )
+    }
 }

@@ -123,7 +123,15 @@ enum ScanEvidenceQuality {
 }
 
 enum ScanParser {
-    private static let strengthPattern = /(?i)\b\d+(?:\.\d+)?\s?(?:mcg|mg|g|mL|%)(?:\s*\/\s*\d+(?:\.\d+)?\s?(?:mcg|mg|g|mL))?\b/
+    // Insulin, heparin and vitamin D print their strength in units or IU rather than
+    // a mass, so a label that plainly reads "100 units/mL" left the field blank and
+    // made someone retype it. The denominator half is allowed to carry no number of
+    // its own, which is how "units/mL" is written.
+    // Put the combination shapes before the single-unit ratio shape so a label such
+    // as "400-80 MG" cannot be reduced to its trailing component.
+    // A vitamin bottle prints "1,000 IU"; without the grouped-number form the
+    // match started at "000" and offered a tenfold-wrong strength for confirmation.
+    private static let strengthPattern = /(?i)\b(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\s*[-\u{2013}\/]\s*(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\s*(?:mcg|mg|g|mL|units?|iu|%)|(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\s*(?:mcg|mg|g|mL|units?|iu|%)\s*[-\u{2013}\/]\s*(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\s*(?:mcg|mg|g|mL|units?|iu|%)|(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\s*(?:mcg|mg|g|mL|units?|iu|%)(?:\s*\/\s*(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\s*)?(?:mcg|mg|g|mL|units?|iu))?)(?![A-Za-z0-9])/
     private static let quantityPattern = /(?i)\b(?:qty|quantity|contents?)\s*[:#]?\s*(\d+(?:\.\d+)?)\b/
     private static let packageQuantityPattern = /(?i)\b(\d+(?:\.\d+)?)\s*(?:tablets?|capsules?|patches?|puffs?|doses?|count|ct)\b/
     private static let refillPattern = /(?i)\b(\d+)\s+refills?\s+(?:left|remaining)\b/
@@ -144,6 +152,9 @@ enum ScanParser {
         let value: String
         let confidence: Double
         let order: Int
+        /// Which evidence item this line came from. Lines from two different
+        /// photos are never adjacent, whatever their position in the flat list.
+        let group: Int
     }
 
     static func parse(_ evidence: [ScanEvidence], now: Date = .now) -> MedicationDraft {
@@ -155,7 +166,7 @@ enum ScanParser {
         draft.source = .scanned
         draft.evidence = usableEvidence
         draft.overallConfidence = usableEvidence.isEmpty ? 0 : usableEvidence.map(\.confidence).reduce(0, +) / Double(usableEvidence.count)
-        draft.strength = firstMatch(in: combined, pattern: strengthPattern) ?? ""
+        draft.strength = capturedStrength(from: lines, combined: combined) ?? ""
         let resolvedName = medicationName(from: lines, strength: draft.strength)
         draft.name = resolvedName.value
         draft.nameProvenance = resolvedName.provenance
@@ -179,12 +190,12 @@ enum ScanParser {
     private static func makeTextLines(from evidence: [ScanEvidence]) -> [TextLine] {
         var seen: Set<String> = []
         var result: [TextLine] = []
-        for item in evidence where item.kind == .text {
+        for (group, item) in evidence.enumerated() where item.kind == .text {
             for rawLine in item.value.components(separatedBy: .newlines) {
                 let value = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
                 let key = value.lowercased().split(whereSeparator: \Character.isWhitespace).joined(separator: " ")
                 guard !value.isEmpty, seen.insert(key).inserted else { continue }
-                result.append(TextLine(value: value, confidence: item.confidence, order: result.count))
+                result.append(TextLine(value: value, confidence: item.confidence, order: result.count, group: group))
             }
         }
         return result
@@ -207,7 +218,10 @@ enum ScanParser {
         ]
 
         if !strength.isEmpty,
-           let strengthLineIndex = lines.firstIndex(where: { $0.value.localizedCaseInsensitiveContains(strength) }) {
+           let strengthLineIndex = lines.firstIndex(where: {
+               $0.value.localizedCaseInsensitiveContains(strength)
+                   || strengthMatches(in: $0.value).contains(strength)
+           }) {
             let line = lines[strengthLineIndex].value
             let cleaned = cleanedNameLine(line, removing: strength)
             if isPlausibleName(cleaned, stopWords: stopWords) {
@@ -242,6 +256,10 @@ enum ScanParser {
             .replacingOccurrences(of: strength, with: "", options: [.caseInsensitive])
             .replacingOccurrences(of: "Each capsule contains", with: "", options: [.caseInsensitive])
             .replacingOccurrences(of: "Each tablet contains", with: "", options: [.caseInsensitive])
+        if let rawStrength = firstMatch(in: value, pattern: strengthPattern),
+           normalizedStrength(rawStrength) == strength {
+            cleaned = cleaned.replacingOccurrences(of: rawStrength, with: "", options: [.caseInsensitive])
+        }
         let dosageWords = [
             "tablets", "tablet", "capsules", "capsule", "oral solution", "solution",
             "injection", "patches", "patch", "drops", "cream", "ointment"
@@ -261,7 +279,25 @@ enum ScanParser {
         cleaned = cleaned
             .split(whereSeparator: \Character.isWhitespace)
             .joined(separator: " ")
-        return cleaned.trimmingCharacters(in: CharacterSet(charactersIn: " :-,."))
+        var tokens = cleaned.split(whereSeparator: \Character.isWhitespace).map { String($0) }
+        // Two tokens must survive. A pharmacy imprint sits after a full name
+        // ("Sertraline HCl G1"), whereas the "B12" in "Vitamin B12" is the name.
+        while tokens.count > 2, let trailing = tokens.last {
+            let hasLetters = trailing.contains { $0.isLetter }
+            let hasDigits = trailing.contains { $0.isNumber }
+            let shortMixedToken = (1...4).contains(trailing.count) && hasLetters && hasDigits
+            let trailingSingleLetter = trailing.count == 1 && trailing.first?.isLetter == true
+            guard shortMixedToken || trailingSingleLetter else { break }
+            tokens.removeLast()
+        }
+        tokens = tokens.map { token in
+            switch token.lowercased() {
+            case "hcl": return "HCl"
+            case "hbr": return "HBr"
+            default: return token
+            }
+        }
+        return tokens.joined(separator: " ").trimmingCharacters(in: CharacterSet(charactersIn: " :-,."))
     }
 
     private static func isMetadataValue(at index: Int, in lines: [TextLine]) -> Bool {
@@ -284,8 +320,20 @@ enum ScanParser {
     }
 
     private static func titleCasedDrugName(_ value: String) -> String {
-        if value == value.uppercased() { return value.capitalized }
-        return value
+        let tokens = value.split(whereSeparator: \Character.isWhitespace)
+        guard tokens.allSatisfy({ token in
+            let value = String(token)
+            return value == value.uppercased()
+                || value.lowercased() == "hcl"
+                || value.lowercased() == "hbr"
+        }) else { return value }
+        return tokens.map { token in
+            switch String(token).lowercased() {
+            case "hcl": return "HCl"
+            case "hbr": return "HBr"
+            default: return String(token).capitalized
+            }
+        }.joined(separator: " ")
     }
 
     private static func inferForm(from value: String) -> MedicationForm {
@@ -299,6 +347,89 @@ enum ScanParser {
         if lower.contains("cream") || lower.contains("ointment") || lower.contains("topical") { return .topical }
         if lower.contains("solution") || lower.contains("liquid") || lower.contains("syrup") { return .liquid }
         return .tablet
+    }
+
+    /// Canonical display form for a strength read off a label: "50MG" -> "50 mg",
+    /// "400-80MG" -> "400-80 mg". Returns nil when `value` holds no strength.
+    static func normalizedStrength(_ value: String) -> String? {
+        strengthMatches(in: value).first
+    }
+
+    /// Every strength-shaped substring in `value`, in canonical form, in order.
+    static func strengthMatches(in value: String) -> [String] {
+        value.matches(of: strengthPattern).compactMap { canonicalStrength(String($0.output)) }
+    }
+
+    private static func canonicalStrength(_ value: String) -> String? {
+        let characters = Array(value)
+        var result = ""
+        var index = 0
+        var previousWasNumber = false
+
+        while index < characters.count {
+            let character = characters[index]
+            if character.isWhitespace {
+                index += 1
+                continue
+            }
+            if character.isNumber {
+                let start = index
+                repeat { index += 1 } while index < characters.count
+                    && (characters[index].isNumber || characters[index] == "." || characters[index] == ",")
+                result += String(characters[start..<index]).filter { $0 != "," }
+                previousWasNumber = true
+                continue
+            }
+            if character == "-" || character == "–" || character == "/" {
+                result += String(character)
+                index += 1
+                previousWasNumber = false
+                continue
+            }
+            if character == "%" {
+                if previousWasNumber { result += " " }
+                result += "%"
+                index += 1
+                previousWasNumber = false
+                continue
+            }
+            guard character.isLetter else { return nil }
+            let start = index
+            while index < characters.count, characters[index].isLetter {
+                index += 1
+            }
+            guard let unit = canonicalUnit(String(characters[start..<index])) else { return nil }
+            if previousWasNumber { result += " " }
+            result += unit
+            previousWasNumber = false
+        }
+
+        let canonical = result.trimmingCharacters(in: .whitespacesAndNewlines)
+        return canonical.isEmpty ? nil : canonical
+    }
+
+    private static func canonicalUnit(_ value: String) -> String? {
+        switch value.lowercased() {
+        case "mcg": return "mcg"
+        case "mg": return "mg"
+        case "g": return "g"
+        case "ml": return "mL"
+        case "unit": return "unit"
+        case "units": return "units"
+        case "iu": return "IU"
+        default: return nil
+        }
+    }
+
+    /// Strength belongs to the product, and the product line is where it is printed.
+    /// A directions line quotes an amount to *take* — "Inject 10 units" — which is a
+    /// dose, not a strength, and on an insulin label it is printed larger and read
+    /// first. Direction-shaped lines are consulted only if nothing else carries one.
+    private static func capturedStrength(from lines: [TextLine], combined: String) -> String? {
+        for line in lines where !isDirectionLike(line.value) {
+            if let match = normalizedStrength(line.value) { return match }
+        }
+        return normalizedStrength(combined)
     }
 
     /// A labeled quantity ("QTY: 60", "CONTENTS 120") is trusted anywhere. The bare
@@ -321,7 +452,7 @@ enum ScanParser {
         let lower = value.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         let directionVerbs = [
             "take ", "use ", "apply ", "inhale ", "instill ", "inject ", "place ",
-            "give ", "chew ", "swallow ", "dissolve ", "adults", "children"
+            "give ", "chew ", "swallow ", "dissolve ", "spray ", "adults", "children"
         ]
         if directionVerbs.contains(where: lower.hasPrefix) { return true }
         let frequencyMarkers = [
@@ -349,19 +480,25 @@ enum ScanParser {
         if let match = value.firstMatch(of: expirationPattern),
            let month = Int(match.1),
            let year = Int(match.3),
-           let date = expirationDate(month: month, day: match.2.flatMap { Int($0) }, year: year) {
+           let date = expirationDate(month: month, day: match.2.flatMap { Int($0) }, year: year, now: now) {
             return date
         }
         if let match = value.firstMatch(of: namedMonthExpirationPattern),
            let month = monthNumber(named: String(match.2)),
            let year = Int(match.4) {
             let day = match.1.flatMap { Int($0) } ?? match.3.flatMap { Int($0) }
-            return expirationDate(month: month, day: day, year: year)
+            return expirationDate(month: month, day: day, year: year, now: now)
         }
         return nil
     }
 
-    private static func expirationDate(month: Int, day: Int?, year rawYear: Int) -> Date? {
+    /// Nothing dispensed today is good for another sixty years, so a reading that far
+    /// out is an OCR slip on the year — a `2026` read as `2096` — rather than a date
+    /// worth offering for confirmation. Dates already in the past are kept: an expired
+    /// package is real information, and the detail screen flags it as expired.
+    private static let latestPlausibleExpirationYears = 6
+
+    private static func expirationDate(month: Int, day: Int?, year rawYear: Int, now: Date) -> Date? {
         var year = rawYear
         if year < 100 { year += 2000 }
         guard (1...12).contains(month), (2000...2099).contains(year) else { return nil }
@@ -373,7 +510,7 @@ enum ScanParser {
             components.day = day
             if let date = calendar.date(from: components),
                calendar.component(.month, from: date) == month {
-                return date
+                return plausibleExpiration(date, now: now)
             }
         }
         // Month/year-only labels mean "good through that month": use its last day.
@@ -381,7 +518,15 @@ enum ScanParser {
         components.year = year
         components.month = month + 1
         components.day = 0
-        return calendar.date(from: components)
+        return calendar.date(from: components).flatMap { plausibleExpiration($0, now: now) }
+    }
+
+    private static func plausibleExpiration(_ date: Date, now: Date) -> Date? {
+        let calendar = Calendar(identifier: .gregorian)
+        guard let horizon = calendar.date(byAdding: .year, value: latestPlausibleExpirationYears, to: now) else {
+            return date
+        }
+        return date <= horizon ? date : nil
     }
 
     private static func monthNumber(named value: String) -> Int? {
@@ -389,30 +534,134 @@ enum ScanParser {
         return months.firstIndex(of: value.lowercased()).map { $0 + 1 }
     }
 
+    private static let trustedDirectionVerbs = [
+        "take", "use", "apply", "inhale", "instill", "inject", "place",
+        "give", "chew", "swallow", "dissolve", "spray"
+    ]
+    private static let directionsDatePattern = /\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/
+    private static let directionsPhonePattern = /\d{3}[-.\s]\d{3}[-.\s]\d{4}/
+
+    /// A pharmacy sig may omit the verb entirely — "ONE CAPSULE TWICE DAILY" is a
+    /// complete instruction — so a leading dose phrase opens the same door a verb
+    /// does. What stays shut is a line that opens with neither, which is how an OCR
+    /// slip such as "like 2 tablets by mouth" (a mangled "Take") is turned away.
+    private static let doseQuantityWords = [
+        "one", "two", "three", "four", "five", "six", "half", "a", "an"
+    ]
+    private static let doseFormWords = [
+        "tablet", "tablets", "capsule", "capsules", "puff", "puffs", "drop", "drops",
+        "spray", "sprays", "patch", "patches", "ml", "teaspoon", "teaspoons", "tsp",
+        "tablespoon", "tablespoons", "tbsp", "unit", "units", "dose", "doses",
+        "lozenge", "lozenges", "suppository", "suppositories"
+    ]
+
+    private static func startsWithDosePhrase(_ value: String) -> Bool {
+        let tokens = value
+            .lowercased()
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "." })
+            .prefix(2)
+            .map(String.init)
+        guard tokens.count == 2 else { return false }
+        let opensWithAmount = doseQuantityWords.contains(tokens[0])
+            || tokens[0].allSatisfy { $0.isNumber || $0 == "." }
+        return opensWithAmount && doseFormWords.contains(tokens[1])
+    }
+
+    /// True when the line opens the way a direction opens, by verb or by dose phrase.
+    private static func opensLikeDirections(_ value: String) -> Bool {
+        directionVerb(in: value) != nil || startsWithDosePhrase(value)
+    }
+
+    private static func directionVerb(in value: String) -> String? {
+        let candidate = value.drop(while: { $0.isWhitespace || $0.isPunctuation })
+        let lower = String(candidate).lowercased()
+        for verb in trustedDirectionVerbs {
+            guard lower.hasPrefix(verb) else { continue }
+            let remainder = lower.dropFirst(verb.count)
+            if let next = remainder.first, !next.isWhitespace && !next.isPunctuation {
+                continue
+            }
+            return verb
+        }
+        return nil
+    }
+
+    private static func hasDirectionFrequency(_ value: String) -> Bool {
+        let lower = value.lowercased()
+        let padded = " \(lower) "
+        let frequencyMarkers = [
+            " once daily", " twice daily", " daily", " times a day", " time a day",
+            " times daily", " time daily", " every ", " as needed", " at bedtime", " in the morning",
+            " in the evening", " once a day", " twice a day", " each day", " per day",
+            " weekly", " nightly", " monthly", " a week", " per week", " a month", " per month"
+        ]
+        if frequencyMarkers.contains(where: padded.contains) { return true }
+
+        let weekdays: Set<String> = [
+            "mon", "monday", "mondays", "tue", "tues", "tuesday", "tuesdays",
+            "wed", "wednesday", "wednesdays", "thu", "thur", "thurs", "thursday", "thursdays",
+            "fri", "friday", "fridays", "sat", "saturday", "saturdays", "sun", "sunday", "sundays"
+        ]
+        let weekdayCount = lower
+            .split(whereSeparator: { !$0.isLetter })
+            .reduce(into: 0) { count, token in
+                if weekdays.contains(String(token)) { count += 1 }
+            }
+        if weekdayCount >= 2 { return true }
+        guard weekdayCount == 1 else { return false }
+        let trimmed = lower.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.hasSuffix(",") && !trimmed.hasSuffix(" and")
+    }
+
+    /// True when `value` is a complete, trustworthy label direction.
+    static func isTrustedDirections(_ value: String) -> Bool {
+        guard (8...200).contains(value.count), opensLikeDirections(value) else { return false }
+
+        let lower = value.lowercased()
+        // Whole words, not substrings: "lot" inside "lotion" and "exp" inside
+        // "exposed" were rejecting perfectly good topical directions.
+        let dispensingWords: Set<String> = [
+            "rph", "filled", "fill", "ndc", "qty", "quantity", "refill", "refills",
+            "prescriber", "prescribed", "pharmacist", "pharmacy", "discard", "lot",
+            "mfg", "exp", "patient", "doctor", "dr"
+        ]
+        let words = lower.split(whereSeparator: { !$0.isLetter }).map(String.init)
+        guard !words.contains(where: dispensingWords.contains) else { return false }
+        guard !lower.contains("rx#"), !lower.contains("rx #") else { return false }
+        guard value.firstMatch(of: directionsDatePattern) == nil,
+              value.firstMatch(of: directionsPhonePattern) == nil else { return false }
+
+        let hasOCRGarbage = value
+            .split(whereSeparator: { !$0.isLetter })
+            .contains { token in
+                guard token.count >= 3 else { return false }
+                let characters = Array(token)
+                return zip(characters, characters.dropFirst()).contains { pair in
+                    pair.0.isLowercase && pair.1.isUppercase
+                }
+            }
+        guard !hasOCRGarbage else { return false }
+
+        return hasDirectionFrequency(value)
+            || lower.contains("as directed")
+            || lower.contains("as needed")
+    }
+
     private static func capturedDirections(from lines: [TextLine]) -> String {
-        lines.compactMap { line -> (line: TextLine, score: Double)? in
+        let excludedFragments = [
+            "daily value", "% daily", "use by", "do not use", "discard after",
+            "for external use only", "expiration", "expires", "lot number"
+        ]
+        let trusted = lines.compactMap { line -> (line: TextLine, score: Double)? in
             let lower = line.value
                 .lowercased()
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            let excludedFragments = [
-                "daily value", "% daily", "use by", "do not use", "discard after",
-                "for external use only", "expiration", "expires", "lot number"
-            ]
+            guard isTrustedDirections(line.value) else { return nil }
             guard !excludedFragments.contains(where: lower.contains) else { return nil }
 
-            let directionVerbs = ["take ", "use ", "apply ", "inhale ", "instill ", "inject ", "place "]
-            let startsWithDirection = directionVerbs.contains(where: lower.hasPrefix)
-            let frequencyMarkers = [
-                " once daily", " twice daily", " daily", " times a day", " times daily",
-                " every ", " as needed", " at bedtime", " in the morning", " in the evening"
-            ]
-            let hasFrequency = frequencyMarkers.contains(where: lower.contains)
-            let dosageMarkers = ["tablet", "capsule", "puff", "drop", "spray", "patch", "ml"]
-            let hasDosageWithFrequency = hasFrequency && dosageMarkers.contains(where: lower.contains)
+            let startsWithDirection = directionVerb(in: line.value) != nil
+            let hasFrequency = hasDirectionFrequency(line.value)
             let hasRouteInstruction = lower.contains(" by mouth") || lower.contains(" under the tongue")
-            let hasCompleteInstruction = startsWithDirection
-                && (hasFrequency || hasRouteInstruction || lower.contains(" as directed"))
-            guard hasCompleteInstruction || hasDosageWithFrequency || hasRouteInstruction else { return nil }
 
             var score = line.confidence * 100
             if startsWithDirection { score += 25 }
@@ -420,8 +669,26 @@ enum ScanParser {
             if hasRouteInstruction { score += 8 }
             return (line, score)
         }
-        .max { $0.score < $1.score }?
-        .line.value ?? ""
+        if let best = trusted.max(by: { $0.score < $1.score }) {
+            return best.line.value
+        }
+
+        // A wrapped sig must stay adjacent, bounded, and inside a single capture.
+        // Joining across captures once produced "TAKE 1 TABLET Patient: Jane Doe
+        // TWICE DAILY" out of three unrelated readings.
+        for index in lines.indices {
+            let line = lines[index]
+            guard opensLikeDirections(line.value),
+                  !isTrustedDirections(line.value) else { continue }
+            for additionalLines in 1...2 {
+                let endIndex = index + additionalLines
+                guard lines.indices.contains(endIndex),
+                      lines[endIndex].group == line.group else { break }
+                let joined = (index...endIndex).map { lines[$0].value }.joined(separator: " ")
+                if isTrustedDirections(joined) { return joined }
+            }
+        }
+        return ""
     }
 
     private static func preferredBarcode(in evidence: [ScanEvidence]) -> ScanEvidence? {

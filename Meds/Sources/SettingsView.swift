@@ -1,5 +1,4 @@
 import StoreKit
-import SwiftData
 import SwiftUI
 import UIKit
 import UserNotifications
@@ -8,27 +7,12 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = true
-    @Query private var medications: [Medication]
-    @Query private var schedules: [DoseSchedule]
-    @Query private var inventoryEvents: [InventoryEvent]
-    @Query private var doseEvents: [DoseEvent]
     @State private var notificationStatus = "Checking…"
     @State private var showingSafety = false
     @State private var showingPrivacy = false
     @State private var showingStory = false
     @State private var showingTips = false
-    @State private var medicationListShare: MedicationListShareItem?
-    @State private var showingExportUnavailable = false
-
-    private struct MedicationListShareItem: Identifiable {
-        let url: URL
-        var id: URL { url }
-    }
     @State private var tipAvailability: TipAvailability = .loading
-
-    private var hasActiveMedications: Bool {
-        medications.contains { !$0.isArchived }
-    }
 
     /// App Review must always be able to find the in-app purchases, so the tip row
     /// is present in every state rather than appearing only once StoreKit answers.
@@ -49,19 +33,6 @@ struct SettingsView: View {
                 Text("Reminders")
             } footer: {
                 Text("Meds Ahead uses local notifications. Delivery also depends on your iPhone notification and Focus settings.")
-            }
-
-            Section {
-                Button {
-                    shareMedicationList()
-                } label: {
-                    Label("Share Medication List", systemImage: "square.and.arrow.up")
-                }
-                .disabled(!hasActiveMedications)
-            } header: {
-                Text("Your records")
-            } footer: {
-                Text("A one-page PDF of your current medications, schedules, and supply for appointments and pharmacy visits. It is created on this iPhone and shared only where you send it.")
             }
 
             Section {
@@ -138,12 +109,12 @@ struct SettingsView: View {
                 title: "Why I Made Meds Ahead",
                 symbol: "heart.fill",
                 paragraphs: [
-                    "My mother was managing more than a dozen medications for my brother Lukas, through his transplant care. Refills came due on different days, in different amounts, from different places. Running out of one of them was not a small problem.",
-                    "Every app we tried was built around reminders — telling you to take something at eight in the morning. None of them answered the question she actually needed answered, standing at the pharmacy counter or lying awake on a Sunday night: what runs out next, and when do I have to do something about it?",
-                    "So I built the app she needed. Meds Ahead keeps an honest count of what is actually on hand, asks you to confirm everything before it believes it, and tells you plainly which medication needs attention next. It has no account, no advertising, and no analytics, and your medication information never leaves your iPhone.",
+                    "My mother was managing more than a dozen medications for my 9-year-old brother Lukas through his lung transplant care. Refills came due on different days, in different amounts, from different places. Running out of one of them was not a small problem.",
+                    "Every app we tried was built around reminders, telling you to take something at eight in the morning. None of them answered the question she was actually asking, standing at the pharmacy counter or lying awake on a Sunday night: what runs out next, and when do I have to do something about it?",
+                    "So I built the app we needed. Meds Ahead keeps an honest count of what is actually on hand, asks you to confirm everything before it believes it, and tells you plainly which medication needs attention next. It has no account, no advertising, and no analytics, and your medication information never leaves your iPhone.",
                     "If you are keeping track of medications for someone you love, I hope this takes one thing off your plate."
                 ],
-                signature: "— Nicholas Christoforakis"
+                signature: "Nick Christoforakis"
             )
         }
         .sheet(isPresented: $showingPrivacy) {
@@ -174,29 +145,6 @@ struct SettingsView: View {
             if case let .available(products) = tipAvailability {
                 TipJarView(products: products)
             }
-        }
-        .sheet(item: $medicationListShare) { item in
-            ActivityShareSheet(items: [item.url])
-                .presentationDetents([.medium, .large])
-        }
-        .alert("Couldn't Create the List", isPresented: $showingExportUnavailable) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("The medication list PDF could not be created. Try again.")
-        }
-    }
-
-    private func shareMedicationList() {
-        let entries = MedicationListDocument.entries(
-            medications: medications,
-            schedules: schedules,
-            inventoryEvents: inventoryEvents,
-            doseEvents: doseEvents
-        )
-        if let url = MedicationListPDFRenderer.render(entries: entries) {
-            medicationListShare = MedicationListShareItem(url: url)
-        } else {
-            showingExportUnavailable = true
         }
     }
 

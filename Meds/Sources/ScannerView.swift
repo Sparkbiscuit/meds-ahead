@@ -113,18 +113,22 @@ struct ScannerScreen: View {
             VStack(spacing: 10) {
                 scanProgress
                 Spacer()
-                if let scanGuidance {
-                    Text(scanGuidance)
-                        .font(.subheadline.weight(.semibold))
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(.black.opacity(0.52), in: Capsule())
-                        .padding(.bottom, 24)
-                }
             }
         }
+        .overlay(alignment: .bottom) {
+            if let scanGuidance {
+                Text(scanGuidance)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding(.horizontal, ScanFrameLayout.horizontalInset)
+                    .padding(.bottom, 14)
+            }
+        }
+        .animation(reduceMotion ? nil : .medsSpring, value: scanGuidance)
         .overlay(alignment: .bottomTrailing) { torchButton }
         .accessibilityElement(children: .contain)
     }
@@ -165,6 +169,9 @@ struct ScannerScreen: View {
                 if preview.hasQuantity {
                     ScanProgressPill(title: "Quantity", systemImage: "number")
                 }
+                if preview.hasRefills {
+                    ScanProgressPill(title: "Refills", systemImage: "arrow.clockwise")
+                }
                 if preview.hasProductIdentifier {
                     ScanProgressPill(title: "Code", systemImage: "barcode")
                 }
@@ -178,14 +185,36 @@ struct ScannerScreen: View {
     /// Guidance must match the input actually available: telling someone to
     /// rotate a bottle in front of a camera that is off is worse than silence.
     private var scanGuidance: String? {
+        // Only the facts every label carries. A refill count is absent from an OTC
+        // bottle altogether, so asking for one left the banner nagging forever.
+        let missing = [
+            preview.medicationName.isEmpty ? "name" : nil,
+            !preview.hasStrength ? "strength" : nil,
+            !preview.hasQuantity ? "quantity" : nil
+        ].compactMap { $0 }
+        let missingDescription: String = {
+            switch missing.count {
+            case 0:
+                return ""
+            case 1:
+                return missing[0]
+            case 2:
+                return missing.joined(separator: " and ")
+            default:
+                return missing.dropLast().joined(separator: ", ") + " and " + (missing.last ?? "")
+            }
+        }()
+
         if canUseLiveScanner {
-            if !preview.medicationName.isEmpty { return "Name matched — rotate for strength, quantity, and refill details" }
-            if !evidence.isEmpty { return "Keep rotating until the full medication name is visible" }
-            return "Keep the label inside the frame and slowly rotate the bottle"
+            if evidence.isEmpty { return "Keep the label inside the frame and slowly rotate the bottle" }
+            if missing.isEmpty { return "Everything found — tap Review" }
+            if preview.medicationName.isEmpty { return "Keep rotating until the full medication name is visible" }
+            return "Found the name. Keep rotating for \(missingDescription)"
         }
         guard !evidence.isEmpty else { return nil }
-        if !preview.medicationName.isEmpty { return "Name matched — add photos of the other sides for the rest" }
-        return "Add a photo where the full medication name is visible"
+        if missing.isEmpty { return "Everything found — tap Review" }
+        if preview.medicationName.isEmpty { return "Add a photo where the full medication name is visible" }
+        return "Found the name. Add a photo of the other sides for \(missingDescription)"
     }
 
     private var controls: some View {

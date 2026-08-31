@@ -3,8 +3,11 @@ import Foundation
 import SwiftData
 
 enum DemoData {
+    /// `backdatingSchedulesByDays` starts the demo schedules in the past so the
+    /// unlogged-dose state has something to show. Left at zero the demo store looks
+    /// exactly as it always has, which is what the UI tests expect of it.
     @MainActor
-    static func seed(in context: ModelContext) throws {
+    static func seed(in context: ModelContext, backdatingSchedulesByDays days: Int = 0) throws {
         let descriptor = FetchDescriptor<Medication>()
         guard try context.fetchCount(descriptor) == 0 else { return }
 
@@ -42,9 +45,10 @@ enum DemoData {
         context.insert(InventoryEvent(medicationID: dimethyl.id, delta: 12, reason: .openingCount))
         context.insert(InventoryEvent(medicationID: melatonin.id, delta: 118, reason: .openingCount))
 
+        let start = Calendar.autoupdatingCurrent.date(byAdding: .day, value: -days, to: .now) ?? .now
         for medication in [furosemide, dimethyl] {
-            context.insert(DoseSchedule(medicationID: medication.id, minutesAfterMidnight: 8 * 60, doseQuantity: 1))
-            context.insert(DoseSchedule(medicationID: medication.id, minutesAfterMidnight: 20 * 60, doseQuantity: 1))
+            context.insert(DoseSchedule(medicationID: medication.id, minutesAfterMidnight: 8 * 60, doseQuantity: 1, startDate: start))
+            context.insert(DoseSchedule(medicationID: medication.id, minutesAfterMidnight: 20 * 60, doseQuantity: 1, startDate: start))
         }
         try context.save()
     }

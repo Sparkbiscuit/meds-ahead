@@ -92,6 +92,7 @@ final class Medication {
     @Attribute(.unique) var id: UUID
     var name: String
     var nickname: String
+    var brandName: String = ""
     var strength: String
     var formRawValue: String
     var directions: String
@@ -118,6 +119,7 @@ final class Medication {
         id: UUID = UUID(),
         name: String,
         nickname: String = "",
+        brandName: String = "",
         strength: String = "",
         form: MedicationForm = .tablet,
         directions: String = "",
@@ -143,6 +145,7 @@ final class Medication {
         self.id = id
         self.name = name
         self.nickname = nickname
+        self.brandName = brandName
         self.strength = strength
         self.formRawValue = form.rawValue
         self.directions = directions
@@ -178,7 +181,7 @@ final class Medication {
 
     var displayName: String { nickname.isEmpty ? name : nickname }
     var subtitle: String {
-        [name == displayName ? nil : name, strength.isEmpty ? nil : strength]
+        [name == displayName ? nil : name, brandName.isEmpty ? nil : "Brand: \(brandName)", strength.isEmpty ? nil : strength]
             .compactMap { $0 }
             .joined(separator: " · ")
     }
@@ -300,6 +303,7 @@ enum MedicationNameProvenance: String, Hashable, Sendable {
 struct MedicationDraft: Hashable, Sendable {
     var name = ""
     var nickname = ""
+    var brandName = ""
     var strength = ""
     var form: MedicationForm = .tablet
     var directions = ""

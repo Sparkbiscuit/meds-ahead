@@ -1,0 +1,247 @@
+abaloparatide|Tymlos
+acetaminophen|Tylenol
+acetaminophen / oxycodone|Percocet
+adalimumab|Humira
+adapalene|Differin
+aliskiren|Tekturna
+alogliptin|Nesina
+alprazolam|Xanax
+amlodipine|Norvasc
+amoxicillin / clavulanate|Augmentin
+anastrozole|Arimidex
+apixaban|Eliquis
+apremilast|Otezla
+aprepitant|Emend
+aripiprazole|Abilify
+atomoxetine|Strattera
+atorvastatin|Lipitor
+atovaquone|Mepron
+atropine / diphenoxylate|Lomotil
+azithromycin|Zithromax
+balsalazide|Colazal
+belimumab|Benlysta
+bempedoic acid|Nexletol
+benralizumab|Fasenra
+betamethasone dipropionate|Diprolene
+bisacodyl|Dulcolax
+bismuth subsalicylate|Pepto-Bismol
+brinzolamide|Azopt
+bumetanide|Bumex
+canagliflozin|Invokana
+candesartan|Atacand
+capecitabine|Xeloda
+carbamazepine|Tegretol
+carbidopa / levodopa|Sinemet
+carvedilol|Coreg
+celecoxib|Celebrex
+cephalexin|Keflex
+cetirizine|Zyrtec
+chlorpheniramine|Chlor-Trimeton
+chlorthalidone|Thalitone
+ciclopirox|Loprox
+cimetidine|Tagamet
+citalopram|Celexa
+clarithromycin|Biaxin
+clomiphene|Clomid
+clonazepam|Klonopin
+clonidine|Catapres
+clopidogrel|Plavix
+colchicine|Colcrys
+colesevelam|Welchol
+cyclosporine, modified|Neoral
+dabigatran|Pradaxa
+dapagliflozin|Farxiga
+darunavir|Prezista
+desloratadine|Clarinex
+desmopressin|DDAVP
+desvenlafaxine|Pristiq
+dexamethasone|Decadron
+dexlansoprazole|Dexilant
+dexmethylphenidate|Focalin
+dextroamphetamine|Dexedrine
+diazepam|Valium
+dicyclomine|Bentyl
+digoxin|Lanoxin
+diltiazem|Cardizem
+diphenhydramine|Benadryl
+dipyridamole|Persantine
+dofetilide|Tikosyn
+donepezil|Aricept
+dorzolamide|Trusopt
+doxazosin|Cardura
+dulaglutide|Trulicity
+duloxetine|Cymbalta
+edoxaban|Savaysa
+eletriptan|Relpax
+empagliflozin|Jardiance
+enalapril|Vasotec
+enoxaparin|Lovenox
+entecavir|Baraclude
+eplerenone|Inspra
+ergocalciferol|Drisdol
+ertugliflozin|Steglatro
+escitalopram|Lexapro
+esomeprazole|Nexium
+eszopiclone|Lunesta
+etanercept|Enbrel
+ethosuximide|Zarontin
+exemestane|Aromasin
+exenatide|Byetta
+famciclovir|Famvir
+famotidine|Pepcid
+fenofibrate|Tricor
+ferrous sulfate|Feosol
+flecainide|Tambocor
+fluconazole|Diflucan
+fludrocortisone|Florinef
+fluoxetine|Prozac
+folic acid|Folvite
+fosfomycin|Monurol
+furosemide|Lasix
+gabapentin|Neurontin
+galcanezumab|Emgality
+glimepiride|Amaryl
+glipizide|Glucotrol
+glycopyrrolate|Robinul
+guanfacine|Tenex
+hydrochlorothiazide|Microzide
+hydroxychloroquine|Plaquenil
+hydroxyzine hydrochloride|Atarax
+hydroxyzine pamoate|Vistaril
+ibandronate|Boniva
+ibrutinib|Imbruvica
+infliximab|Remicade
+insulin aspart, human|NovoLog
+insulin degludec|Tresiba
+insulin glargine|Lantus
+insulin lispro|Humalog
+irbesartan|Avapro
+isosorbide dinitrate|Isordil
+itraconazole|Sporanox
+ivabradine|Corlanor
+labetalol|Trandate
+lacosamide|Vimpat
+lamotrigine|Lamictal
+lansoprazole|Prevacid
+latanoprost|Xalatan
+leflunomide|Arava
+letrozole|Femara
+levalbuterol|Xopenex
+levetiracetam|Keppra
+levocetirizine|Xyzal
+levofloxacin|Levaquin
+levothyroxine|Synthroid
+linaclotide|Linzess
+linagliptin|Tradjenta
+liothyronine|Cytomel
+lisdexamfetamine|Vyvanse
+loperamide|Imodium
+loratadine|Claritin
+lorazepam|Ativan
+losartan|Cozaar
+loteprednol|Lotemax
+lubiprostone|Amitiza
+magnesium oxide|Mag-Ox
+meclizine|Bonine
+meloxicam|Mobic
+mepolizumab|Nucala
+mercaptopurine|Purinethol
+metformin|Glucophage
+methylphenidate|Ritalin
+metoclopramide|Reglan
+metoprolol succinate|Toprol XL
+metoprolol tartrate|Lopressor
+mirabegron|Myrbetriq
+mirtazapine|Remeron
+modafinil|Provigil
+montelukast|Singulair
+mycophenolate mofetil|CellCept
+mycophenolic acid|Myfortic
+naloxegol|Movantik
+naproxen|Aleve
+nebivolol|Bystolic
+nitazoxanide|Alinia
+olanzapine|Zyprexa
+olmesartan|Benicar
+omalizumab|Xolair
+omeprazole|Prilosec
+ondansetron|Zofran
+oseltamivir|Tamiflu
+oxcarbazepine|Trileptal
+pantoprazole|Protonix
+paricalcitol|Zemplar
+paroxetine|Paxil
+phenytoin|Dilantin
+pioglitazone|Actos
+pitavastatin|Livalo
+polyethylene glycol 3350|MiraLAX
+pramipexole|Mirapex
+prasugrel|Effient
+pregabalin|Lyrica
+propafenone|Rythmol
+propranolol|Inderal
+quetiapine|Seroquel
+rabeprazole|AcipHex
+raloxifene|Evista
+ramelteon|Rozerem
+ramipril|Altace
+ranolazine|Ranexa
+rasagiline|Azilect
+remdesivir|Veklury
+rifabutin|Mycobutin
+rifaximin|Xifaxan
+rilpivirine|Edurant
+rimegepant|Nurtec ODT
+risedronate|Actonel
+rivaroxaban|Xarelto
+rivastigmine|Exelon
+rizatriptan|Maxalt
+roflumilast|Daliresp
+ropinirole|Requip
+rosuvastatin|Crestor
+sacubitril / valsartan|Entresto
+salmeterol|Serevent
+saxagliptin|Onglyza
+secukinumab|Cosentyx
+sertraline|Zoloft
+sirolimus|Rapamune
+sitagliptin|Januvia
+sodium oxybate|Xyrem
+solifenacin|Vesicare
+sotalol|Betapace
+spironolactone|Aldactone
+sucralfate|Carafate
+sulfamethoxazole / trimethoprim|Bactrim
+sulfasalazine|Azulfidine
+sumatriptan|Imitrex
+suvorexant|Belsomra
+tacrolimus|Prograf
+tamsulosin|Flomax
+tenofovir alafenamide|Vemlidy
+tenofovir disoproxil fumarate|Viread
+teriparatide|Forteo
+ticagrelor|Brilinta
+tinidazole|Tindamax
+tiotropium|Spiriva
+tizanidine|Zanaflex
+tolterodine|Detrol
+topiramate|Topamax
+trospium|Sanctura
+umeclidinium|Incruse Ellipta
+upadacitinib|Rinvoq
+valacyclovir|Valtrex
+valbenazine|Ingrezza
+valproic acid|Depakene
+valsartan|Diovan
+vedolizumab|Entyvio
+vericiguat|Verquvo
+vibegron|Gemtesa
+vilazodone|Viibryd
+vonoprazan|Voquezna
+voriconazole|Vfend
+vortioxetine|Trintellix
+zaleplon|Sonata
+ziprasidone|Geodon
+zolmitriptan|Zomig
+zolpidem|Ambien
+zonisamide|Zonegran

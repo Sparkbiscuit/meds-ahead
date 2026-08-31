@@ -99,6 +99,92 @@ struct EmptyStateCard: View {
     }
 }
 
+/// The one thing Today must say out loud when it is true: these reminders are not
+/// going to arrive. It sits above the day's doses rather than inside Settings,
+/// because nobody opens Settings to discover a problem they don't know they have.
+struct NotificationHealthBanner: View {
+    let state: NotificationHealth.State
+    let onAllow: () -> Void
+    let onOpenSettings: () -> Void
+    let onRetry: () -> Void
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: symbol)
+                    .font(.title3)
+                    .foregroundStyle(.orange)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.headline)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(message)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+            Button(actionTitle, action: action)
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .tint(.orange)
+                .frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? .infinity : nil)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .cardSurface()
+        .accessibilityElement(children: .contain)
+    }
+
+    private var symbol: String {
+        switch state {
+        case .blocked: "bell.slash.fill"
+        case .unasked: "bell.badge"
+        case .partlyScheduled, .fine: "exclamationmark.triangle.fill"
+        }
+    }
+
+    private var title: String {
+        switch state {
+        case .blocked: "Reminders are turned off"
+        case .unasked: "Reminders need your permission"
+        case .partlyScheduled, .fine: "Some reminders weren't set"
+        }
+    }
+
+    private var message: String {
+        switch state {
+        case .blocked:
+            "Meds Ahead can't send dose or refill reminders until notifications are allowed in Settings."
+        case .unasked:
+            "Your schedules are saved, but no reminder can be delivered until you allow notifications."
+        case let .partlyScheduled(failed):
+            "\(failed) reminder\(failed == 1 ? "" : "s") couldn't be scheduled with iOS. Your medications and history are unaffected."
+        case .fine:
+            ""
+        }
+    }
+
+    private var actionTitle: String {
+        switch state {
+        case .blocked: "Open Settings"
+        case .unasked: "Allow Reminders"
+        case .partlyScheduled, .fine: "Try Again"
+        }
+    }
+
+    private var action: () -> Void {
+        switch state {
+        case .blocked: onOpenSettings
+        case .unasked: onAllow
+        case .partlyScheduled, .fine: onRetry
+        }
+    }
+}
+
 struct ConfidenceBadge: View {
     let confidence: ForecastConfidence
 
@@ -137,8 +223,16 @@ struct ConfidenceBadge: View {
 }
 
 extension Double {
+    /// The quantity fields accept as many digits as a person can type, and
+    /// `Int(_:)` traps rather than saturating once a `Double` runs past `Int.max`.
+    /// Anything that large is a mistyped count, and printing it is better than
+    /// ending the app mid-entry.
+    private static let wholeNumberPrintingLimit = 1e15
+
     var medicationQuantityText: String {
-        if rounded() == self { return String(Int(self)) }
+        if rounded() == self, magnitude < Double.wholeNumberPrintingLimit {
+            return String(Int(self))
+        }
         return formatted(.number.precision(.fractionLength(0...2)))
     }
 
