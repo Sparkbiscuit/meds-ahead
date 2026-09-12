@@ -124,6 +124,44 @@ final class ForecastEngineTests: XCTestCase {
         XCTAssertTrue(result.explanation.contains("30 days"))
     }
 
+    /// History imported from Apple Health predates the count the person entered:
+    /// it must give the as-needed estimate its rate without charging the supply.
+    func testImportedHistoryFeedsTheRateButNotTheBalance() throws {
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 9, day: 12, hour: 12)))
+        let medication = Medication(name: "Ondansetron", isAsNeeded: true)
+        let opening = InventoryEvent(medicationID: medication.id, date: now, delta: 20, reason: .openingCount)
+        let imported = (1...4).map { offset in
+            DoseEvent(
+                medicationID: medication.id,
+                recordedAt: calendar.date(byAdding: .day, value: -offset, to: now) ?? now,
+                doseQuantity: 1,
+                status: .taken,
+                note: DoseEvent.appleHealthNote,
+                countsTowardSupply: false
+            )
+        }
+
+        let result = ForecastEngine.forecast(
+            medication: medication,
+            schedules: [],
+            inventoryEvents: [opening],
+            doseEvents: imported,
+            now: now,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(result.currentSupply, 20, "the twenty were counted after those doses were taken")
+        XCTAssertEqual(result.confidence, .estimated)
+        // Four doses over the five days from the earliest to now: 0.8 a day, so
+        // twenty last twenty-five days.
+        XCTAssertEqual(result.daysRemaining, 25)
+        XCTAssertEqual(
+            ForecastEngine.correctionDelta(medicationID: medication.id, actualCount: 18, inventoryEvents: [opening], doseEvents: imported),
+            -2,
+            "a correction compares against the balance the imports never touched"
+        )
+    }
+
     func testCorrectionCanNeverDisplayNegativeSupply() {
         let medication = Medication(name: "Example")
         let opening = InventoryEvent(medicationID: medication.id, delta: 1, reason: .openingCount)

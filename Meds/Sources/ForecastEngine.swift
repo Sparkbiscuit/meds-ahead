@@ -25,8 +25,10 @@ enum ForecastEngine {
         let inventory = inventoryEvents
             .filter { $0.medicationID == medicationID }
             .reduce(0) { $0 + $1.delta }
+        // A dose imported from Apple Health predates the count and was never taken
+        // from it; it still counts for the as-needed rate below.
         let consumed = doseEvents
-            .filter { $0.medicationID == medicationID && $0.status == .taken }
+            .filter { $0.medicationID == medicationID && $0.status == .taken && $0.countsTowardSupply }
             .reduce(0) { $0 + $1.doseQuantity }
         return inventory - consumed
     }

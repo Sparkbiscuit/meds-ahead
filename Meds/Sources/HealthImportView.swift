@@ -27,7 +27,7 @@ struct HealthImportView: View {
                             .font(.title2)
                             .foregroundStyle(AppTheme.accent)
                             .accessibilityHidden(true)
-                        Text("Health shows you its own list and you tick the medications to share. Meds Ahead reads only those, never writes to Health, and keeps everything on this iPhone.")
+                        Text("Health shows you its own list and you tick the medications to share. Meds Ahead reads only those, along with the doses you logged for them in the last 30 days, never writes to Health, and keeps everything on this iPhone.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -126,6 +126,10 @@ struct HealthImportView: View {
         if !summary.nickname.isEmpty { parts.append("“\(summary.nickname)”") }
         parts.append(draft.form.displayName)
         parts.append(summary.hasSchedule ? "Scheduled in Health" : "As needed in Health")
+        if !summary.recentTakenDoses.isEmpty {
+            let count = summary.recentTakenDoses.count
+            parts.append("\(count) dose\(count == 1 ? "" : "s") logged in 30 days")
+        }
         if summary.isArchived { parts.append("Archived in Health") }
         return parts.joined(separator: " · ")
     }
