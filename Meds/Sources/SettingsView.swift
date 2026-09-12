@@ -192,19 +192,34 @@ private struct TipJarView: View {
     @State private var purchasingProductID: String?
     @State private var resultMessage: String?
     @State private var purchaseFailed = false
+    @State private var purchasePending = false
+
+    /// The symbol has to agree with the words under it: a tip that did not go
+    /// through showed a checkmark over "Tip Unavailable".
+    private var resultSymbol: String {
+        if resultMessage == nil { return "heart.circle.fill" }
+        if purchaseFailed { return "xmark.circle.fill" }
+        return purchasePending ? "clock.circle.fill" : "checkmark.circle.fill"
+    }
+
+    private var resultTitle: String {
+        if resultMessage == nil { return "Support Meds Ahead" }
+        if purchaseFailed { return "Tip Unavailable" }
+        return purchasePending ? "Tip Pending" : "Thank You"
+    }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
-                    Image(systemName: resultMessage == nil ? "heart.circle.fill" : "checkmark.circle.fill")
+                    Image(systemName: resultSymbol)
                         .font(.system(size: 54, weight: .medium))
-                        .foregroundStyle(AppTheme.accent)
+                        .foregroundStyle(purchaseFailed ? Color.orange : AppTheme.accent)
                         .contentTransition(.symbolEffect(.replace))
                         .accessibilityHidden(true)
 
                     VStack(spacing: 8) {
-                        Text(resultMessage == nil ? "Support Meds Ahead" : (purchaseFailed ? "Tip Unavailable" : "Thank You"))
+                        Text(resultTitle)
                             .font(.system(.title2, design: .rounded, weight: .bold))
                         Text(resultMessage ?? "If Meds Ahead makes medication management a little easier, you can leave an optional tip toward its continued development.")
                             .font(.subheadline)
@@ -275,6 +290,7 @@ private struct TipJarView: View {
                 resultMessage = "Your support helps keep Meds Ahead thoughtful, private, and improving."
             case .pending:
                 purchaseFailed = false
+                purchasePending = true
                 resultMessage = "Apple is still processing this tip. It will finish automatically after approval."
             case .userCancelled:
                 break
