@@ -43,6 +43,26 @@ final class MedicationListDocumentTests: XCTestCase {
         XCTAssertTrue(entry.detailLine.contains("2 refills remaining"))
     }
 
+    /// A pharmacy can act on an NDC and a clinic on an RxNorm code; a pharmacy's
+    /// own barcode payload means nothing to anyone else and stays off the sheet.
+    func testExactProductCodesPrintAndBarcodePayloadsDoNot() {
+        let exact = Medication(name: "Tacrolimus", productIdentifier: "00469-0617-73", productIdentifierType: "NDC")
+        let coded = Medication(name: "Sertraline", productIdentifier: "312938", productIdentifierType: "RxNorm")
+        let scanned = Medication(name: "Melatonin", productIdentifier: "323615013", productIdentifierType: "Code 128")
+
+        let entries = MedicationListDocument.entries(
+            medications: [exact, coded, scanned],
+            schedules: [],
+            inventoryEvents: [],
+            doseEvents: [],
+            calendar: calendar
+        )
+
+        XCTAssertTrue(entries[2].detailLine.contains("NDC 00469-0617-73"), entries[2].detailLine)
+        XCTAssertTrue(entries[1].detailLine.contains("RxNorm 312938"), entries[1].detailLine)
+        XCTAssertFalse(entries[0].detailLine.contains("323615013"), entries[0].detailLine)
+    }
+
     func testArchivedMedicationsAreExcludedAndEntriesSortByDisplayName() {
         let zebra = Medication(name: "Zolpidem")
         let apple = Medication(name: "Amlodipine", nickname: "Blood pressure")
