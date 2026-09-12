@@ -7,8 +7,10 @@
 - VisionKit live scanning
 - Vision text and barcode recognition for still images
 - UserNotifications for local reminders and duplicate-safe dose logging actions
-- StoreKit for optional, non-recurring consumable tips
+- StoreKit for optional, non-recurring consumable tips and the native rating request
 - FoundationModels on iOS 26+ where Apple Intelligence is eligible, weak-linked and entirely optional
+- A bundled snapshot of the FDA National Drug Code Directory for exact identification, with no lookup service behind it
+- HealthKit on iOS 26+ for a read-only, per-medication import of what a person already tracks in Apple Health
 
 ## Deployment floor
 
@@ -74,6 +76,79 @@ patient's own name in the medication field is worse than a blank one. `ScanParse
 reports this as `MedicationNameProvenance` so the distinction is explicit rather
 than re-derived.
 
+## Exact identification
+
+A label's National Drug Code names the product exactly — labeler, drug, strength,
+package — where the printed name is a reading to be gated. `ScanParser` has read
+`NDC 0093-1039-01` off labels since 1.0 and stored it unused; 1.1 resolves it.
+`NationalDrugCode` reduces every rendering a label uses (the three native 4-4-2,
+5-3-2 and 5-4-1 layouts, the padded 5-4-2 layout, and bare digits of either) to
+the eleven-digit form, and decodes the GTIN inside a manufacturer barcode, which
+is the ten-digit code wrapped in a `3` and a check digit. `NDCDirectory` is a
+snapshot of the FDA National Drug Code Directory — public domain, refreshed daily
+by the FDA, trimmed by `Tools/build_ndc_directory.py` to generic name, brand name,
+strength and dosage form for human prescription and OTC listings — sorted by
+nine-digit product key and binary-searched in place, so a hundred thousand
+products cost one buffer rather than a dictionary. No network is involved at any
+point; a bottle dispensed from a product the FDA has since delisted still resolves
+because listings that ended within the last six years are kept.
+
+`NDCIdentification` is the gate between a resolved code and the review screen.
+It runs after the ordinary label reading, not instead of it, because that reading
+is what a code is checked against. A code from a barcode is accepted on its own: a
+check digit guarantees it is the code that was printed. A code read by OCR must be
+corroborated by the label — a word of the product's name, or the same strength —
+because one misread digit is a different product and the directory would state it
+with confidence. A code from either source is refused when the label plainly
+contradicts it: a confirmed name of another drug, a strength that disagrees, a salt
+that makes a different product (metoprolol succinate is not metoprolol tartrate),
+a vitamin number that differs, or a printed form that differs. Ten bare digits
+that fit two listed products, or two codes naming two products, resolve to
+nothing. A refused or uncorroborated code is still kept as the product code, as
+read, so the person can see it; it just fills nothing. An accepted one fills name,
+brand, strength and form, carries `MedicationNameProvenance.ndc`, outranks the
+pharmacy's own barcode as the stored product code, and is not overridden by the
+language model, which may still choose among directions, quantity and refill
+readings. The review screen says which happened.
+
+Strengths are compared as amounts, not strings, because the directory and the
+label write one fact several ways: `800-160 mg` against `800 mg/160 mg`,
+`100 units/mL` against `100 IU/mL`, and a mixed-salt stimulant printed as its
+20 mg total against four 5 mg components. Only a one- or two-component listing can
+contradict a label; a partial reading of a multi-ingredient product proves nothing
+either way. Names come out as the vocabulary spells them, with the bare ingredient
+preferred over a salt form, so a medication reads the same whichever path
+identified it.
+
+## Apple Health import
+
+On iOS 26 and later, `HealthMedicationImporter` reads the medications a person
+chooses to share from Apple Health. Authorization is per object: Health presents
+its own picker, only the medications ticked there are ever returned, and the app
+asks for read access alone — nothing is written back, and Health can withdraw the
+choice at any time. Each shared medication is copied into a plain
+`HealthMedicationSummary` at the boundary so no other file imports HealthKit, and
+`HealthMedicationMapper` turns it into a draft: strength, form and route wording
+are set aside from Health's display text, the curated brand table and then the
+vocabulary supply the spelling, a name neither knows is kept exactly as the person
+typed it, and Health's RxNorm coding is stored as the product identifier. Health
+knows whether a medication has a schedule but not its times, and nothing about
+supply, so every import goes through the same review screen as a scanned label,
+where the person enters what is on hand and the schedule Meds Ahead should keep
+count of. Saving returns to the Health list rather than closing the flow, so a
+regimen of a dozen medications is a dozen reviews, not a dozen trips through Add,
+and a medication already on file is marked as such in the list.
+
+## Rating request
+
+The native review request is made from Today, only after a dose has just been
+logged, and only when `ReviewRequestPolicy` agrees: three days since first use,
+ten taken doses on record, never twice for one version, never within 120 days of
+the last ask. The clock starts on the first launch past onboarding, so a 1.0 user
+is treated like a new one for a few days rather than asked on update day. A
+request that fails the policy is never made, rather than made and rate-limited by
+iOS, and UI tests never see one.
+
 ## Source confidence
 
-Scan results retain field-level evidence. Barcode payloads are stored only when the user saves the reviewed medication. Pharmacy URLs and opaque prescription identifiers are never opened automatically.
+Scan results retain field-level evidence. Barcode payloads are stored only when the user saves the reviewed medication. Pharmacy URLs and opaque prescription identifiers are never opened automatically. The stored product code is, in order of preference, a resolved NDC, the NDC as printed, or the barcode payload; a medication imported from Apple Health stores its RxNorm code instead.

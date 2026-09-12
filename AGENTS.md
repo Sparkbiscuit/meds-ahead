@@ -8,7 +8,8 @@ no cloud, no network lookups.
 ## Map
 
 - `Meds/Sources` — app code
-- `Meds/Resources` — assets, privacy manifest, name vocabulary
+- `Meds/Resources` — assets, privacy manifest, name vocabulary, FDA NDC Directory snapshot
+- `Tools/build_ndc_directory.py` — rebuilds that snapshot from the FDA's files
 - `MedsTests` / `MedsUITests` — tests
 - `Documentation/ARCHITECTURE.md` — why the data model and scanner work as they do
 - `AppStore` — submission copy
@@ -32,6 +33,14 @@ Violating any of these is a defect, regardless of what the task asked for.
   `strengthAnchored`. A merely name-shaped line is dropped on purpose.
 - **Notification planning is global** and consolidates same-time slots across
   medications. Never schedule per-medication requests.
+- **An NDC never fills a field on its own word.** A code read by OCR must be
+  corroborated by the label; a code from any source is refused when the label
+  contradicts it; a refused code stays visible as the product code and fills
+  nothing. The gate is `NDCIdentification`. The directory is bundled — never look
+  a code up online.
+- **Apple Health is read-only and per object.** Never request share
+  authorization, never write to HealthKit, and keep HealthKit types inside
+  `HealthMedicationImport.swift`.
 
 ## Conventions
 

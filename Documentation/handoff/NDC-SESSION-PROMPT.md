@@ -1,5 +1,11 @@
 # Session prompt — NDC-based medication identification
 
+> Status, September 12, 2026: built as part of 1.1 in a single Claude Code
+> session, without the Luna fleet. The investigation's answers and the
+> verification are in `Documentation/VERIFICATION.md` under September 12; the
+> design is in `Documentation/ARCHITECTURE.md` under "Exact identification".
+> Kept for the record of what was asked.
+
 Paste everything below the line into a fresh Claude Code (Opus 5) session opened
 in `/Users/nichris/Documents/Meds app`. The Luna fleet is configured in that
 repo already (`.mcp.json`, `.claude/agents/orchestrator.md`, `AGENTS.md`).

@@ -1,10 +1,14 @@
 # Meds Ahead privacy policy
 
-Effective date: August 23, 2026
+Effective date: September 13, 2026
 
 Meds Ahead stores the medication details, schedules, dose logs, supply changes, and settings you enter locally on your iPhone. The app does not create an account, display advertising, include third-party analytics, track you, or send medication information to the developer or another server.
 
 Label text and supported barcodes are recognized on device. Imported or captured images are processed for recognition and are not retained by Meds Ahead. A scanned web address is never opened automatically.
+
+Meds Ahead ships with a copy of the U.S. FDA National Drug Code Directory, a public-domain list of marketed drug products. When a label prints an NDC, or a package barcode carries one, the app looks it up in that bundled copy on your iPhone. No code, barcode, photo, or label text is sent anywhere.
+
+On iOS 26 and later you can choose to import medications you already track in Apple Health. Health shows its own picker; only the medications you tick are shared, and you can change or withdraw that choice at any time in Health. Meds Ahead reads only those medications, never writes to Health, and stores what it imports the same way it stores anything you type, on your iPhone. Health data is never used for advertising, analytics, or marketing, and is never shared with anyone.
 
 Notifications are scheduled by iOS on your device. Detailed notification text is optional and off by default.
 

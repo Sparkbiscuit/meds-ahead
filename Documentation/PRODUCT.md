@@ -21,7 +21,9 @@ Always know what is due, what happened, and what will run out next.
 Meds Ahead V1 is an iPhone-only, offline-first application with:
 
 - Live camera recognition of printed text and machine-readable codes
+- Exact identification from the NDC printed on a label or carried in a manufacturer barcode, resolved against a bundled FDA directory only when the label itself agrees; the printed name remains the fallback (1.1)
 - Still-photo import for accessibility, testing, and unsupported devices
+- Import of medications a person already tracks in Apple Health, on iOS 26 and later: read-only, chosen one by one in Health's own picker, each reviewed before it is saved (1.1)
 - Mandatory review of every scanned medication before saving
 - Manual medication entry
 - An optional Brand name field: scanning either a recognised generic or brand puts the generic and brand together on the editable review screen; entering a recognised name manually can fill the brand, which appears in medication subtitles and the printable list
@@ -39,6 +41,7 @@ Meds Ahead V1 is an iPhone-only, offline-first application with:
 - Full edit, archive, and delete controls
 - Dynamic Type, VoiceOver, Reduce Motion, Reduce Transparency, dark mode, and high-contrast support
 - Optional, non-recurring StoreKit tips that unlock no features
+- A native rating request after a dose is logged, at most once per version and never within a season of the last (1.1)
 
 ## Safety boundary
 
@@ -60,5 +63,5 @@ For scheduled medications, the forecast subtracts confirmed future scheduled dos
 - Cloud synchronization
 - Pharmacy ordering
 - Clinical interaction or contraindication checking
-- HealthKit import and reconciliation
+- Reconciling dose history with Apple Health, in either direction
 - Server-side medication identification

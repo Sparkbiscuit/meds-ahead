@@ -13,6 +13,8 @@ Meds Ahead treats medication information as sensitive even when a particular pri
 - Notifications use the medication display name only when the user enables detailed notification previews.
 - `Taken` and `Skip` reminder actions carry only internal record identifiers and do not add medication details to a private notification.
 - Medication records and their associated histories can be deleted by the user. Export is intentionally deferred until a safe, clearly labeled format is implemented.
+- Exact identification uses a bundled copy of the FDA National Drug Code Directory. No code, barcode, photo, or label text is sent anywhere to be looked up.
+- On iOS 26 and later, the app can read the medications a person explicitly shares from Apple Health. Access is per medication through Health's own picker, read-only, and can be withdrawn in Health at any time. Imported names are stored like typed ones; the app never writes to Health, never sends Health data anywhere, and never uses it for anything but the person's own list.
 
 ## Camera
 
@@ -20,4 +22,4 @@ Camera access is resolved before the scanner is usable. A refusal is a supported
 
 ## Data deletion
 
-Deleting a medication removes its schedules, dose history, and inventory ledger from the local store. App deletion removes the remaining local data.
+Deleting a medication removes its schedules, dose history, and inventory ledger from the local store. App deletion removes the remaining local data. Neither touches Apple Health: a medication imported from Health is a copy, and the original stays where it was.
