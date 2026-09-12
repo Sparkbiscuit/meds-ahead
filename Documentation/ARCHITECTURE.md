@@ -27,6 +27,8 @@ The app uses an append-oriented ledger:
 
 Current supply is derived from inventory events minus taken dose events. This preserves an audit trail and allows corrections without silently rewriting history.
 
+A dose event carries `countsTowardSupply`. It is true for everything the app logs itself. History imported from Apple Health is stored with it false: those doses were taken before Meds Ahead was keeping the count the person just entered, so they feed the as-needed rate and appear in history but never charge the supply. It was added with an inline default and taken through the same lightweight migration `brandName` was.
+
 Medication identity keeps `brandName` as a stored field alongside the generic `name`. The empty default lets existing SwiftData records take the new field through a lightweight migration, and the reviewed value remains available to subtitles and exports without recomputation. `MedicationBrandIndex` uses a bundled curated table and exact, letters-only keys, with only a trailing salt or release-form suffix fallback. It resolves a generic or brand to its counterpart without a network lookup; fuzzy matching is deliberately excluded because a plausible but wrong brand on a clinician-facing list is worse than leaving the field blank.
 
 A logged dose is matched to the slot it belongs to by schedule identifier and scheduled time, and every surface asks `ScheduleEngine` that one question rather than answering it locally. Take Now on a medication claims the same dose Today is offering, so one dose cannot be logged from both places and charged to the supply twice. Doses that were never logged remain answerable for two days on Today, because an unlogged dose reads as an unspent one and quietly stretches the forecast.
@@ -84,14 +86,22 @@ package — where the printed name is a reading to be gated. `ScanParser` has re
 `NationalDrugCode` reduces every rendering a label uses (the three native 4-4-2,
 5-3-2 and 5-4-1 layouts, the padded 5-4-2 layout, and bare digits of either) to
 the eleven-digit form, and decodes the GTIN inside a manufacturer barcode, which
-is the ten-digit code wrapped in a `3` and a check digit. `NDCDirectory` is a
+is the ten-digit code wrapped in a `3` and a check digit. A hyphenated code
+printed without its NDC caption is read as well, in the native layouts only:
+bare digits without the caption are not, because a phone number and a
+prescriber's NPI have the same shape. Small print is the ordinary case for this
+line, so the still-image and captured-frame passes let Vision work at full
+resolution (`minimumTextHeight` of zero), and the rendered-label tests read a
+code printed at one percent of the frame height. `NDCDirectory` is a
 snapshot of the FDA National Drug Code Directory — public domain, refreshed daily
 by the FDA, trimmed by `Tools/build_ndc_directory.py` to generic name, brand name,
 strength and dosage form for human prescription and OTC listings — sorted by
 nine-digit product key and binary-searched in place, so a hundred thousand
 products cost one buffer rather than a dictionary. No network is involved at any
-point; a bottle dispensed from a product the FDA has since delisted still resolves
-because listings that ended within the last six years are kept.
+point. The FDA's delisted-products file was examined and contributes nothing:
+it blanks the name, type and strength of every delisted listing, so the snapshot
+is the current directory alone, and a bottle from a product delisted since the
+snapshot falls back to the printed name like any other.
 
 `NDCIdentification` is the gate between a resolved code and the review screen.
 It runs after the ordinary label reading, not instead of it, because that reading
@@ -138,6 +148,16 @@ where the person enters what is on hand and the schedule Meds Ahead should keep
 count of. Saving returns to the Health list rather than closing the flow, so a
 regimen of a dozen medications is a dozen reviews, not a dozen trips through Add,
 and a medication already on file is marked as such in the list.
+
+Dose logs come with the medication. The per-object grant that shares a
+medication is the grant for the doses logged against it — HealthKit refuses a
+type-level read request for the dose-event type with an exception — so the last
+thirty days of doses Health recorded as taken for each shared medication come
+along, offered as a toggle on the review screen and stored as dose events that
+do not count toward supply. That gives an
+as-needed medication a usage rate on the day it is imported instead of after its
+third logged dose. Skipped, snoozed and untouched reminders are Health's
+business and are not imported.
 
 ## Rating request
 

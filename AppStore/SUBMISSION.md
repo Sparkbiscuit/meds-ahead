@@ -18,12 +18,12 @@ Meds Ahead is a private medication organizer designed around the question other 
 
 Scan printed labels and barcodes on device, review exactly what was recognized, and fill in only what is missing. When a label prints its NDC, or a package barcode carries one, Meds Ahead looks it up in a bundled copy of the FDA's National Drug Code Directory and fills in the exact product: name, brand, strength, and form. It does so only when the rest of the label agrees, and every field is still yours to confirm. Create flexible schedules, log taken or skipped doses, add refills, make inventory corrections, and see an understandable supply forecast for each medication.
 
-Already tracking medications in Apple Health? On iOS 26 and later you can choose which ones to share, and Meds Ahead brings each one over for the same review. It reads only the medications you choose and never writes to Health.
+Already tracking medications in Apple Health? On iOS 26 and later you can choose which ones to share, and Meds Ahead brings each one over for the same review. The doses you logged there in the last 30 days come along, so an as-needed medication has a usage rate from day one. It reads only what you choose and never writes to Health.
 
 Key features:
 
 - On-device medication label and barcode scanning
-- Exact identification from the label's NDC, matched offline against the FDA directory
+- Exact identification from the label's NDC, matched offline against the FDA directory, and printed on the shareable medication list
 - Import from Apple Health on iOS 26 and later, read-only and one medication at a time
 - Human-confirmed medication records
 - Daily and selected-day schedules
@@ -54,7 +54,7 @@ Paste into App Store Connect > Version > What's New in This Version.
 ```
 Exact identification. When a pharmacy label prints its NDC, or a package barcode carries one, Meds Ahead now looks it up in a bundled copy of the FDA's National Drug Code Directory and fills in the exact product: name, brand, strength, and form. It only does so when the rest of the label agrees, the printed name remains the fallback, and every field is still yours to confirm.
 
-Apple Health import. On iOS 26 and later, bring over medications you already track in Health. You choose which ones to share, Meds Ahead reads only those, and each one goes through the same review before it is saved. Nothing is written back to Health.
+Apple Health import. On iOS 26 and later, bring over medications you already track in Health. You choose which ones to share, Meds Ahead reads only those, and each one goes through the same review before it is saved. The doses you logged in the last 30 days come along too. Nothing is written back to Health.
 
 Also new: Meds Ahead may ask for a rating after you have logged a good number of doses, at most once per version.
 ```
@@ -67,7 +67,7 @@ It answers the eight questions Apple sends new-app submissions, opens with what
 reviewer never has to open a Guideline 2.1 or 5.1.3 request to learn either.
 
 App Store Connect caps this field at 4,000 characters, and caps the Resolution
-Center reply field at 4,000 separately. This block is 3927; re-count after any
+Center reply field at 4,000 separately. This block is 3960; re-count after any
 edit. Paragraphs are deliberately unwrapped so pasting does not produce ragged
 line breaks mid-sentence.
 
@@ -92,13 +92,13 @@ NEW IN 1.1. (a) Exact identification: an NDC printed on a label or carried in a 
 
 4. SETUP. No login, demo account, or sample files. Page through onboarding, tap Add, then Scan a Label at any prescription label; every field is editable before it is stored. Enter Manually reaches the same editor; Import from Apple Health lists what the person shares. Enter a count and a schedule and save. Today logs doses, Supply shows the forecast, Medications records refills and corrections. Declining the camera prompt is supported: the scanner explains why, offers Open Settings, and keeps photo import available.
 
-5. EXTERNAL SERVICES. None: no backend, accounts, network requests, analytics, advertising, or third-party SDKs. Apple frameworks on device: VisionKit and Vision for recognition; FoundationModels, Apple's on-device model, used only to choose which recognized line is which field and to repair an obvious OCR error, unable to contribute a medical fact of its own; HealthKit, read only, per-object authorization; plus SwiftData, UserNotifications, StoreKit, PhotosUI, and AVFoundation. Photos are not retained. Health data is never transmitted.
+5. EXTERNAL SERVICES. None: no backend, accounts, network requests, analytics, advertising, or third-party SDKs. Apple frameworks on device: VisionKit and Vision for recognition; FoundationModels, Apple's on-device model, used only to choose which recognized line is which field and to repair an obvious OCR error, unable to contribute a medical fact of its own; HealthKit, read only: per-object authorization for medications, which covers the doses logged against them; plus SwiftData, UserNotifications, StoreKit, PhotosUI, and AVFoundation. Photos are not retained. Health data is never transmitted.
 
 6. REGIONS. Identical in all regions. English (U.S.) only, nothing region-gated.
 
 7. REGULATED INDUSTRY. Not a regulated medical device; no authorization required. Three bundled files hold product names and packaging facts only: about 12,900 medication names derived from RxNorm (NLM, public domain); about 270 hand-verified generic-to-brand pairs; and an FDA National Drug Code Directory snapshot (public domain) trimmed to name, brand, strength, and dosage form, keyed by NDC. None carries indications, dosing, warnings, or interactions; no licensed material is included.
 
-8. IN-APP PURCHASE. Three optional, non-recurring consumable tips that unlock nothing; every feature is free. Gear icon > Support Meds Ahead > Leave an Optional Tip: Small Tip $1.99, Medium Tip $4.99, Large Tip $9.99. The row is always visible, with a Tips Are Unavailable state and a Try Again button if StoreKit returns nothing.
+8. IN-APP PURCHASE. Three optional, non-recurring consumable tips that unlock nothing; every feature is free. Gear icon > Support Meds Ahead > Leave an Optional Tip: Small Tip $1.99, Medium Tip $4.99, Large Tip $9.99. The row is always visible, with an explicit unavailable state and a Try Again button.
 ```
 
 ## App Store Connect selections

@@ -8,7 +8,7 @@ Label text and supported barcodes are recognized on device. Imported or captured
 
 Meds Ahead ships with a copy of the U.S. FDA National Drug Code Directory, a public-domain list of marketed drug products. When a label prints an NDC, or a package barcode carries one, the app looks it up in that bundled copy on your iPhone. No code, barcode, photo, or label text is sent anywhere.
 
-On iOS 26 and later you can choose to import medications you already track in Apple Health. Health shows its own picker; only the medications you tick are shared, and you can change or withdraw that choice at any time in Health. Meds Ahead reads only those medications, never writes to Health, and stores what it imports the same way it stores anything you type, on your iPhone. Health data is never used for advertising, analytics, or marketing, and is never shared with anyone.
+On iOS 26 and later you can choose to import medications you already track in Apple Health. Health shows its own picker; only the medications you tick are shared, and you can change or withdraw that choice at any time in Health. Meds Ahead reads only those medications, along with the doses you logged for them in Health during the last 30 days. It never writes to Health, and it stores what it imports the same way it stores anything you type, on your iPhone. Health data is never used for advertising, analytics, or marketing, and is never shared with anyone.
 
 Notifications are scheduled by iOS on your device. Detailed notification text is optional and off by default.
 

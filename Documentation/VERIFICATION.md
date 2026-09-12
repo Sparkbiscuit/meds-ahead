@@ -102,20 +102,82 @@ download, and its results are recorded at the end of this entry once it lands.
   app's domain, so backdating has to go through `simctl spawn <udid> defaults
   write <container plist path> …` rather than editing the plist.
 
+### Later the same day: the snapshot, small print, and three additions
+
+- **The FDA snapshot is bundled.** `ndctext.zip` and `ndc_excluded.zip` were
+  downloaded on Nick's approval (SHA-256 `4cd1b3fa…` and `736e55e0…`, both dated
+  September 11). `Tools/build_ndc_directory.py` kept 112,246 of 116,155 product
+  rows — human prescription and OTC; the 2,793 dropped are allergenics, vaccines,
+  plasma derivatives and cellular therapies — 94,859 of them with a usable
+  strength and 53,388 with a proprietary name that is not the generic restated.
+  The delisted file contributes nothing: all 205,803 of its rows have the name,
+  type and strength blanked, so the snapshot is the current directory alone and
+  the tool says so. The resource is 7.5 MB in the bundle and 1.5 MB compressed.
+  `NDCDirectoryBundleTests` pins Tecfidera, Prograf, Zoloft, a generic
+  sertraline, a generic azathioprine, Bactrim DS, a prednisolone oral solution,
+  Adderall XR and a labeler's messy mixed-salt listing to the values in the file,
+  checks the vocabulary spellings they resolve to, and benchmarks a lookup.
+- **Small print, measured.** Nick's worry was that a printed NDC is small. Vision
+  processes stills and the captured frame at full resolution by default
+  (`minimumTextHeight` of zero), and two rendered-label tests now push a Tecfidera
+  label through the real OCR pipeline with the NDC line at 24 and at 16 points on
+  a 1,500-point canvas — about one percent of the frame height. Both resolve to
+  the exact product: brand Tecfidera, 240 mg, capsule, code 64406-0006-02, with
+  the name and brand coming from the directory rather than the label. The
+  printed-code reader also accepts a spaced caption ("N D C"), a code broken
+  around its hyphens, and a hyphenated native layout printed without any caption,
+  which is the first thing a curved bottle hides; bare digits without the caption
+  stay refused because a phone number and a prescriber's NPI have that shape. The
+  live camera path is VisionKit's and cannot be measured here; the captured frame
+  on Review is its full-resolution second chance, and the real-bottle pass on
+  hardware remains the test that matters.
+- **The mixed-salt label now resolves exactly.** A clipped product line printed
+  with NDC 47781-0174 used to be completed from the vocabulary to "Amphetamine -
+  dextroamphetamine"; with the snapshot the code resolves and the exact listing
+  wins. The test asserts that, and that the vocabulary completion remains the
+  answer without a directory.
+- **Dose history from Apple Health.** The last thirty days of doses Health
+  recorded as taken come with each shared medication, offered as a toggle on the
+  review screen and stored as dose events with `countsTowardSupply` false, so an
+  as-needed medication has a usage rate from day one and the count the person
+  just entered is not charged. That flag is the one `@Model` change in 1.1,
+  declared with an inline default. **Migration verified empirically:** the
+  previous commit (`05d8d09`) was built in a detached worktree, installed,
+  launched against an on-disk store with demo data, and three doses were logged;
+  the new build was installed over it without uninstalling, and the three
+  medications, three dose events, three inventory events and four schedules
+  survived with the new column defaulted to true — Furosemide read 25 on hand, as
+  before. A first attempt at reading dose logs asked for the dose-event type with
+  `requestAuthorization(toShare:read:)`; HealthKit refuses that with an
+  uncatchable `NSInvalidArgumentException` ("Authorization to read the following
+  types is disallowed"), which crashed the app in the simulator. Dose events are
+  covered by the medication's per-object grant, and no second request is made.
+  By hand: a dose logged in the simulator's Health app arrived as "1 dose logged
+  in 30 days" on the list, as an on-by-default toggle on the review screen, and
+  after saving as "Took 1 · Logged in Apple Health" in Recent Activity, with the
+  supply at the 30 entered and the RxNorm code 198377 on the detail screen.
+- **The exact product on the shared list.** The printable medication list now
+  carries "NDC …" or "RxNorm …" on the prescription line when one is known; a
+  pharmacy's own barcode payload stays off it.
+- **`-backdate-first-use`.** A DEBUG-only launch argument that sets first use a
+  month back, so the rating prompt can be driven in the simulator without the
+  preferences-daemon detour above.
+- Results: unit tests 283/283 (the 268 above plus the bundled-directory,
+  small-print, imported-history, dose-ride-along, list-code and printed-code
+  tests); UI tests 9/9; Release static analysis succeeded with no warnings after
+  a key-path sort descriptor was replaced with an in-memory sort.
+
 ### Still to do for 1.1
 
-- **Bundle the FDA snapshot** (download gated on Nick's approval), run
-  `Tools/build_ndc_directory.py`, add the bundled-directory tests and a rendered
-  label with a real NDC to `LabelPhotoRecognitionTests`, and re-run everything.
 - Real bottles on a physical iPhone: retail and hospital-pharmacy vials,
   printed NDC and a manufacturer barcode, plus the torch check that only hardware
   can do.
-- Apple Health on a fresh install of a physical iPhone on iOS 26; the review
-  recording should include the picker.
+- Apple Health on a fresh install of a physical iPhone on iOS 26, including a
+  medication with logged doses; the review recording should include the picker.
 - VoiceOver pass on the Apple Health screens and the NDC note.
-- Publish the updated privacy policy page before submitting; the local edit in the
-  website repository also corrects a stale sentence that said the database was
-  excluded from backups, which stopped being true in August.
+- Publish the updated privacy policy page before submitting (three local commits
+  in the website repository); it also corrects a stale sentence that said the
+  database was excluded from backups, which stopped being true in August.
 - Archive with automatic signing (HealthKit joins the App ID on the first archive),
   upload, paste the 1.1 review notes and What's New from `AppStore/SUBMISSION.md`.
 

@@ -23,7 +23,7 @@ Meds Ahead V1 is an iPhone-only, offline-first application with:
 - Live camera recognition of printed text and machine-readable codes
 - Exact identification from the NDC printed on a label or carried in a manufacturer barcode, resolved against a bundled FDA directory only when the label itself agrees; the printed name remains the fallback (1.1)
 - Still-photo import for accessibility, testing, and unsupported devices
-- Import of medications a person already tracks in Apple Health, on iOS 26 and later: read-only, chosen one by one in Health's own picker, each reviewed before it is saved (1.1)
+- Import of medications a person already tracks in Apple Health, on iOS 26 and later: read-only, chosen one by one in Health's own picker, each reviewed before it is saved, with the last thirty days of taken doses offered alongside so an as-needed medication has a usage rate from day one (1.1)
 - Mandatory review of every scanned medication before saving
 - Manual medication entry
 - An optional Brand name field: scanning either a recognised generic or brand puts the generic and brand together on the editable review screen; entering a recognised name manually can fill the brand, which appears in medication subtitles and the printable list
@@ -37,7 +37,7 @@ Meds Ahead V1 is an iPhone-only, offline-first application with:
 - Consolidated time-slot notifications for simultaneous medications, privacy-safe `Taken` and `Skip` actions for single-dose alerts, and refill-to-Supply routing
 - A stated reminder-delivery state on Today when notifications are refused, never asked for, or partly rejected by iOS
 - Earlier, differently worded low-supply warnings when a prescription has no refills left
-- A paginated, printable medication list for appointments and pharmacy visits, available from the Share Medication List button in the Medications screen toolbar rather than Settings
+- A paginated, printable medication list for appointments and pharmacy visits, available from the Share Medication List button in the Medications screen toolbar rather than Settings, carrying each medication's NDC or RxNorm code when one is known (1.1)
 - Full edit, archive, and delete controls
 - Dynamic Type, VoiceOver, Reduce Motion, Reduce Transparency, dark mode, and high-contrast support
 - Optional, non-recurring StoreKit tips that unlock no features

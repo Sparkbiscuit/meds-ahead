@@ -4,7 +4,7 @@
 
 - [x] Debug build passes for iOS Simulator
 - [x] Release build passes for iOS Simulator and generic iOS device
-- [x] Two hundred and sixty-eight unit tests pass, including NDC rendering and barcode decoding, the NDC corroboration gate and strength equivalence, Apple Health name mapping and duplicate detection, the rating-request policy, clipped-name rejection, sig-versus-product-line separation, combination and canonical strengths, wrapped-sig assembly across real capture shapes, brand/generic resolution, Latin-only stable multi-side evidence, ROI crop mapping, RxNorm-backed compound-fragment repair, low-confidence live-camera, noisy-label and printed-NDC parsing, scheduling, supply, grouped notifications, time-of-day greetings, Take Now dose reconciliation, as-needed rate windows, unit-denominated strengths, expiration plausibility, last-refill alerts, and medication-list pagination
+- [x] Two hundred and eighty-three unit tests pass, including NDC rendering and barcode decoding, the bundled FDA snapshot's real products, the NDC corroboration gate and strength equivalence, a rendered label with its NDC printed at one percent of the frame, Apple Health name mapping, duplicate detection and imported dose history, the exact product code on the shared list, the rating-request policy, clipped-name rejection, sig-versus-product-line separation, combination and canonical strengths, wrapped-sig assembly across real capture shapes, brand/generic resolution, Latin-only stable multi-side evidence, ROI crop mapping, RxNorm-backed compound-fragment repair, low-confidence live-camera, noisy-label and printed-NDC parsing, scheduling, supply, grouped notifications, time-of-day greetings, Take Now dose reconciliation, as-needed rate windows, unit-denominated strengths, expiration plausibility, last-refill alerts, and medication-list pagination
 - [x] Nine UI tests pass, including Today and medication-editor accessibility audits, largest accessibility text in the editor, and overdue-state coverage, with the Import from Apple Health card present
 - [x] Static analysis passes for the Release app target
 - [x] No source/compiler warnings; Xcode 26 emits only its no-AppIntents metadata-skip message
@@ -28,7 +28,9 @@
 - [x] Explicit overdue-dose state review
 - [x] Apple Health import (1.1): system picker with the purpose string, shared list, review screen, save returning to the list, already-on-file marking, and the cancelled-picker state
 - [x] Rating request (1.1): appears after a logged dose once the policy is met and is recorded so it is not asked again for the version
-- [ ] Exact identification (1.1): rendered label with a real NDC through photo import once the FDA snapshot is bundled
+- [x] Exact identification (1.1): rendered Tecfidera label with its NDC at 24 and 16 points through the real OCR pipeline resolves the exact product against the bundled snapshot
+- [x] Dose history import (1.1): a dose logged in the simulator's Health app arrives on the list, as a toggle on the review screen, and in Recent Activity without charging the supply
+- [x] SwiftData migration for `DoseEvent.countsTowardSupply` verified against a store the previous build created
 
 ## Physical-device gates
 
@@ -69,7 +71,7 @@
 
 ## 1.1 submission gates
 
-- [ ] Bundle the FDA NDC Directory snapshot with `Tools/build_ndc_directory.py` and re-run the unit tests before archiving
+- [x] Bundle the FDA NDC Directory snapshot with `Tools/build_ndc_directory.py` (September 11 files, 112,246 products) and re-run the unit tests
 - [ ] Publish the updated privacy policy page (Apple Health and NDC sections, corrected backup sentence) before submitting
 - [ ] Archive with automatic signing; HealthKit joins the `com.christoforakis.Meds` App ID on the first archive, or is enabled by hand in Certificates, Identifiers & Profiles
 - [ ] Enter What's New, the description naming the Apple Health integration, the keywords, and the 1.1 review notes from `AppStore/SUBMISSION.md`
