@@ -19,6 +19,7 @@ struct MedicationEditorView: View {
     private let draftSource: MedicationSource
     private let draftNameProvenance: MedicationNameProvenance
     private let draftImportedDoses: [ImportedDose]
+    private let draftCaptureNote: String
     private let onSaved: (() -> Void)?
 
     @Query private var allMedications: [Medication]
@@ -61,6 +62,7 @@ struct MedicationEditorView: View {
         self.draftSource = medication?.source ?? draft.source
         self.draftNameProvenance = draft.nameProvenance
         self.draftImportedDoses = draft.importedDoses
+        self.draftCaptureNote = draft.captureNote
         self.onSaved = onSaved
         let resolvedForm = medication?.form ?? draft.form
         _name = State(initialValue: medication?.name ?? draft.name)
@@ -437,6 +439,17 @@ struct MedicationEditorView: View {
                 .accessibilityElement(children: .combine)
             }
             DisclosureGroup("Scan evidence") {
+#if DEBUG
+                // Debug builds only: whether the full-resolution Review capture
+                // ran, what it saw, and whether the evidence cap cut anything.
+                if !draftCaptureNote.isEmpty {
+                    Text(draftCaptureNote)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .padding(.vertical, 3)
+                }
+#endif
                 ForEach(draftEvidence) { evidence in
                     VStack(alignment: .leading, spacing: 2) {
                         Text(evidence.kind == .barcode ? (evidence.symbology ?? "Barcode") : "Label text")

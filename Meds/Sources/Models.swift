@@ -352,6 +352,9 @@ struct MedicationDraft: Hashable, Sendable {
     var importedDoses: [ImportedDose] = []
     var overallConfidence = 1.0
     var evidence: [ScanEvidence] = []
+    /// What the scanner's Review capture did, for the debug line on the review
+    /// screen. Never stored.
+    var captureNote = ""
 }
 
 struct ScanEvidence: Identifiable, Hashable, Sendable {

@@ -3,6 +3,11 @@ import Foundation
 enum ScanEvidenceQuality {
     static let minimumTextConfidence = 0.45
     private static let contextualMinimumConfidence = 0.30
+    /// The most evidence items kept after a merge. Additions land after what is
+    /// already held, so on a text-heavy label the Review capture's lines are the
+    /// ones this cap would cut; the capture note on the review screen reports
+    /// the counts on either side of it.
+    static let evidenceLimit = 80
 
     static func isUsefulForAutofill(_ evidence: ScanEvidence) -> Bool {
         guard sanitized(evidence) != nil else { return false }
@@ -49,7 +54,7 @@ enum ScanEvidenceQuality {
                 result.append(item)
             }
         }
-        return Array(result.prefix(80))
+        return Array(result.prefix(evidenceLimit))
     }
 
     static func isEquivalentReading(_ lhs: ScanEvidence, _ rhs: ScanEvidence) -> Bool {
