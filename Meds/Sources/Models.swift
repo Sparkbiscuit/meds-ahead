@@ -85,6 +85,8 @@ enum InventoryReason: String, CaseIterable, Codable, Identifiable {
 enum MedicationSource: String, Codable, Sendable {
     case scanned
     case manual
+    /// Chosen from the medications a person already tracks in Apple Health.
+    case appleHealth
 }
 
 @Model
@@ -307,6 +309,9 @@ enum MedicationNameProvenance: String, Hashable, Sendable {
     /// barcode, and corroborated by the label. Exact rather than inferred, so it
     /// outranks every reading of the printed name.
     case ndc
+    /// The name of a medication the person already tracks in Apple Health, as
+    /// they chose or typed it there.
+    case appleHealth
 }
 
 struct MedicationDraft: Hashable, Sendable {
@@ -324,6 +329,7 @@ struct MedicationDraft: Hashable, Sendable {
     var productIdentifierType = ""
     var source: MedicationSource = .manual
     var nameProvenance: MedicationNameProvenance = .none
+    var isAsNeeded = false
     var overallConfidence = 1.0
     var evidence: [ScanEvidence] = []
 }

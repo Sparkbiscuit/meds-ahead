@@ -175,6 +175,11 @@
 				TargetAttributes = {
 					500000000000000000000001 = {
 						CreatedOnToolsVersion = 26.6;
+						SystemCapabilities = {
+							com.apple.HealthKit = {
+								enabled = 1;
+							};
+						};
 					};
 					500000000000000000000002 = {
 						CreatedOnToolsVersion = 26.6;
@@ -398,6 +403,7 @@
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.medical";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Meds Ahead uses the camera only when you choose to scan medication label text and barcodes on this iPhone.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Meds Ahead reads only the medications you choose to share from Health, so you can review and add them here. It never writes to Health, and nothing leaves your iPhone.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -433,6 +439,7 @@
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.medical";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Meds Ahead uses the camera only when you choose to scan medication label text and barcodes on this iPhone.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Meds Ahead reads only the medications you choose to share from Health, so you can review and add them here. It never writes to Health, and nothing leaves your iPhone.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

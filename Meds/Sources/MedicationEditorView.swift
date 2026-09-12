@@ -16,6 +16,7 @@ struct MedicationEditorView: View {
 
     private let medication: Medication?
     private let draftEvidence: [ScanEvidence]
+    private let draftSource: MedicationSource
     private let draftNameProvenance: MedicationNameProvenance
     private let onSaved: (() -> Void)?
 
@@ -55,6 +56,7 @@ struct MedicationEditorView: View {
     init(medication: Medication? = nil, draft: MedicationDraft = MedicationDraft(), onSaved: (() -> Void)? = nil) {
         self.medication = medication
         self.draftEvidence = draft.evidence
+        self.draftSource = medication?.source ?? draft.source
         self.draftNameProvenance = draft.nameProvenance
         self.onSaved = onSaved
         let resolvedForm = medication?.form ?? draft.form
@@ -75,7 +77,7 @@ struct MedicationEditorView: View {
         _lotNumber = State(initialValue: medication?.lotNumber ?? draft.lotNumber)
         _productIdentifier = State(initialValue: medication?.productIdentifier ?? draft.productIdentifier)
         _productIdentifierType = State(initialValue: medication?.productIdentifierType ?? draft.productIdentifierType)
-        _isAsNeeded = State(initialValue: medication?.isAsNeeded ?? false)
+        _isAsNeeded = State(initialValue: medication?.isAsNeeded ?? draft.isAsNeeded)
         _remindersEnabled = State(initialValue: medication?.remindersEnabled ?? true)
         _refillRemindersEnabled = State(initialValue: medication?.refillRemindersEnabled ?? true)
         _detailedNotifications = State(initialValue: medication?.detailedNotifications ?? false)
@@ -132,6 +134,8 @@ struct MedicationEditorView: View {
         Form {
             if !draftEvidence.isEmpty {
                 scanSummarySection
+            } else if draftSource == .appleHealth, !isEditing {
+                healthSummarySection
             }
 
             Section("Medication") {
@@ -324,7 +328,7 @@ struct MedicationEditorView: View {
         // Several fields use the decimal pad, which has no return key. Without this,
         // the only way out of one is to tap another field.
         .scrollDismissesKeyboard(.interactively)
-        .navigationTitle(isEditing ? "Edit Medication" : (draftEvidence.isEmpty ? "Add Medication" : "Review Medication"))
+        .navigationTitle(isEditing ? "Edit Medication" : (draftSource == .manual ? "Add Medication" : "Review Medication"))
         .navigationBarTitleDisplayMode(.inline)
         .interactiveDismissDisabled(hasUnsavedRequiredData)
         .toolbar {
@@ -446,6 +450,25 @@ struct MedicationEditorView: View {
         }
     }
 
+    private var healthSummarySection: some View {
+        Section {
+            HStack(spacing: 12) {
+                Image(systemName: "heart.text.square.fill")
+                    .font(.title2)
+                    .foregroundStyle(AppTheme.accent)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("From Apple Health")
+                        .font(.headline)
+                    Text("The name is the one you chose in Health. Confirm the strength, enter what you have on hand, and set the schedule Meds Ahead should keep count of.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .accessibilityElement(children: .combine)
+        }
+    }
+
     private var hasUnsavedRequiredData: Bool {
         !name.isEmpty || !brandName.isEmpty || !strength.isEmpty || !currentSupplyText.isEmpty
     }
@@ -493,7 +516,7 @@ struct MedicationEditorView: View {
                 strength: strength.trimmingCharacters(in: .whitespacesAndNewlines),
                 form: form,
                 directions: directions.trimmingCharacters(in: .whitespacesAndNewlines),
-                source: draftEvidence.isEmpty ? .manual : .scanned,
+                source: draftSource,
                 sourceConfidence: draftEvidence.isEmpty ? 1 : draftEvidence.map(\.confidence).reduce(0, +) / Double(max(1, draftEvidence.count)),
                 accentIndex: AppTheme.accentIndex(for: cleanedName)
             )
@@ -748,6 +771,18 @@ struct AddMedicationFlow: View {
     enum Step: Hashable {
         case scanner
         case editor(MedicationDraft)
+        case healthImport
+        /// Reviewed from the Health list rather than the scanner: saving returns
+        /// to that list so the next medication can be added, instead of closing
+        /// the whole flow.
+        case healthReview(MedicationDraft)
+    }
+
+    private var canImportFromHealth: Bool {
+        if #available(iOS 26.0, *) {
+            return HealthMedicationImporter.isAvailable
+        }
+        return false
     }
 
     var body: some View {
@@ -796,6 +831,21 @@ struct AddMedicationFlow: View {
                         }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("manual-entry")
+
+                        if canImportFromHealth {
+                            Button {
+                                path.append(.healthImport)
+                            } label: {
+                                AddOptionCard(
+                                    symbol: "heart.text.square.fill",
+                                    title: "Import from Apple Health",
+                                    message: "Bring over medications you already track in Health. You choose which ones to share.",
+                                    prominent: false
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("health-import")
+                        }
                     }
                     .padding(18)
                 }
@@ -826,6 +876,14 @@ struct AddMedicationFlow: View {
                     }
                 case let .editor(draft):
                     MedicationEditorView(draft: draft, onSaved: { dismiss() })
+                case .healthImport:
+                    if #available(iOS 26.0, *) {
+                        HealthImportView { draft in
+                            path.append(.healthReview(draft))
+                        }
+                    }
+                case let .healthReview(draft):
+                    MedicationEditorView(draft: draft, onSaved: { path.removeLast() })
                 }
             }
         }
