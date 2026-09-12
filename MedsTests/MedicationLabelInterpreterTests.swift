@@ -114,16 +114,23 @@ final class MedicationLabelInterpreterTests: XCTestCase {
         XCTAssertFalse(values.contains("NATURAL MELATONIN"))
     }
 
+    /// The clipped product line used to be completed from the vocabulary. The
+    /// label also prints its NDC, and the directory names the exact product, so
+    /// that now wins; the vocabulary completion remains the answer without it.
     func testOfflineDraftCompletesUniquePrescriptionNameWithoutLanguageModel() {
         let evidence = [
             ScanEvidence(kind: .text, value: "AMPHETAMINE - DEXTROAMPHET", origin: .cameraCapture),
             ScanEvidence(kind: .text, value: "NDC 47781-0174-01", origin: .cameraCapture)
         ]
 
-        XCTAssertEqual(
-            MedicationLabelInterpreter.offlineDraft(evidence).name,
-            "Amphetamine - dextroamphetamine"
-        )
+        let resolved = MedicationLabelInterpreter.offlineDraft(evidence)
+        XCTAssertEqual(resolved.nameProvenance, .ndc)
+        XCTAssertTrue(resolved.name.lowercased().contains("dextroamphetamine"), resolved.name)
+        XCTAssertTrue(resolved.name.lowercased().contains("amphetamine sulfate"), resolved.name)
+        XCTAssertEqual(resolved.productIdentifier, "47781-0174-01")
+
+        let withoutDirectory = MedicationLabelInterpreter.offlineDraft(evidence, ndcDirectory: NDCDirectory(data: Data()))
+        XCTAssertEqual(withoutDirectory.name, "Amphetamine - dextroamphetamine")
     }
 
     func testOfflineDraftRepairsUserReportedCompoundFragment() {
