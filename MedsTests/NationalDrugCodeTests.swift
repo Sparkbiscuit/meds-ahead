@@ -61,6 +61,32 @@ final class NationalDrugCodeTests: XCTestCase {
         XCTAssertEqual(readings.map { $0.candidates.first?.hyphenated }, ["00093-1039-01", "64406-0006-02"])
     }
 
+    /// Small print breaks around its hyphens and its caption; the code survives.
+    func testSpacedAndSplitPrintingsStillRead() {
+        for text in ["N D C 0093-1039-01", "NDC 0093 - 1039 - 01", "NDC: 0093- 1039 -01"] {
+            XCTAssertEqual(NationalDrugCode.readings(inLabelText: text).first?.candidates.map(\.hyphenated),
+                           ["00093-1039-01"], text)
+        }
+    }
+
+    /// The caption is the first thing a curved bottle hides. A hyphenated native
+    /// layout is specific enough to read without it; bare digits are not.
+    func testACodePrintedWithoutItsCaptionStillReadsWhenHyphenated() {
+        let readings = NationalDrugCode.readings(inLabelText: "TEVA  0093-1039-01  LOT 4471")
+        XCTAssertEqual(readings.map { $0.candidates.first?.hyphenated }, ["00093-1039-01"])
+        XCTAssertEqual(readings.first?.source, .printedText)
+
+        XCTAssertTrue(NationalDrugCode.readings(inLabelText: "TEL 413-555-0123").isEmpty, "a phone number")
+        XCTAssertTrue(NationalDrugCode.readings(inLabelText: "FILLED 09-12-2026").isEmpty, "a date")
+        XCTAssertTrue(NationalDrugCode.readings(inLabelText: "NPI 1234567890").isEmpty, "bare digits need the caption")
+        XCTAssertTrue(NationalDrugCode.readings(inLabelText: "RX 8842197-01").isEmpty, "an Rx number with a suffix")
+        XCTAssertTrue(NationalDrugCode.readings(inLabelText: "A0093-1039-01").isEmpty, "glued to a letter")
+    }
+
+    func testACaptionedCodeIsNotReportedTwiceByTheUncaptionedShape() {
+        XCTAssertEqual(NationalDrugCode.readings(inLabelText: "NDC 0093-1039-01").count, 1)
+    }
+
     func testTextWithoutACodeYieldsNothing() {
         XCTAssertTrue(NationalDrugCode.readings(inLabelText: "RX# 8842197 QTY 30 NDC").isEmpty)
         XCTAssertTrue(NationalDrugCode.readings(inLabelText: "NDC 0093-1039-012").isEmpty, "an extra digit is not a code")

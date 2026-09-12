@@ -61,18 +61,36 @@ extension NationalDrugCode {
     /// Vision reads a printed zero as the letter O and a one as I or l often enough
     /// that refusing those would drop a real code; the directory lookup and the
     /// label itself decide whether the repaired digits name the right product.
+    /// The letters may be spaced ("N D C") and the code may be split around its
+    /// hyphens by the same small print that makes it hard to read in the first place.
     private static let printedPattern =
-        /(?i)\bNDC\s*(?:#|no\.?|number)?\s*[:.]?\s*([0-9OIl]{4,5}-[0-9OIl]{3,4}-[0-9OIl]{1,2}|[0-9OIl]{10,11})(?![0-9OIl])/
+        /(?i)\bN\s?D\s?C\b\s*(?:#|no\.?|number)?\s*[:.]?\s*([0-9OIl]{4,5}\s?-\s?[0-9OIl]{3,4}\s?-\s?[0-9OIl]{1,2}|[0-9OIl]{10,11})(?![0-9OIl])/
+
+    /// A code printed without its "NDC" caption. Only the hyphenated native layouts
+    /// qualify: eleven or ten bare digits also describe a phone number, and a
+    /// prescriber's NPI, neither of which should ever reach the directory. Like
+    /// every printed reading, one found this way still has to be vouched for by
+    /// the rest of the label.
+    private static let uncaptionedPattern =
+        /(?:^|[^0-9A-Za-z-])(\d{4,5}-\d{3,4}-\d{1,2})(?![0-9A-Za-z-])/
 
     /// Every code printed in a label's text, in order, without repeats.
     static func readings(inLabelText text: String) -> [NDCReading] {
         var seen: Set<String> = []
-        return text.matches(of: printedPattern).compactMap { match in
-            let repaired = String(match.1.map(repairedDigit))
+        var readings: [NDCReading] = []
+        for match in text.matches(of: printedPattern) {
+            let repaired = String(match.1.map(repairedDigit)).filter { !$0.isWhitespace }
             let candidates = candidates(fromRendering: repaired)
-            guard !candidates.isEmpty, seen.insert(repaired).inserted else { return nil }
-            return NDCReading(candidates: candidates, source: .printedText, raw: repaired)
+            guard !candidates.isEmpty, seen.insert(repaired).inserted else { continue }
+            readings.append(NDCReading(candidates: candidates, source: .printedText, raw: repaired))
         }
+        for match in text.matches(of: uncaptionedPattern) {
+            let rendering = String(match.1)
+            let candidates = candidates(fromRendering: rendering)
+            guard !candidates.isEmpty, seen.insert(rendering).inserted else { continue }
+            readings.append(NDCReading(candidates: candidates, source: .printedText, raw: rendering))
+        }
+        return readings
     }
 
     /// The code inside a manufacturer barcode, when the barcode carries one.

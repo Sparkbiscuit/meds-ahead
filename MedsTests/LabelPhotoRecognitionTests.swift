@@ -67,6 +67,50 @@ final class LabelPhotoRecognitionTests: XCTestCase {
         XCTAssertEqual(parts.day, 31)
     }
 
+    /// The shape the household's bottles take: the product line in bold, the
+    /// NDC in the small print underneath it. The code is real (Tecfidera), the
+    /// pharmacy is not. The name and brand must come from the directory, which
+    /// is what makes the bottle's brand appear without the label ever printing it.
+    func testRenderedLabelWithASmallPrintedNDCResolvesTheExactProduct() async throws {
+        let draft = try await draft(forSmallPrintNDCSize: 24)
+
+        XCTAssertEqual(draft.nameProvenance, .ndc, "evidence: \(draft.evidence.map(\.value))")
+        XCTAssertEqual(draft.name, "Dimethyl fumarate")
+        XCTAssertEqual(draft.brandName, "Tecfidera")
+        XCTAssertEqual(draft.strength, "240 mg")
+        XCTAssertEqual(draft.form, .capsule)
+        XCTAssertEqual(draft.productIdentifier, "64406-0006-02")
+        XCTAssertEqual(draft.productIdentifierType, "NDC")
+        XCTAssertEqual(draft.currentSupply, 60)
+    }
+
+    /// The same label with the NDC printed at the smallest size a pharmacy uses,
+    /// about one percent of the frame. This is the case Nick was worried about.
+    func testRenderedLabelWithTheSmallestPrintedNDCStillResolves() async throws {
+        let draft = try await draft(forSmallPrintNDCSize: 16)
+
+        XCTAssertEqual(draft.nameProvenance, .ndc, "evidence: \(draft.evidence.map(\.value))")
+        XCTAssertEqual(draft.productIdentifier, "64406-0006-02")
+    }
+
+    private func draft(forSmallPrintNDCSize size: CGFloat) async throws -> MedicationDraft {
+        let image = renderedLabel(lines: [
+            Line("SPRINGFIELD PHARMACY #2214", size: 44, bold: true),
+            Line("450 ELM STREET, SPRINGFIELD MA", size: 34),
+            Line("RX# 7719204", size: 40, bold: true),
+            Line("CHRISTOFORAKIS, LUKAS", size: 40),
+            Line("DIMETHYL FUMARATE 240 MG DR CAPSULE", size: 50, bold: true),
+            Line("MFR: BIOGEN   NDC 64406-006-02", size: size),
+            Line("TAKE 1 CAPSULE BY MOUTH TWICE DAILY", size: 42),
+            Line("QTY: 60", size: 44, bold: true),
+            Line("2 REFILLS REMAINING", size: 40),
+            Line("DISCARD AFTER 07/14/26", size: 40, bold: true)
+        ])
+        let data = try XCTUnwrap(image.pngData())
+        let evidence = try await StillImageRecognizer.recognize(data: data, origin: .photoLibrary)
+        return MedicationLabelInterpreter.offlineDraft(evidence)
+    }
+
     private struct Line {
         let text: String
         let size: CGFloat

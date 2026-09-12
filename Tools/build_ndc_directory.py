@@ -4,7 +4,9 @@
 The FDA publishes the directory daily, public domain, at
 https://www.fda.gov/drugs/drug-approvals-and-databases/national-drug-code-directory
 as ndctext.zip (product.txt, package.txt) and ndc_excluded.zip (products that
-have left the directory, mostly because their marketing ended). This tool trims
+have left the directory). The excluded file is accepted but, as of September
+2026, contributes nothing: the FDA blanks the name, type and strength of every
+delisted listing, so only product.txt matters in practice. This tool trims
 the product listings to the four facts a pharmacy label needs — generic name,
 brand name, strength, dosage form — keyed by the nine digits (labeler + product)
 that a printed or barcoded NDC reduces to, and writes one sorted, tab-separated
@@ -40,6 +42,7 @@ NOISE_TOKENS = {
     "suppository", "enema", "inhalation", "aerosol", "metered", "dose", "unit", "vial",
     "prefilled", "syringe", "pen", "cartridge", "strength", "regular", "maximum", "extra",
     "childrens", "children", "adult", "adults", "infant", "infants", "junior",
+    "cii", "ciii", "civ", "cv", "cll", "rx", "only", "mg", "mcg", "ml",
 }
 
 FORM_RULES = [
@@ -122,10 +125,23 @@ def smart_title(text):
     return " ".join(words)
 
 
+GENERIC_TRAILER = re.compile(
+    r"(?i)[\s,;(-]*\b(?:tablets?|capsules?|caplets?|softgels?|injection|injectable|solution|suspension|"
+    r"syrup|elixir|cream|ointment|gel|lotion|drops|spray|inhaler|inhalant|aerosol|powder|granules?|"
+    r"kit|patch(?:es)?|suppositor(?:y|ies)|film|lozenges?|for oral use|oral|chewable|extended[- ]release|"
+    r"delayed[- ]release|usp|nf|rx only|c-?(?:ii|iii|iv|v|ll)|\d+(?:\.\d+)?\s*(?:mg|mcg|g|ml|%|units?|iu))\b.*$"
+)
+
+
 def generic_name(row):
     name = collapse(row.get("NONPROPRIETARYNAME", ""))
     if not name:
         name = collapse(row.get("SUBSTANCENAME", "")).replace("; ", ", ")
+    # Cut a labeler's trailing form, strength or schedule off the name, but never
+    # the whole name: "Tablets" alone would otherwise become nothing.
+    trimmed = GENERIC_TRAILER.sub("", name).strip(" ,.;(-")
+    if trimmed and any(character.isalpha() for character in trimmed):
+        name = trimmed
     return name.lower().strip(" ,.;")
 
 
@@ -172,7 +188,9 @@ def parse_unit(unit):
     if numerator is None:
         return None
     denominator = denominator.strip()
-    match = re.fullmatch(r"(\d+(?:\.\d+)?)?\s*([A-Za-z\[\]'0-9%]+)", denominator)
+    if denominator in ("", "1"):
+        return (numerator, "")
+    match = re.fullmatch(r"(\d*\.?\d+)?\s*([A-Za-z\[\]'%][A-Za-z\[\]'0-9%]*)", denominator)
     if not match:
         return None
     amount, denominator_unit = match.group(1), match.group(2)
@@ -340,6 +358,8 @@ def self_test():
     assert strength({"ACTIVE_NUMERATOR_STRENGTH": "5; 5; 5; 5", "ACTIVE_INGRED_UNIT": "mg/1; mg/1; mg/1; mg/1"}) == "5-5-5-5 mg"
     assert strength({"ACTIVE_NUMERATOR_STRENGTH": "0.5; 50", "ACTIVE_INGRED_UNIT": "mg/1; ug/1"}) == "0.5 mg/50 mcg"
     assert strength({"ACTIVE_NUMERATOR_STRENGTH": "1", "ACTIVE_INGRED_UNIT": "g/100mL"}) == "1 g/100 mL"
+    assert strength({"ACTIVE_NUMERATOR_STRENGTH": "2.5", "ACTIVE_INGRED_UNIT": "mg/.5mL"}) == "2.5 mg/0.5 mL"
+    assert strength({"ACTIVE_NUMERATOR_STRENGTH": "100", "ACTIVE_INGRED_UNIT": "[iU]/1"}) == "100 IU"
     assert strength({"ACTIVE_NUMERATOR_STRENGTH": "30", "ACTIVE_INGRED_UNIT": "[hp_X]/1"}) == ""
     assert strength({"ACTIVE_NUMERATOR_STRENGTH": "", "ACTIVE_INGRED_UNIT": ""}) == ""
     assert strength({"ACTIVE_NUMERATOR_STRENGTH": "10", "ACTIVE_INGRED_UNIT": "mg/1; mg/1"}) == ""
@@ -352,6 +372,12 @@ def self_test():
     assert brand_name({"PROPRIETARYNAME": "TOPROL", "PROPRIETARYNAMESUFFIX": "XL"}, "metoprolol succinate") == "Toprol XL"
     assert brand_name({"PROPRIETARYNAME": "TECFIDERA"}, "dimethyl fumarate") == "Tecfidera"
     assert brand_name({"PROPRIETARYNAME": "Metoprolol Succinate Extended-Release"}, "metoprolol succinate") == ""
+    assert brand_name({"PROPRIETARYNAME": "Dextroamphetamine Saccharate, Amphetamine Aspartate, Dextroamphetamine Sulfate, Amphetamine Sulfate Tablets,CII"},
+                      "dextroamphetamine saccharate, amphetamine aspartate, dextroamphetamine sulfate, amphetamine sulfate") == ""
+    assert generic_name({"NONPROPRIETARYNAME": "Dextroamphetamine Saccharate, Amphetamine Aspartate, Dextroamphetamine Sulfate, Amphetamine Sulfate Tablets, 5 mg,Cll"}) == "dextroamphetamine saccharate, amphetamine aspartate, dextroamphetamine sulfate, amphetamine sulfate"
+    assert generic_name({"NONPROPRIETARYNAME": "Sertraline Hydrochloride"}) == "sertraline hydrochloride"
+    assert generic_name({"NONPROPRIETARYNAME": "Tablets"}) == "tablets"
+    assert generic_name({"NONPROPRIETARYNAME": "sulfamethoxazole and Trimethoprim"}) == "sulfamethoxazole and trimethoprim"
 
     assert form({"DOSAGEFORMNAME": "TABLET, FILM COATED"}) == "tablet"
     assert form({"DOSAGEFORMNAME": "CAPSULE, DELAYED RELEASE"}) == "capsule"
