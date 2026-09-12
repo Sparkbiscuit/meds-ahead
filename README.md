@@ -1,6 +1,6 @@
 # Meds Ahead
 
-Meds Ahead is an iPhone-first medication supply manager. It combines on-device label and barcode scanning with human-confirmed schedules, dose logging, inventory adjustments, and explainable refill forecasts.
+Meds Ahead is an iPhone-first medication supply manager. It combines on-device label and barcode scanning, exact identification from a label's NDC against a bundled FDA directory, an optional read-only import from Apple Health, human-confirmed schedules, dose logging, inventory adjustments, and explainable refill forecasts.
 
 ## Product promise
 
@@ -17,6 +17,7 @@ Medication records remain on the device. Scanned photos are processed locally an
 - Xcode 26.6 or later
 - iOS 18.0 or later
 - An iPhone for live camera scanning; the simulator supports photo import and manual entry
+- iOS 26 or later for the Apple Health import; everything else runs on iOS 18
 
 ## Build and test
 
@@ -29,7 +30,8 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 ## Repository map
 
 - `Meds/Sources`: application code
-- `Meds/Resources`: assets and privacy manifest
+- `Meds/Resources`: assets, privacy manifest, name vocabulary, and the FDA NDC Directory snapshot
+- `Tools`: the script that rebuilds the NDC Directory snapshot from the FDA's files
 - `MedsTests`: forecasting and scan parsing tests
 - `MedsUITests`: launch and critical-flow UI tests
 - `Documentation`: product, architecture, privacy, and release decisions

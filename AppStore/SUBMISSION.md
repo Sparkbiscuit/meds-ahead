@@ -16,11 +16,15 @@ Scan a label, confirm your schedule, and see a calm, explainable forecast for ev
 
 Meds Ahead is a private medication organizer designed around the question other reminder apps miss: what will run out next?
 
-Scan printed labels and barcodes on device, review exactly what was recognized, and fill in only what is missing. Create flexible schedules, log taken or skipped doses, add refills, make inventory corrections, and see an understandable supply forecast for each medication.
+Scan printed labels and barcodes on device, review exactly what was recognized, and fill in only what is missing. When a label prints its NDC, or a package barcode carries one, Meds Ahead looks it up in a bundled copy of the FDA's National Drug Code Directory and fills in the exact product: name, brand, strength, and form. It does so only when the rest of the label agrees, and every field is still yours to confirm. Create flexible schedules, log taken or skipped doses, add refills, make inventory corrections, and see an understandable supply forecast for each medication.
+
+Already tracking medications in Apple Health? On iOS 26 and later you can choose which ones to share, and Meds Ahead brings each one over for the same review. It reads only the medications you choose and never writes to Health.
 
 Key features:
 
 - On-device medication label and barcode scanning
+- Exact identification from the label's NDC, matched offline against the FDA directory
+- Import from Apple Health on iOS 26 and later, read-only and one medication at a time
 - Human-confirmed medication records
 - Daily and selected-day schedules
 - As-needed medication support
@@ -41,40 +45,60 @@ Meds Ahead is an organization tool. It does not provide medical advice, recommen
 
 ## Keywords
 
-medication,medicine,refill,pill,reminder,schedule,tracker,inventory,dose,health
+medication,medicine,refill,pill,reminder,schedule,tracker,inventory,dose,health,caregiver,ndc
+
+## What's New in 1.1
+
+Paste into App Store Connect > Version > What's New in This Version.
+
+```
+Exact identification. When a pharmacy label prints its NDC, or a package barcode carries one, Meds Ahead now looks it up in a bundled copy of the FDA's National Drug Code Directory and fills in the exact product: name, brand, strength, and form. It only does so when the rest of the label agrees, the printed name remains the fallback, and every field is still yours to confirm.
+
+Apple Health import. On iOS 26 and later, bring over medications you already track in Health. You choose which ones to share, Meds Ahead reads only those, and each one goes through the same review before it is saved. Nothing is written back to Health.
+
+Also new: Meds Ahead may ask for a rating after you have logged a good number of doses, at most once per version.
+```
 
 ## Review notes
 
 Paste the block below into App Store Connect > App Review Information > Notes.
-It answers the eight questions Apple sends new-app submissions, so a reviewer
-never has to open a Guideline 2.1 information request to get them.
+It answers the eight questions Apple sends new-app submissions, opens with what
+1.1 changed, and says plainly that the Health integration is read-only, so a
+reviewer never has to open a Guideline 2.1 or 5.1.3 request to learn either.
 
 App Store Connect caps this field at 4,000 characters, and caps the Resolution
-Center reply field at 4,000 separately. This block is 3943; re-count after any
+Center reply field at 4,000 separately. This block is 3927; re-count after any
 edit. Paragraphs are deliberately unwrapped so pasting does not produce ragged
 line breaks mid-sentence.
 
-`AppStore/REVIEW_REPLY.md` holds the near-identical Resolution Center reply and
-the screen-recording shot list; keep the two in step.
+Before pasting, make item 2 true: it describes the hands-on pass on the iPhone
+16 Pro that the 1.1 release checklist requires, and it must not be submitted
+ahead of that pass.
+
+`AppStore/REVIEW_REPLY.md` holds the 1.0 Resolution Center reply and the
+screen-recording shot list; add the Health picker to the shot list if a
+recording is requested again.
 
 ```
-Answers to the eight questions App Review asks new-app submissions.
+Answers to the questions App Review asks, updated for 1.1.
 
-1. DEMONSTRATION. A screen recording from an iPhone 16 Pro on iOS 26.6, beginning at app launch, is available on request. It shows onboarding, the camera permission prompt, live scanning of a printed prescription label, the editable confirmation screen, saving a medication with a schedule, the notification permission prompt, logging a dose, the supply forecast, and the optional tip purchase flow in Settings. There are no accounts, so no registration, login, or account deletion flow, and no user-generated content between users, so no reporting or blocking mechanism.
+NEW IN 1.1. (a) Exact identification: an NDC printed on a label or carried in a package barcode is matched against a bundled, public-domain snapshot of the FDA National Drug Code Directory (product name, brand, strength, dosage form only) and prefills those fields, but only when the rest of the label agrees; every field stays editable. (b) Apple Health import, iOS 26 and later: Add > Import from Apple Health opens Health's own per-medication picker; the app reads only what the person ticks, never writes to Health, and each goes through the same editable review.
 
-2. TESTED ON. iPhone 16 Pro, iOS 26.6: full hands-on pass including live scanning, the torch, locked-device notification actions, and a StoreKit sandbox tip purchase. iPhone 17 Pro and iPhone 17 simulators, iOS 26: automated unit and UI suites. iPhone only, portrait only, iOS 18.0 and later.
+1. DEMONSTRATION. A screen recording from a physical iPhone, from launch, is available on request: onboarding, the camera prompt, live label scanning, the review screen, the Health picker and import, saving a medication with a schedule, the notification prompt, logging a dose, the forecast, and the tip purchase. No accounts, so no registration, login, or account deletion; no content between users, so no reporting or blocking.
 
-3. FUNCTIONS AND AUDIENCE. Meds Ahead answers which medication runs out next. A person adds a medication by scanning its pharmacy label or typing it in, confirms every recognized field on an editable review screen, and sets a schedule. The app tracks doses taken and skipped, refills, and inventory corrections, projects an explained run-out date for each medication, and sends dose and low-supply reminders. The audience is anyone managing several medications at once, and their caregivers. It is an organization and logging tool: it does not diagnose, give medical advice, recommend or modify a dose, state what a medication treats, check interactions, or determine refill eligibility.
+2. TESTED ON. iPhone 16 Pro, iOS 26: hands-on pass including live scanning, the torch, the Health import, locked-device notification actions, and a StoreKit sandbox tip. iPhone 17 Pro and iPhone 17 simulators: automated unit and UI suites. iPhone only, portrait only, iOS 18.0 and later; the Health import needs iOS 26.
 
-4. SETUP. No login, demo account, or sample files are needed. Page through onboarding, tap Add, tap Scan a Label, and point the camera at any printed prescription label. Recognition runs on device and every field is editable before it is stored. Enter Manually reaches the same editor. Enter a count and a schedule and save. Today logs doses, Supply shows the forecast, and Medications > a medication records a refill or an inventory correction. Declining the camera prompt is supported: the scanner explains why, offers an Open Settings button, and keeps photo import available.
+3. FUNCTIONS AND AUDIENCE. Meds Ahead answers which medication runs out next. A person adds a medication by scanning its label, importing it from Health, or typing it in, confirms every field, and sets a schedule. The app tracks doses, refills, and corrections, projects an explained run-out date, and sends dose and low-supply reminders. The audience is anyone managing several medications, and their caregivers. It is an organization and logging tool: no diagnosis, medical advice, dose recommendations, indications, interaction checks, or refill-eligibility decisions.
 
-5. EXTERNAL SERVICES. None. No backend, accounts, network requests, analytics, advertising, or third-party SDKs. Core functionality is Apple frameworks running on device: VisionKit and Vision for text and barcode recognition; FoundationModels, Apple's on-device system model, used only to decide which recognized line is the name, strength, directions, quantity, or refill count and to repair an obvious OCR character error, never asked for and unable to contribute a medical fact of its own, with any name it proposes still checked against a bundled name list and deterministic parsing as the fallback; plus SwiftData, UserNotifications, StoreKit, PhotosUI, and AVFoundation. Scanned photos are processed in memory and not retained.
+4. SETUP. No login, demo account, or sample files. Page through onboarding, tap Add, then Scan a Label at any prescription label; every field is editable before it is stored. Enter Manually reaches the same editor; Import from Apple Health lists what the person shares. Enter a count and a schedule and save. Today logs doses, Supply shows the forecast, Medications records refills and corrections. Declining the camera prompt is supported: the scanner explains why, offers Open Settings, and keeps photo import available.
 
-6. REGIONS. The app functions identically in all regions. English (U.S.) only, no region-gated features or data.
+5. EXTERNAL SERVICES. None: no backend, accounts, network requests, analytics, advertising, or third-party SDKs. Apple frameworks on device: VisionKit and Vision for recognition; FoundationModels, Apple's on-device model, used only to choose which recognized line is which field and to repair an obvious OCR error, unable to contribute a medical fact of its own; HealthKit, read only, per-object authorization; plus SwiftData, UserNotifications, StoreKit, PhotosUI, and AVFoundation. Photos are not retained. Health data is never transmitted.
 
-7. REGULATED INDUSTRY. Meds Ahead is not a regulated medical device and no authorization is required. Two bundled files contain medication NAMES only: roughly 12,900 names derived from RxNorm (U.S. National Library of Medicine, public domain), used solely so a misread label cannot invent a name, and roughly 270 hand-verified generic-to-brand name pairs. Neither carries indications, dosing, warnings, or interactions, and no licensed or protected third-party material is included.
+6. REGIONS. Identical in all regions. English (U.S.) only, nothing region-gated.
 
-8. IN-APP PURCHASE. Three optional, non-recurring consumable tips that unlock nothing; every feature is free. From any tab, tap the gear icon at top right, then Support Meds Ahead > Leave an Optional Tip, which presents Small Tip $1.99, Medium Tip $4.99, and Large Tip $9.99. The row is always visible, including an explicit Tips Are Unavailable state with a Try Again button if StoreKit returns nothing.
+7. REGULATED INDUSTRY. Not a regulated medical device; no authorization required. Three bundled files hold product names and packaging facts only: about 12,900 medication names derived from RxNorm (NLM, public domain); about 270 hand-verified generic-to-brand pairs; and an FDA National Drug Code Directory snapshot (public domain) trimmed to name, brand, strength, and dosage form, keyed by NDC. None carries indications, dosing, warnings, or interactions; no licensed material is included.
+
+8. IN-APP PURCHASE. Three optional, non-recurring consumable tips that unlock nothing; every feature is free. Gear icon > Support Meds Ahead > Leave an Optional Tip: Small Tip $1.99, Medium Tip $4.99, Large Tip $9.99. The row is always visible, with a Tips Are Unavailable state and a Try Again button if StoreKit returns nothing.
 ```
 
 ## App Store Connect selections
@@ -82,7 +106,8 @@ Answers to the eight questions App Review asks new-app submissions.
 - Primary category: Medical
 - Secondary category: Health & Fitness
 - Price: Free
-- App Privacy: Data Not Collected
+- App Privacy: Data Not Collected (Health data is read on device and never transmitted; see `CONNECT_ANSWERS.md`)
+- HealthKit: read-only medication import on iOS 26+; the description and the privacy policy both name it, as Apple requires
 - Advertising identifier: Not used
 - Tracking: No
 - Regulated medical device: No; Meds Ahead is an organization and logging tool

@@ -1,5 +1,127 @@
 # Verification record
 
+## September 12, 2026 — 1.1: exact identification, Apple Health import, rating request
+
+Built in one session from the brief in `Documentation/handoff/NDC-SESSION-PROMPT.md`
+and the September 11 plan. The FDA snapshot itself is the one piece that waits on a
+download, and its results are recorded at the end of this entry once it lands.
+
+### The investigation the brief asked for
+
+1. **How often a US pharmacy label prints a readable NDC.** No federal rule requires
+   it on a dispensed prescription — the FD&C Act exempts dispensed drugs from most
+   labeling requirements and state boards list the required elements, which are the
+   pharmacy, Rx number, patient, prescriber, drug and strength, directions and date.
+   In practice the major retail chains and the hospital outpatient systems (Epic
+   Willow among them) print the dispensed product's NDC because it identifies the
+   exact manufacturer and package for their own records. The strongest evidence on
+   hand is the household's own: every bottle in it, orange retail and blue BCH,
+   prints one. The barcode on a *patient* label is almost always the pharmacy's own
+   Rx number in Code 128 or Code 39, which decodes to nothing useful. The NDC lives
+   in a barcode only on manufacturer packaging — a GTIN in UPC-A, GS1-128 or the
+   DSCSA DataMatrix — which a person does receive for inhalers, pens, tubes, blister
+   cards, unit-of-use boxes and OTC products. So: printed digits are the common case
+   for vials, barcodes the common case for boxes, and the app now reads both.
+2. **What the FDA directory contains.** `ndctext.zip` (10.8 MB, product.txt and
+   package.txt, tab-separated, refreshed daily; last modified September 11 at the
+   time of writing) and `ndc_excluded.zip` (31.4 MB, listings that have left the
+   directory, mostly because marketing ended). Product rows carry the product NDC,
+   product type, proprietary name and suffix, nonproprietary name, dosage form,
+   route, marketing dates and category, labeler, substance names, active strengths
+   and units, pharmacologic classes and DEA schedule. It is US government work,
+   public domain, no key and no terms; the FDA's own caveat is that inclusion is not
+   approval, which the app never claims. Trimmed to human prescription and OTC
+   listings and the four facts a label needs, it is one row per product.
+3. **Normalisation.** Codes are assigned in three ten-digit layouts (4-4-2, 5-3-2,
+   5-4-1); billing pads the short segment to a uniform 5-4-2 eleven digits. Labels
+   print any of the four, hyphenated or bare. Hyphenated and eleven-digit renderings
+   are unambiguous. Ten bare digits are not: all three layouts are offered and the
+   directory settles it, with nothing accepted if more than one layout names a real
+   product. OCR reads O for 0 and I or l for 1 often enough that those are repaired
+   before lookup; the label's own text then has to vouch for the result.
+4. **Barcodes.** A US drug GTIN is the ten-digit NDC wrapped in a `3` number-system
+   digit and a check digit (`003` + NDC + check once padded to fourteen). Decoding
+   costs forty lines and shares the lookup, so it is done in the same pass; the check
+   digit means a decoded code needs no corroboration, only the absence of a
+   contradiction. Pharmacy Rx-number barcodes decode to nothing, which is correct.
+5. **A better offline option?** No. RxNorm's NDC attributes need the full UMLS
+   release, openFDA's NDC endpoint is the same data behind a network call, DailyMed
+   SPL is enormous, and the NSDE file drops the generic name and strength. Apple
+   Health's medication API turned out to be a complementary exact source rather than
+   a rival: it hands over RxNorm codings for whatever the person has already entered
+   there, which is what the import stores.
+
+### What was built
+
+- `NationalDrugCode`, `NDCDirectory`, `NDCIdentification` and
+  `Tools/build_ndc_directory.py`; the design is in `ARCHITECTURE.md` under
+  "Exact identification". The gate is the point: a barcode is accepted on its own,
+  printed digits must be corroborated by a word of the name or the same strength,
+  and either is refused when the label names another confirmed drug, a different
+  strength, a distinguishing salt (succinate against tartrate), a different vitamin
+  number, or a different printed form. Strengths compare as amounts, so a mixed-salt
+  stimulant printed as 20 mg agrees with four 5 mg components and `800-160 mg` agrees
+  with `800 mg/160 mg`. The language model cannot override a resolved identity. A
+  printed code now outranks the pharmacy barcode as the stored product code.
+- Apple Health import on iOS 26 and later: `HealthMedicationImporter`,
+  `HealthMedicationMapper`, `HealthImportView`, a third card in Add, the HealthKit
+  entitlement and read-only purpose string. Per-object authorization, read only,
+  every import through the ordinary review screen, saving returns to the Health list.
+- The native rating request from Today, governed by `ReviewRequestPolicy`.
+- Version 1.1, build 4. `MedicationSource` and `MedicationNameProvenance` gained
+  cases; both are stored as strings and no `@Model` property changed, so there is
+  no migration to verify this time.
+
+### Results
+
+- Unit tests: 268/268 on the iPhone 17 Pro simulator (220 before, plus 48 across
+  `NationalDrugCodeTests`, `NDCIdentificationTests`, `HealthMedicationMapperTests`
+  and `ReviewRequestPolicyTests`). The NDC tests run against an in-memory
+  directory, so they prove the gate without the snapshot; the snapshot's own tests
+  are listed below.
+- UI tests: 9/9 on the iPhone 17 simulator, unchanged, with the third Add card
+  present.
+- Release static analysis on the app target: succeeded, nothing beyond Xcode's
+  no-AppIntents metadata-skip message.
+- Apple Health, by hand on the iPhone 17 Pro simulator: a Tacrolimus 1 mg capsule
+  added in the simulator's Health app; Add > Import from Apple Health > Choose
+  Medications in Health presents the system picker with the purpose string; after
+  Allow, the list reads "Tacrolimus 1mg Oral capsule · Capsule · Scheduled in
+  Health"; the review screen carries the From Apple Health note, name Tacrolimus,
+  brand Prograf, strength 1 mg, form Capsule; saving returns to the list, where the
+  row reads "Already in Meds Ahead as Tacrolimus" with a check. On a fresh install,
+  Don't Allow on the picker lands on "No medications are shared with Meds Ahead
+  yet. Choose Again shows Health's list." Nothing is written to Health at any point.
+- Rating request, by hand: with first use backdated eleven days and eleven taken
+  doses on record, logging a dose on Today produced the system "Enjoying Meds
+  Ahead?" sheet 1.5 seconds later, and `reviewRequest.lastRequest` and
+  `lastRequestedVersion = 1.1` were recorded so it is not asked again for this
+  version. Two quirks cost time and are worth knowing: the app records first use
+  on its very first launch, including `-ui-testing` launches, because the container
+  outlives the in-memory store; and the simulator's preferences daemon caches the
+  app's domain, so backdating has to go through `simctl spawn <udid> defaults
+  write <container plist path> …` rather than editing the plist.
+
+### Still to do for 1.1
+
+- **Bundle the FDA snapshot** (download gated on Nick's approval), run
+  `Tools/build_ndc_directory.py`, add the bundled-directory tests and a rendered
+  label with a real NDC to `LabelPhotoRecognitionTests`, and re-run everything.
+- Real bottles on a physical iPhone: orange retail vials and blue BCH ones,
+  printed NDC and a manufacturer barcode, plus the torch check that only hardware
+  can do.
+- Apple Health on a fresh install of a physical iPhone on iOS 26; the review
+  recording should include the picker.
+- VoiceOver pass on the Apple Health screens and the NDC note.
+- Publish the updated privacy policy page before submitting; the local edit in the
+  website repository also corrects a stale sentence that said the database was
+  excluded from backups, which stopped being true in August.
+- Archive with automatic signing (HealthKit joins the App ID on the first archive),
+  upload, paste the 1.1 review notes and What's New from `AppStore/SUBMISSION.md`.
+
+Known and accepted: the review screen reached from the Health list shows both the
+navigation back chevron and Cancel, as the scanned review already did in 1.0.
+
 ## August 31, 2026 (third pass) — a sig is not a product line
 
 Scanning sertraline put `1 Week, Then Increas Every Evening If Tole Sertraline

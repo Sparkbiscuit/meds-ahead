@@ -4,8 +4,8 @@
 
 - [x] Debug build passes for iOS Simulator
 - [x] Release build passes for iOS Simulator and generic iOS device
-- [x] Two hundred and twenty unit tests pass, including clipped-name rejection, sig-versus-product-line separation, combination and canonical strengths, wrapped-sig assembly across real capture shapes, brand/generic resolution, Latin-only stable multi-side evidence, ROI crop mapping, RxNorm-backed compound-fragment repair, low-confidence live-camera, noisy-label and printed-NDC parsing, scheduling, supply, grouped notifications, time-of-day greetings, Take Now dose reconciliation, as-needed rate windows, unit-denominated strengths, expiration plausibility, last-refill alerts, and medication-list pagination
-- [x] Nine UI tests pass, including Today and medication-editor accessibility audits, largest accessibility text in the editor, and overdue-state coverage
+- [x] Two hundred and sixty-eight unit tests pass, including NDC rendering and barcode decoding, the NDC corroboration gate and strength equivalence, Apple Health name mapping and duplicate detection, the rating-request policy, clipped-name rejection, sig-versus-product-line separation, combination and canonical strengths, wrapped-sig assembly across real capture shapes, brand/generic resolution, Latin-only stable multi-side evidence, ROI crop mapping, RxNorm-backed compound-fragment repair, low-confidence live-camera, noisy-label and printed-NDC parsing, scheduling, supply, grouped notifications, time-of-day greetings, Take Now dose reconciliation, as-needed rate windows, unit-denominated strengths, expiration plausibility, last-refill alerts, and medication-list pagination
+- [x] Nine UI tests pass, including Today and medication-editor accessibility audits, largest accessibility text in the editor, and overdue-state coverage, with the Import from Apple Health card present
 - [x] Static analysis passes for the Release app target
 - [x] No source/compiler warnings; Xcode 26 emits only its no-AppIntents metadata-skip message
 - [x] Privacy manifest is present in the built app, declares required-reason access for app-only UserDefaults and elapsed-event system uptime, and declares no collection or tracking
@@ -26,6 +26,9 @@
 - [ ] Hands-on VoiceOver navigation order and rotor review
 - [x] Empty, populated, low-supply, and unknown-forecast states
 - [x] Explicit overdue-dose state review
+- [x] Apple Health import (1.1): system picker with the purpose string, shared list, review screen, save returning to the list, already-on-file marking, and the cancelled-picker state
+- [x] Rating request (1.1): appears after a logged dose once the policy is met and is recorded so it is not asked again for the version
+- [ ] Exact identification (1.1): rendered label with a real NDC through photo import once the FDA snapshot is bundled
 
 ## Physical-device gates
 
@@ -39,6 +42,9 @@
 - [x] Equal-time dose schedules consolidate into one slot-level reminder; grouped reminders omit unsafe one-tap multi-dose actions
 - [ ] `Taken` and `Skip` notification actions on a locked iPhone
 - [ ] Energy and thermal behavior during a five-minute scan session
+- [ ] Exact identification (1.1) against the household's real bottles: printed NDC on orange retail and blue BCH vials, and a manufacturer barcode on a box
+- [ ] Apple Health import (1.1) on a fresh install of a physical iPhone on iOS 26
+- [ ] VoiceOver pass on the Apple Health screens and the NDC note on the review screen
 
 ## App Store Connect gates
 
@@ -60,3 +66,11 @@
 - [ ] Publish verified accessibility declarations
 - [ ] Accept the Paid Apps Agreement and complete tax/banking setup
 - [ ] Create the three consumable tip products with the exact IDs in `AppStore/CONNECT_ANSWERS.md`, add them to the version 1.0 submission, and upload their review metadata/screenshots
+
+## 1.1 submission gates
+
+- [ ] Bundle the FDA NDC Directory snapshot with `Tools/build_ndc_directory.py` and re-run the unit tests before archiving
+- [ ] Publish the updated privacy policy page (Apple Health and NDC sections, corrected backup sentence) before submitting
+- [ ] Archive with automatic signing; HealthKit joins the `com.christoforakis.Meds` App ID on the first archive, or is enabled by hand in Certificates, Identifiers & Profiles
+- [ ] Enter What's New, the description naming the Apple Health integration, the keywords, and the 1.1 review notes from `AppStore/SUBMISSION.md`
+- [ ] Confirm App Privacy stays `Data Not Collected` per `AppStore/CONNECT_ANSWERS.md`
