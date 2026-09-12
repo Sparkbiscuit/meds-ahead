@@ -74,6 +74,7 @@ struct RootView: View {
         }
         .task {
             applyPendingNotificationRoute()
+            ReviewRequestCoordinator.shared.noteFirstUseIfNeeded()
             MedicationListPDFRenderer.removePreviousExport()
 #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("-seed-demo-data") {
