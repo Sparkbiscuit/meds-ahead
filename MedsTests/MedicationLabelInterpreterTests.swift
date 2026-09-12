@@ -125,8 +125,8 @@ final class MedicationLabelInterpreterTests: XCTestCase {
 
         let resolved = MedicationLabelInterpreter.offlineDraft(evidence)
         XCTAssertEqual(resolved.nameProvenance, .ndc)
-        XCTAssertTrue(resolved.name.lowercased().contains("dextroamphetamine"), resolved.name)
-        XCTAssertTrue(resolved.name.lowercased().contains("amphetamine sulfate"), resolved.name)
+        XCTAssertEqual(resolved.name, "Amphetamine - dextroamphetamine", "the listing's four salts read as the name everyone uses")
+        XCTAssertEqual(resolved.brandName, "Adderall", "a generic listing borrows the reference brand")
         XCTAssertEqual(resolved.productIdentifier, "47781-0174-01")
 
         let withoutDirectory = MedicationLabelInterpreter.offlineDraft(evidence, ndcDirectory: NDCDirectory(data: Data()))

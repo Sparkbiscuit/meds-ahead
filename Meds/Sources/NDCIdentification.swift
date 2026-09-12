@@ -112,6 +112,11 @@ enum NDCIdentification {
             ?? MedicationVocabulary.exactMatch(for: generic.replacingOccurrences(of: " and ", with: " / ")) {
             return capitalizedName(match)
         }
+        // A combination listed under every salt of every ingredient reads as the
+        // vocabulary's shortest name for that same set of ingredients.
+        if let combination = MedicationVocabulary.shortestName(forCombination: generic) {
+            return capitalizedName(combination)
+        }
         if let pair = MedicationBrandIndex.resolve(product.brandName) ?? MedicationBrandIndex.resolve(generic) {
             return MedicationBrandIndex.displayName(forGeneric: pair.generic)
         }

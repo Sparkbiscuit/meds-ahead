@@ -10,6 +10,7 @@ alogliptin|Nesina
 alprazolam|Xanax
 amlodipine|Norvasc
 amoxicillin / clavulanate|Augmentin
+amphetamine - dextroamphetamine|Adderall
 anastrozole|Arimidex
 apixaban|Eliquis
 apremilast|Otezla

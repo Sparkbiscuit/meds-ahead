@@ -146,7 +146,7 @@ final class NDCIdentificationTests: XCTestCase {
         XCTAssertEqual(draft.nameProvenance, .ndc)
         XCTAssertEqual(draft.brandName, "Adderall")
         XCTAssertEqual(draft.strength, "20 mg", "the total printed on the label, not the four components")
-        XCTAssertTrue(draft.name.lowercased().contains("amphetamine"), draft.name)
+        XCTAssertEqual(draft.name, "Amphetamine - dextroamphetamine", "the listing's four salts collapse to the name everyone uses")
     }
 
     func testAnOralSolutionKeepsItsConcentration() {
