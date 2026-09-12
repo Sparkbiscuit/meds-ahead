@@ -68,6 +68,18 @@ final class HealthMedicationMapperTests: XCTestCase {
         XCTAssertEqual(draft.productIdentifier, "")
     }
 
+    func testRecentDosesRideAlongForTheReviewScreen() {
+        var shared = summary("Ondansetron 4 mg", hasSchedule: false)
+        let doses = [ImportedDose(date: Date(timeIntervalSince1970: 1_800_000_000), quantity: 1),
+                     ImportedDose(date: Date(timeIntervalSince1970: 1_800_100_000), quantity: 2)]
+        shared.recentTakenDoses = doses
+
+        let draft = HealthMedicationMapper.draft(for: shared)
+
+        XCTAssertEqual(draft.importedDoses, doses)
+        XCTAssertTrue(HealthMedicationMapper.draft(for: summary("Ondansetron 4 mg")).importedDoses.isEmpty)
+    }
+
     func testFormWordsAndRoutesAreNotPartOfTheName() {
         XCTAssertEqual(HealthMedicationMapper.cleanedName(from: "Metoprolol succinate 25 MG Extended Release Oral Tablet"), "Metoprolol succinate")
         XCTAssertEqual(HealthMedicationMapper.cleanedName(from: "Insulin glargine 100 units/mL injection pen"), "Insulin glargine")

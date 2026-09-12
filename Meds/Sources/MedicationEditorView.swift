@@ -18,6 +18,7 @@ struct MedicationEditorView: View {
     private let draftEvidence: [ScanEvidence]
     private let draftSource: MedicationSource
     private let draftNameProvenance: MedicationNameProvenance
+    private let draftImportedDoses: [ImportedDose]
     private let onSaved: (() -> Void)?
 
     @Query private var allMedications: [Medication]
@@ -47,6 +48,7 @@ struct MedicationEditorView: View {
     @State private var refillRemindersEnabled: Bool
     @State private var detailedNotifications: Bool
     @State private var editableSchedules: [EditableDoseSchedule]
+    @State private var importsDoseHistory = true
     @State private var didLoadExistingSchedules = false
     @State private var showingValidation = false
     @State private var validationMessage = ""
@@ -58,6 +60,7 @@ struct MedicationEditorView: View {
         self.draftEvidence = draft.evidence
         self.draftSource = medication?.source ?? draft.source
         self.draftNameProvenance = draft.nameProvenance
+        self.draftImportedDoses = draft.importedDoses
         self.onSaved = onSaved
         let resolvedForm = medication?.form ?? draft.form
         _name = State(initialValue: medication?.name ?? draft.name)
@@ -466,7 +469,23 @@ struct MedicationEditorView: View {
                 }
             }
             .accessibilityElement(children: .combine)
+            if !draftImportedDoses.isEmpty {
+                Toggle(isOn: $importsDoseHistory) {
+                    Text(importedDosesTitle)
+                }
+                .accessibilityIdentifier("import-dose-history")
+            }
+        } footer: {
+            if !draftImportedDoses.isEmpty {
+                Text("Imported doses are logged at the times Health recorded them. They give an as-needed medication a usage rate from day one and do not count against the amount you enter now.")
+            }
         }
+    }
+
+    private var importedDosesTitle: String {
+        let count = draftImportedDoses.count
+        guard let earliest = draftImportedDoses.map(\.date).min() else { return "" }
+        return "Import \(count) dose\(count == 1 ? "" : "s") logged in Health since \(earliest.formatted(date: .abbreviated, time: .omitted))"
     }
 
     private var hasUnsavedRequiredData: Bool {
@@ -530,6 +549,18 @@ struct MedicationEditorView: View {
             modelContext.insert(opening)
             inventoryForNotifications.removeAll { $0.id == opening.id }
             inventoryForNotifications.append(opening)
+            if importsDoseHistory {
+                for dose in draftImportedDoses {
+                    modelContext.insert(DoseEvent(
+                        medicationID: target.id,
+                        recordedAt: dose.date,
+                        doseQuantity: dose.quantity,
+                        status: .taken,
+                        note: DoseEvent.appleHealthNote,
+                        countsTowardSupply: false
+                    ))
+                }
+            }
         }
 
         target.refillsRemaining = Int(refillsText.trimmingCharacters(in: .whitespacesAndNewlines))

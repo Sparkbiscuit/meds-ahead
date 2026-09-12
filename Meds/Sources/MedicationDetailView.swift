@@ -360,7 +360,8 @@ struct MedicationDetailView: View {
             ActivityItem(
                 id: event.id,
                 date: event.recordedAt,
-                title: event.status == .taken ? "Took \(event.doseQuantity.medicationQuantityText)" : "Skipped dose",
+                title: (event.status == .taken ? "Took \(event.doseQuantity.medicationQuantityText)" : "Skipped dose")
+                    + (event.note.isEmpty ? "" : " · \(event.note)"),
                 symbol: event.status == .taken ? "checkmark.circle.fill" : "forward.end.circle.fill",
                 color: event.status == .taken ? AppTheme.accent : .secondary,
                 source: .dose

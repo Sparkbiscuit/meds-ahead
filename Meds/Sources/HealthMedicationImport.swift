@@ -21,6 +21,9 @@ struct HealthMedicationSummary: Hashable, Sendable, Identifiable {
     let isArchived: Bool
     /// Health's RxNorm coding for the medication, when it has one.
     let rxNormCode: String?
+    /// Doses Health recorded as taken in the last thirty days, oldest first.
+    /// Empty when the person declined to share dose logs, or logged none.
+    var recentTakenDoses: [ImportedDose] = []
 }
 
 /// Turns a Health medication into a draft for the review screen.
@@ -47,6 +50,7 @@ enum HealthMedicationMapper {
         draft.name = identity.name
         draft.brandName = identity.brand
         draft.form = form(for: summary.form) ?? ScanParser.inferForm(from: text)
+        draft.importedDoses = summary.recentTakenDoses
 
         if let code = summary.rxNormCode {
             draft.productIdentifier = code
@@ -135,14 +139,55 @@ enum HealthMedicationImporter {
 
     static var isAvailable: Bool { HKHealthStore.isHealthDataAvailable() }
 
+    /// How far back dose logs are read. Matches the as-needed forecast's window,
+    /// which is the only thing the history is for.
+    static let doseHistoryDays = 30
+
     /// Presents Health's medication picker, then returns whatever the person has
     /// shared. Cancelling the picker is not an error: earlier choices still apply.
+    /// Dose logs come with the medication: the per-object grant that shares a
+    /// medication is the grant for the doses logged against it, and asking for the
+    /// dose-event type on its own is refused by HealthKit with an exception, so no
+    /// second permission is requested. A medication whose logs cannot be read
+    /// simply arrives without history.
     static func chooseMedications() async throws -> [HealthMedicationSummary] {
         guard isAvailable else { throw ImportError.unavailable }
         let store = HKHealthStore()
         try? await store.requestPerObjectReadAuthorization(for: .userAnnotatedMedicationType(), predicate: nil)
         let medications = try await HKUserAnnotatedMedicationQueryDescriptor().result(for: store)
-        return medications.enumerated().map { index, medication in summary(index: index, medication) }
+
+        var summaries: [HealthMedicationSummary] = []
+        for (index, medication) in medications.enumerated() {
+            var summary = summary(index: index, medication)
+            summary.recentTakenDoses = (try? await recentTakenDoses(for: medication.medication, in: store)) ?? []
+            summaries.append(summary)
+        }
+        return summaries
+    }
+
+    /// Taken doses for one medication over the history window, oldest first.
+    /// Only doses the person marked taken count; skipped, snoozed and untouched
+    /// reminders are Health's business, not a usage rate.
+    static func recentTakenDoses(for concept: HKMedicationConcept, in store: HKHealthStore) async throws -> [ImportedDose] {
+        let now = Date.now
+        guard let start = Calendar.autoupdatingCurrent.date(byAdding: .day, value: -doseHistoryDays, to: now) else { return [] }
+        let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
+            NSPredicate(format: "%K == %@", HKPredicateKeyPathMedicationConceptIdentifier, concept.identifier),
+            HKQuery.predicateForSamples(withStart: start, end: now, options: [])
+        ])
+        // Sorted here rather than by a key-path sort descriptor, which Swift 6
+        // flags as non-Sendable across the query's actor hop.
+        let descriptor = HKSampleQueryDescriptor(
+            predicates: [.sample(type: HKObjectType.medicationDoseEventType(), predicate: predicate)],
+            sortDescriptors: []
+        )
+        return try await descriptor.result(for: store)
+            .compactMap { sample -> ImportedDose? in
+                guard let event = sample as? HKMedicationDoseEvent, event.logStatus == .taken else { return nil }
+                let quantity = event.doseQuantity ?? event.scheduledDoseQuantity ?? 1
+                return ImportedDose(date: event.startDate, quantity: quantity > 0 ? quantity : 1)
+            }
+            .sorted { $0.date < $1.date }
     }
 
     static func summary(index: Int, _ medication: HKUserAnnotatedMedication) -> HealthMedicationSummary {

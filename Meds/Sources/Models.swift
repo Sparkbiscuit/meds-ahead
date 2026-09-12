@@ -234,6 +234,12 @@ final class DoseEvent {
     var doseQuantity: Double
     var statusRawValue: String
     var note: String
+    /// A dose taken before Meds Ahead was keeping this medication's count —
+    /// history imported from Apple Health — is real for the as-needed rate but was
+    /// not taken from a count the app was tracking, so it must not charge the
+    /// supply the person just entered. Declared with an inline default so existing
+    /// stores take it through a lightweight migration, as `brandName` did.
+    var countsTowardSupply: Bool = true
 
     init(
         id: UUID = UUID(),
@@ -243,7 +249,8 @@ final class DoseEvent {
         recordedAt: Date = .now,
         doseQuantity: Double,
         status: DoseEventStatus,
-        note: String = ""
+        note: String = "",
+        countsTowardSupply: Bool = true
     ) {
         self.id = id
         self.medicationID = medicationID
@@ -253,7 +260,11 @@ final class DoseEvent {
         self.doseQuantity = doseQuantity
         self.statusRawValue = status.rawValue
         self.note = note
+        self.countsTowardSupply = countsTowardSupply
     }
+
+    /// The note an imported Health dose carries, so history reads honestly.
+    static let appleHealthNote = "Logged in Apple Health"
 
     var status: DoseEventStatus {
         get { DoseEventStatus(rawValue: statusRawValue) ?? .taken }
@@ -314,6 +325,12 @@ enum MedicationNameProvenance: String, Hashable, Sendable {
     case appleHealth
 }
 
+/// A dose Apple Health logged before the medication existed here.
+struct ImportedDose: Hashable, Sendable {
+    let date: Date
+    let quantity: Double
+}
+
 struct MedicationDraft: Hashable, Sendable {
     var name = ""
     var nickname = ""
@@ -330,6 +347,9 @@ struct MedicationDraft: Hashable, Sendable {
     var source: MedicationSource = .manual
     var nameProvenance: MedicationNameProvenance = .none
     var isAsNeeded = false
+    /// Recent taken doses Health has on record, offered for import so an
+    /// as-needed medication starts with a usage rate instead of a blank one.
+    var importedDoses: [ImportedDose] = []
     var overallConfidence = 1.0
     var evidence: [ScanEvidence] = []
 }
