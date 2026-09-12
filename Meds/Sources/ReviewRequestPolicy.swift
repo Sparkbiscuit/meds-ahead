@@ -60,6 +60,14 @@ final class ReviewRequestCoordinator {
     /// long-time 1.0 user is treated like a new one for a few days and nobody is
     /// asked on the day they installed.
     func noteFirstUseIfNeeded(now: Date = .now) {
+#if DEBUG
+        // Drives the prompt by hand in the simulator: the clock reads a month old
+        // whatever the container already held. Never compiled into a release.
+        if ProcessInfo.processInfo.arguments.contains("-backdate-first-use") {
+            defaults.set(now.addingTimeInterval(-30 * 24 * 60 * 60), forKey: Key.firstUse)
+            return
+        }
+#endif
         guard defaults.object(forKey: Key.firstUse) == nil else { return }
         defaults.set(now, forKey: Key.firstUse)
     }
