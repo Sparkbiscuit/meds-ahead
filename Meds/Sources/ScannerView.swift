@@ -215,7 +215,14 @@ struct ScannerScreen: View {
         let nameFound = preview.isExactMatch ? "Exact match from the label's code" : "Found the name"
         if canUseLiveScanner {
             if evidence.isEmpty { return "Keep the label inside the frame and slowly rotate the bottle" }
-            if missing.isEmpty { return "Everything found — tap Review" }
+            // The NDC is the smallest print on the label and the one line worth a
+            // second look: Review captures a full-resolution frame, so holding it
+            // in view is what turns a read name into an exact product.
+            if missing.isEmpty {
+                return preview.isExactMatch
+                    ? "Everything found — tap Review"
+                    : "Everything found — tap Review. If the label prints an NDC, hold that line in frame for an exact match"
+            }
             if preview.medicationName.isEmpty { return "Keep rotating until the full medication name is visible" }
             return "\(nameFound). Keep rotating for \(missingDescription)"
         }
