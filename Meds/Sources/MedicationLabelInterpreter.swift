@@ -37,7 +37,7 @@ struct LabelFieldSelection {
 }
 
 enum MedicationLabelInterpreter {
-    static func offlineDraft(_ evidence: [ScanEvidence]) -> MedicationDraft {
+    static func offlineDraft(_ evidence: [ScanEvidence], ndcDirectory: NDCDirectory = .shared) -> MedicationDraft {
         var draft = ScanParser.parse(evidence)
         let candidates = LabelCandidateBuilder.build(from: draft.evidence)
         if let resolvedName = uniqueExactMedicationName(in: candidates.medicationNames),
@@ -72,7 +72,16 @@ enum MedicationLabelInterpreter {
         // match emptied the name on most genuine prescription labels. A merely
         // name-shaped line still gets dropped: label furniture like "Open 9 to 6" is
         // worse in the name field than nothing at all.
-        return withBrandNames(draft)
+        let labelDraft = withBrandNames(draft)
+
+        // An NDC the label carries settles identity exactly, but only once the label
+        // has been read the ordinary way and can vouch for it: the reading above is
+        // what a resolved code is checked against before it may fill anything.
+        guard let match = NDCIdentification.match(in: labelDraft.evidence, directory: ndcDirectory) else {
+            return labelDraft
+        }
+        let labelText = LabelCandidateBuilder.textLines(from: labelDraft.evidence).joined(separator: "\n")
+        return NDCIdentification.applying(match, to: labelDraft, labelText: labelText)
     }
 
     static func interpret(_ evidence: [ScanEvidence]) async -> MedicationDraft {
@@ -133,27 +142,31 @@ enum MedicationLabelInterpreter {
     ) -> MedicationDraft {
         var result = draft
 
-        // Medication names may enter an autofilled field only when they resolve
-        // uniquely against the bundled RxNorm-derived vocabulary. The model can
-        // choose evidence and propose a conservative repair, but never bypass
-        // the vocabulary by returning a raw OCR fragment.
-        let resolvedName = MedicationVocabulary.uniqueMatch(for: draft.name)
-            ?? candidate(selection.medicationNameID, in: candidates.medicationNames)
-                .flatMap { selected in
-                    MedicationVocabulary.uniqueMatch(for: selected.value)
-                        ?? validatedMedicationName(selection.normalizedMedicationName, source: selected.value)
-                            .flatMap { MedicationVocabulary.uniqueMatch(for: $0) }
-                }
-        // A vocabulary hit still wins. Without one, only a strength-anchored reading
-        // stands; the model is never allowed to put a raw fragment of its own here.
-        result.name = resolvedName.map(formattedMedicationName)
-            ?? (draft.nameProvenance == .strengthAnchored ? draft.name : "")
+        // An identity resolved from the label's NDC is exact and stays as it is.
+        // The model may still choose among directions, quantity and refill readings.
+        if draft.nameProvenance != .ndc {
+            // Medication names may enter an autofilled field only when they resolve
+            // uniquely against the bundled RxNorm-derived vocabulary. The model can
+            // choose evidence and propose a conservative repair, but never bypass
+            // the vocabulary by returning a raw OCR fragment.
+            let resolvedName = MedicationVocabulary.uniqueMatch(for: draft.name)
+                ?? candidate(selection.medicationNameID, in: candidates.medicationNames)
+                    .flatMap { selected in
+                        MedicationVocabulary.uniqueMatch(for: selected.value)
+                            ?? validatedMedicationName(selection.normalizedMedicationName, source: selected.value)
+                                .flatMap { MedicationVocabulary.uniqueMatch(for: $0) }
+                    }
+            // A vocabulary hit still wins. Without one, only a strength-anchored reading
+            // stands; the model is never allowed to put a raw fragment of its own here.
+            result.name = resolvedName.map(formattedMedicationName)
+                ?? (draft.nameProvenance == .strengthAnchored ? draft.name : "")
 
-        result.strength = resolvedTextField(
-            selectionID: selection.strengthID,
-            candidates: candidates.strengths,
-            fallback: draft.strength
-        )
+            result.strength = resolvedTextField(
+                selectionID: selection.strengthID,
+                candidates: candidates.strengths,
+                fallback: draft.strength
+            )
+        }
         result.directions = resolvedTextField(
             selectionID: selection.directionsID,
             candidates: candidates.directions,
@@ -169,7 +182,7 @@ enum MedicationLabelInterpreter {
             candidates: candidates.refills,
             fallback: draft.refillsRemaining
         )
-        return withBrandNames(result)
+        return draft.nameProvenance == .ndc ? result : withBrandNames(result)
     }
 
     /// A label prints one of the two names a medication has. The curated table

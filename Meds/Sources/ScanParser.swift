@@ -146,7 +146,6 @@ enum ScanParser {
     // otherwise silently fails to prefill.
     private static let expirationPattern = /(?i)\b(?:exp(?:\.|ires?|iration)?|use\s+by|best\s+by|discard\s+after|do\s+not\s+use\s+after|beyond\s+use)\s*(?:date)?\s*[:.]?\s*(\d{1,2})[\/\-|.](?:(\d{1,2})[\/\-|.])?(\d{2,4})\b/
     private static let namedMonthExpirationPattern = /(?i)\b(?:exp(?:\.|ires?|iration)?|use\s+by|best\s+by|discard\s+after|do\s+not\s+use\s+after|beyond\s+use)\s*(?:date)?\s*[:.]?\s*(?:(\d{1,2})\s*)?(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s*(?:(\d{1,2})(?:st|nd|rd|th)?\s*,?\s+)?(\d{2,4})\b/
-    private static let ndcPattern = /(?i)\bNDC\s*[:#]?\s*(\d{4,5}-\d{3,4}-\d{1,2}|\d{10,11})\b/
 
     private struct TextLine {
         let value: String
@@ -195,12 +194,15 @@ enum ScanParser {
         draft.expirationDate = capturedExpiration(in: combined, now: now)
         draft.directions = capturedDirections(from: lines)
 
-        if let barcode = preferredBarcode(in: usableEvidence) {
+        // A printed NDC names the product; a pharmacy's barcode is usually its own
+        // Rx number. When both are in frame, the code that identifies the drug is
+        // the one worth keeping, whether or not the directory resolves it.
+        if let printed = NationalDrugCode.readings(inLabelText: combined).first {
+            draft.productIdentifier = printed.raw
+            draft.productIdentifierType = "NDC"
+        } else if let barcode = preferredBarcode(in: usableEvidence) {
             draft.productIdentifier = barcode.value
             draft.productIdentifierType = barcode.symbology ?? "Barcode"
-        } else if let ndc = capture(in: combined, pattern: ndcPattern, group: 1) {
-            draft.productIdentifier = ndc
-            draft.productIdentifierType = "NDC"
         }
         return draft
     }
@@ -443,7 +445,7 @@ enum ScanParser {
         }.joined(separator: " ")
     }
 
-    private static func inferForm(from value: String) -> MedicationForm {
+    static func inferForm(from value: String) -> MedicationForm {
         let lower = value.lowercased()
         if lower.contains("capsule") { return .capsule }
         if lower.contains("tablet") { return .tablet }

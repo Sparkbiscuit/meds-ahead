@@ -303,6 +303,10 @@ enum MedicationNameProvenance: String, Hashable, Sendable {
     case adjacentToStrength
     case strengthAnchored
     case vocabulary
+    /// Resolved from the National Drug Code the label carries, printed or in a
+    /// barcode, and corroborated by the label. Exact rather than inferred, so it
+    /// outranks every reading of the printed name.
+    case ndc
 }
 
 struct MedicationDraft: Hashable, Sendable {
