@@ -170,6 +170,27 @@ download, and its results are recorded at the end of this entry once it lands.
   tests); UI tests 9/9; Release static analysis succeeded with no warnings after
   a key-path sort descriptor was replaced with an in-memory sort.
 
+### Evening: names people use, and an icon that agrees with its words
+
+- **Four salts, two words.** The FDA lists a mixed-salt stimulant under every
+  salt of every ingredient, and the exact-identification path showed that whole
+  listing as the name. `MedicationVocabulary.shortestName(forCombination:)`
+  keys every multi-ingredient vocabulary entry by the sorted set of its base
+  ingredients, salts and hydration set aside, and returns the shortest name for
+  that set, so both Alvogen's generic listing and the Adderall XR listing read
+  "Amphetamine - dextroamphetamine". Single ingredients keep their salt-aware
+  paths, and succinate and tartrate are never set aside: "hydrochlorothiazide
+  and metoprolol tartrate" stays as listed rather than collapsing to the
+  salt-free entry, because the salt is the product. The curated brand table
+  gains `amphetamine - dextroamphetamine|Adderall`, so a generic listing borrows
+  the reference brand the way generic sertraline borrows Zoloft. The Health app
+  shows the same long FDA name for a scanned Adderall bottle, so this is an
+  improvement on Apple's own behaviour rather than a fix for a unique fault.
+- **The tip jar's icon agrees with its words.** A failed tip showed a checkmark
+  over "Tip Unavailable"; it now shows an orange X, and a purchase Apple is still
+  processing shows a clock under "Tip Pending".
+- Results: unit tests 285/285; Release static analysis clean.
+
 ### Still to do for 1.1
 
 - Real bottles on a physical iPhone: retail and hospital-pharmacy vials,
