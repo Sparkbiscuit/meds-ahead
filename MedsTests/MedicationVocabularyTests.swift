@@ -157,4 +157,25 @@ final class MedicationVocabularyTests: XCTestCase {
             "mycophenolate mofetil"
         )
     }
+
+    /// A labeler lists a stimulant under all four of its salts; the vocabulary
+    /// also has the two-word name everyone uses, and that is the one to show.
+    func testACombinationResolvesToItsShortestName() {
+        XCTAssertEqual(
+            MedicationVocabulary.shortestName(forCombination: "Dextroamphetamine Saccharate, Amphetamine Aspartate, Dextroamphetamine Sulfate, Amphetamine Sulfate"),
+            "amphetamine - dextroamphetamine"
+        )
+        XCTAssertEqual(
+            MedicationVocabulary.shortestName(forCombination: "Dextroamphetamine Sulfate, Dextroamphetamine Saccharate, Amphetamine Sulfate and Amphetamine Aspartate"),
+            "amphetamine - dextroamphetamine",
+            "order does not matter"
+        )
+        XCTAssertEqual(MedicationVocabulary.shortestName(forCombination: "sulfamethoxazole and Trimethoprim"), "sulfamethoxazole / trimethoprim")
+        XCTAssertEqual(MedicationVocabulary.shortestName(forCombination: "hydrochlorothiazide and metoprolol"), "hydrochlorothiazide / metoprolol")
+        // Succinate and tartrate are different products; a listing that names one
+        // must not be shown under a name that drops it.
+        XCTAssertNil(MedicationVocabulary.shortestName(forCombination: "hydrochlorothiazide and metoprolol tartrate"))
+        XCTAssertNil(MedicationVocabulary.shortestName(forCombination: "sertraline hydrochloride"), "single ingredients keep their salt-aware paths")
+        XCTAssertNil(MedicationVocabulary.shortestName(forCombination: "unobtainium and dilithium"))
+    }
 }

@@ -265,4 +265,9 @@ final class MedicationBrandIndexTests: XCTestCase {
     private func key(for value: String) -> String {
         value.lowercased().filter { $0.isLetter }
     }
+
+    func testMixedAmphetamineSaltsHaveTheirReferenceBrand() {
+        XCTAssertEqual(MedicationBrandIndex.brandName(forGeneric: "Amphetamine - dextroamphetamine"), "Adderall")
+        XCTAssertEqual(MedicationBrandIndex.resolve("Adderall XR")?.generic, "amphetamine - dextroamphetamine")
+    }
 }

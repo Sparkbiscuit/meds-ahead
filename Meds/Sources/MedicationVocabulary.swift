@@ -114,6 +114,58 @@ enum MedicationVocabulary {
         return entries.first(where: { $0.parts.key == strippedKey })?.name
     }
 
+    /// Entries with more than one ingredient, keyed by the sorted set of their base
+    /// ingredients with salts and hydration set aside, so "amphetamine aspartate /
+    /// amphetamine sulfate / dextroamphetamine saccharate / dextroamphetamine
+    /// sulfate" and "amphetamine - dextroamphetamine" share one key.
+    private static let entriesByIngredientSet: [String: [Entry]] = {
+        var index: [String: [Entry]] = [:]
+        for entry in entries {
+            guard let key = ingredientSetKey(entry.name), key.contains(";") else { continue }
+            index[key, default: []].append(entry)
+        }
+        return index
+    }()
+
+    /// The shortest name the vocabulary has for a combination of ingredients, or
+    /// nil when it lists no such combination. Combinations only: for a single
+    /// ingredient the salt can be the difference between two products, and the
+    /// exact and salt-stripped paths above already decide those. A labeler's
+    /// four-salt listing for a stimulant becomes the two-word name a pharmacy,
+    /// a clinician and a parent all use.
+    static func shortestName(forCombination source: String) -> String? {
+        guard let key = ingredientSetKey(source), key.contains(";"),
+              let candidates = entriesByIngredientSet[key] else { return nil }
+        return candidates.map(\.name).min { ($0.count, $0) < ($1.count, $1) }
+    }
+
+    /// Salts and hydration states that do not change which combination a name
+    /// describes. Succinate and tartrate are deliberately absent, as above.
+    private static let combinationSaltTokens: Set<String> = interchangeableSaltTokens.union([
+        "aspartate", "saccharate", "sodium", "potassium", "calcium", "magnesium",
+        "monohydrate", "dihydrate", "trihydrate", "hemihydrate", "hydrate", "anhydrous"
+    ])
+
+    /// "a / b", "a and b", "a, b" and "a - b" all name the same set.
+    static func ingredientSetKey(_ value: String) -> String? {
+        let separators = /\s*\/\s*|\s*,\s*|\s+-\s+|\s+and\s+|\s*\+\s*/
+        let ingredients = value.lowercased()
+            .split(separator: separators)
+            .compactMap { ingredient -> String? in
+                var tokens = ingredient
+                    .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+                    .map(String.init)
+                while tokens.count > 1, let last = tokens.last, combinationSaltTokens.contains(last) {
+                    tokens.removeLast()
+                }
+                let base = tokens.joined()
+                return base.count >= 3 ? base : nil
+            }
+        let unique = Set(ingredients)
+        guard !unique.isEmpty else { return nil }
+        return unique.sorted().joined(separator: ";")
+    }
+
     static func uniqueMatch(for source: String) -> String? {
         uniqueMatch(source: parts(source), among: entries)
     }

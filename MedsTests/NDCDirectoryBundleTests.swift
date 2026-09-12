@@ -72,6 +72,9 @@ final class NDCDirectoryBundleTests: XCTestCase {
         XCTAssertEqual(NDCIdentification.displayName(for: try XCTUnwrap(directory.product(forKey: "497080146"))), "Sulfamethoxazole / trimethoprim")
         XCTAssertEqual(NDCIdentification.displayName(for: try XCTUnwrap(directory.product(forKey: "001210759"))), "Prednisolone")
         XCTAssertEqual(NDCIdentification.displayName(for: try XCTUnwrap(directory.product(forKey: "644060006"))), "Dimethyl fumarate")
+        // Four salts on the listing, two words on the screen.
+        XCTAssertEqual(NDCIdentification.displayName(for: try XCTUnwrap(directory.product(forKey: "477810174"))), "Amphetamine - dextroamphetamine")
+        XCTAssertEqual(NDCIdentification.displayName(for: try XCTUnwrap(directory.product(forKey: "540920381"))), "Amphetamine - dextroamphetamine")
     }
 
     /// A label from the household, end to end against the shipped snapshot.
