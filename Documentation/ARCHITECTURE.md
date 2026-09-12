@@ -128,7 +128,11 @@ label write one fact several ways: `800-160 mg` against `800 mg/160 mg`,
 contradict a label; a partial reading of a multi-ingredient product proves nothing
 either way. Names come out as the vocabulary spells them, with the bare ingredient
 preferred over a salt form, so a medication reads the same whichever path
-identified it.
+identified it. A combination listed under every salt of every ingredient — a
+mixed-salt stimulant is the everyday case — reads as the vocabulary's shortest
+name for that same set of ingredients, "Amphetamine - dextroamphetamine" rather
+than four salts, with succinate and tartrate never set aside because the salt
+is the product.
 
 ## Apple Health import
 
