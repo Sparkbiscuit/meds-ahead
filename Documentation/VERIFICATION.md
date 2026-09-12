@@ -129,8 +129,11 @@ download, and its results are recorded at the end of this entry once it lands.
   which is the first thing a curved bottle hides; bare digits without the caption
   stay refused because a phone number and a prescriber's NPI have that shape. The
   live camera path is VisionKit's and cannot be measured here; the captured frame
-  on Review is its full-resolution second chance, and the real-bottle pass on
-  hardware remains the test that matters.
+  on Review is its full-resolution second chance, the live guidance now says to
+  hold the NDC line in frame once everything else is found, and the real-bottle
+  pass on hardware remains the test that matters.
+- **`-backdate-first-use` verified:** a launch with the flag wrote first use as
+  August 13 at 19:50 UTC on September 12, thirty days back to the second.
 - **The mixed-salt label now resolves exactly.** A clipped product line printed
   with NDC 47781-0174 used to be completed from the vocabulary to "Amphetamine -
   dextroamphetamine"; with the snapshot the code resolves and the exact listing
