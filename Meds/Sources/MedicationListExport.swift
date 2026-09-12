@@ -91,6 +91,13 @@ enum MedicationListDocument {
         if let expiration = medication.expirationDate {
             detailParts.append("Package expires \(expiration.formatted(date: .abbreviated, time: .omitted))")
         }
+        // The exact product, when one is known. A pharmacy counter can act on an
+        // NDC and a clinic's system on an RxNorm code; a pharmacy's own barcode
+        // payload means nothing to anyone else and stays off the sheet.
+        if !medication.productIdentifier.isEmpty,
+           ["NDC", "RxNorm"].contains(medication.productIdentifierType) {
+            detailParts.append("\(medication.productIdentifierType) \(medication.productIdentifier)")
+        }
 
         return MedicationListEntry(
             id: medication.id,
