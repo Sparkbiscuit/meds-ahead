@@ -34,7 +34,7 @@ Medication records, label text, barcodes, schedules, dose logs, and inventory ev
 
 The local database is included in the user's own encrypted device and iCloud backups. That is not collection: the backup is made by iOS under the user's Apple Account, and neither Meds Ahead nor its developer can read it. `Data Not Collected` remains the correct answer.
 
-Version 1.1 reads medications from Apple Health when the person chooses to share them. What it reads stays in the app's local store on the iPhone and is never transmitted, so it is not collected in Apple's sense and `Data Not Collected` still holds. Apple's HealthKit rules apply regardless of that answer: the privacy policy names the Health integration and what is done with it, the App Store description mentions it, the app requests read access only, and Health data is never used for advertising or marketing. If the questionnaire is ever changed to declare Health data, it would be `Health` under Health & Fitness, linked to the user, used for App Functionality only, and not used for tracking.
+Version 1.1 reads medications from Apple Health when the person chooses to share them, and the recent dose logs that come with that choice. What it reads stays in the app's local store on the iPhone and is never transmitted, so it is not collected in Apple's sense and `Data Not Collected` still holds. Apple's HealthKit rules apply regardless of that answer: the privacy policy names the Health integration and what is done with it, the App Store description mentions it, the app requests read access only, and Health data is never used for advertising or marketing. If the questionnaire is ever changed to declare Health data, it would be `Health` under Health & Fitness, linked to the user, used for App Functionality only, and not used for tracking.
 
 ## Age rating
 
@@ -125,9 +125,9 @@ The Account Holder must accept the current Paid Apps Agreement and complete Appl
 ## HealthKit (1.1)
 
 - Capability: HealthKit, enabled on the app target (`com.apple.developer.healthkit` in `Meds/Meds.entitlements`, `SystemCapabilities` in the project). Automatic signing adds it to the `com.christoforakis.Meds` App ID on the first archive; if the archive fails with a provisioning error, enable HealthKit on that identifier in Certificates, Identifiers & Profiles and archive again.
-- Purpose string: `NSHealthShareUsageDescription` only. The app never writes to Health, so it declares no update purpose string and never calls share authorization.
+- Purpose string: `NSHealthShareUsageDescription` only. The app never writes to Health, so it declares no update purpose string and never calls share authorization. It reads two things through that one per-object authorization: the medications ticked in Health's picker, and the dose events logged against them. HealthKit refuses a type-level read request for the dose-event type, so none is made.
 - Authorization: per object. `requestPerObjectReadAuthorization` presents Health's own medication picker; the app receives only what the person ticks, and the choice is reversible in Health at any time.
-- Guideline 5.1.3 posture: Health data is used only to prefill the same review screen every medication goes through, is stored locally like typed data, is never written to iCloud by the app, is never used for advertising or marketing, and is never shared. The privacy policy and the description both say so.
+- Guideline 5.1.3 posture: Health data is used only to prefill the same review screen every medication goes through and, for dose logs, to give an as-needed medication its usage rate; it is stored locally like typed data, is never written to iCloud by the app, is never used for advertising or marketing, and is never shared. The privacy policy and the description both say so.
 - Simulator: HealthKit is available in the iOS 26 simulator, so the import can be exercised there; a fresh install on a physical iPhone is still what the review recording should show.
 
 ## Accessibility declarations
