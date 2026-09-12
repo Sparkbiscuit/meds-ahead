@@ -189,7 +189,17 @@ download, and its results are recorded at the end of this entry once it lands.
 - **The tip jar's icon agrees with its words.** A failed tip showed a checkmark
   over "Tip Unavailable"; it now shows an orange X, and a purchase Apple is still
   processing shows a clock under "Tip Pending".
-- Results: unit tests 285/285; Release static analysis clean.
+- **A capture note for the next bottle.** Nick's real-bottle pass found no NDC
+  line in Scan evidence at all on two bottles, on a build of the day's final
+  commit, so recognition never produced the line and the parser is not the first
+  suspect. Debug builds now show, at the top of Scan evidence, what the Review
+  capture did: the photo's pixel size, the crop, the zoom, the lines and codes it
+  read, and the evidence counts either side of the merge cap. The hypotheses it
+  decides between are in `Documentation/handoff/1.1.1-SESSION-BRIEF.md`.
+- Results: unit tests 285/285; Release static analysis clean. One false alarm on
+  the way: a test run failed to launch the host app with "Launchd job spawn
+  failed" because the built bundle had lost its ad-hoc signature after an
+  interrupted run; `xcodebuild clean` and a rebuild restored it.
 
 ### Still to do for 1.1
 

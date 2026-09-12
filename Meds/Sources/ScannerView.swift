@@ -375,11 +375,17 @@ struct ScannerScreen: View {
         isInterpreting = true
         Task { @MainActor in
             var finalEvidence = evidence
+            // A failed capture is swallowed on purpose when live evidence exists,
+            // which also hides it from anyone debugging a bottle. The note says
+            // what the capture did; the review screen shows it in debug builds.
+            var captureNote = "No live capture: evidence came from photos"
             if canUseLiveScanner {
                 do {
-                    let image = try await scannerController.captureCroppedPhoto()
-                    let captured = try await StillImageRecognizer.recognize(image: image, origin: .cameraCapture)
+                    let frame = try await scannerController.captureCroppedPhoto()
+                    let captured = try await StillImageRecognizer.recognize(image: frame.image, origin: .cameraCapture)
+                    let liveCount = finalEvidence.count
                     finalEvidence = ScanEvidenceQuality.mergingBest(existing: finalEvidence, additions: captured)
+                    captureNote = "Review capture: \(frame.description); read \(captured.filter { $0.kind == .text }.count) lines and \(captured.filter { $0.kind == .barcode }.count) codes; \(liveCount) live items before merging, \(finalEvidence.count) after (cap \(ScanEvidenceQuality.evidenceLimit))"
                 } catch where finalEvidence.isEmpty {
                     isInterpreting = false
                     errorMessage = "The camera couldn’t capture a sharp label. Hold the bottle steady inside the frame and try again."
@@ -387,6 +393,7 @@ struct ScannerScreen: View {
                 } catch {
                     // Stable evidence already exists, so confirmation remains
                     // available even if the final snapshot fails unexpectedly.
+                    captureNote = "Review capture failed: \(error)"
                 }
             }
 
@@ -398,7 +405,8 @@ struct ScannerScreen: View {
 
             evidence = finalEvidence
             scannerController.stopScanning()
-            let draft = await MedicationLabelInterpreter.interpret(finalEvidence)
+            var draft = await MedicationLabelInterpreter.interpret(finalEvidence)
+            draft.captureNote = captureNote
             isInterpreting = false
             onComplete(draft)
         }
@@ -635,11 +643,21 @@ private final class LiveScannerController: ObservableObject {
         }
     }
 
-    func captureCroppedPhoto() async throws -> UIImage {
+    /// What the Review capture produced, in the words a diagnostic wants: the
+    /// photo's pixel size, the crop taken from it, and the zoom the person had
+    /// pinched to. The crop mapping assumes an unzoomed, aspect-filled preview,
+    /// which is one of the things this description exists to check on a device.
+    struct CapturedFrame {
+        let image: UIImage
+        let description: String
+    }
+
+    func captureCroppedPhoto() async throws -> CapturedFrame {
         guard let scanner else { throw ScannerError.scannerUnavailable }
         let image = try await scanner.capturePhoto()
         let viewSize = scanner.view.bounds.size
         let visibleRect = scanner.regionOfInterest ?? scanner.view.bounds
+        let zoom = scanner.zoomFactor
         guard let sourceRect = AspectFillCropMapper.sourceRect(
             imageSize: image.size,
             displayedIn: viewSize,
@@ -647,7 +665,15 @@ private final class LiveScannerController: ObservableObject {
         ), let cropped = image.cropped(to: sourceRect) else {
             throw ScannerError.invalidCapture
         }
-        return cropped
+        let pixels = CGSize(width: image.size.width * image.scale, height: image.size.height * image.scale)
+        let description = String(
+            format: "photo %.0f×%.0f px, crop %.0f×%.0f at (%.0f, %.0f), zoom %.1f×",
+            pixels.width, pixels.height,
+            sourceRect.width * image.scale, sourceRect.height * image.scale,
+            sourceRect.minX * image.scale, sourceRect.minY * image.scale,
+            zoom
+        )
+        return CapturedFrame(image: cropped, description: description)
     }
 }
 
