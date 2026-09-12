@@ -1,3 +1,4 @@
+import StoreKit
 import SwiftData
 import SwiftUI
 import UIKit
@@ -28,6 +29,7 @@ struct TodayView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.openURL) private var openURL
+    @Environment(\.requestReview) private var requestReview
     @State private var savingDoseIDs: Set<String> = []
     @State private var showingSaveError = false
     @State private var showingLogAllConfirmation = false
@@ -382,6 +384,7 @@ struct TodayView: View {
             )
             Task { await NotificationService.shared.replaceAllNotifications(for: plans) }
             UINotificationFeedbackGenerator().notificationOccurred(.success)
+            considerReviewRequest(newlyLogged: newIDs)
         } catch {
             modelContext.rollback()
             showingSaveError = true
@@ -413,11 +416,25 @@ struct TodayView: View {
             )
             Task { await NotificationService.shared.replaceAllNotifications(for: plans) }
             UINotificationFeedbackGenerator().notificationOccurred(status == .taken ? .success : .warning)
+            if status == .taken { considerReviewRequest(newlyLogged: [event.id]) }
         } catch {
             modelContext.rollback()
             showingSaveError = true
         }
         savingDoseIDs.remove(dose.id)
+    }
+
+    /// A dose just logged is the moment the app has been useful. The policy
+    /// decides whether it is also a fair moment to ask for a rating, and the ask
+    /// waits for the card to settle so the system sheet never lands on the tap.
+    private func considerReviewRequest(newlyLogged: Set<UUID>) {
+        let takenDoses = doseEvents.filter { $0.status == .taken && !newlyLogged.contains($0.id) }.count + newlyLogged.count
+        guard ReviewRequestCoordinator.shared.shouldRequestReview(takenDoses: takenDoses) else { return }
+        ReviewRequestCoordinator.shared.recordRequest()
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.5))
+            requestReview()
+        }
     }
 }
 
