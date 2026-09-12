@@ -135,13 +135,13 @@ Do not declare captions, audio descriptions, voice control, or switch control wi
 - Contact phone: on file with the account holder; not recorded in this repository
 - Contact email: `nick@christoforakis.com`
 - Authorization: The owner explicitly authorized use of these details for App Review on August 23, 2026
-- Review attachment: None required
+- Review attachment: a screen recording captured on a physical iPhone. Apple required one for 1.0 build 3 and will expect it for a new app; `AppStore/REVIEW_REPLY.md` carries the shot list
 - Review notes: Use the review notes in `AppStore/SUBMISSION.md`
 - Camera: denying the camera prompt is a supported path. The scanner shows an explanatory screen with an `Open Settings` button and photo import stays available, so the reviewer is never left on a blank camera view.
 
-Suggested review route: complete onboarding, choose Add, select Enter Manually, create a medication with a current count and schedule, then open Supply. On a supported physical iPhone, Add > Scan Label exercises on-device text and barcode recognition. Every recognized field is editable before save.
+Suggested review route: complete onboarding, choose Add, then Scan a Label and point the camera at any printed prescription label. Recognition runs on device and every recognized field is editable before save. Enter Manually reaches the same editor when no label is at hand. Then Today to log a dose, Supply for the forecast, and Medications > a medication for a refill or inventory correction.
 
-If the tip products are included, add: `Settings contains three optional, non-recurring StoreKit tip amounts. They do not unlock features; Meds Ahead remains fully functional for free.`
+Lead with the scanner, not manual entry: App Review works on physical hardware, where the scanner is the core feature. Do not describe what the simulator can and cannot do — the earlier notes did, and a caveat about a core feature not being exercisable reads as an admission of incompleteness in a Medical-category app already triaged under App Completeness.
 
 ## Availability and compliance decisions
 
