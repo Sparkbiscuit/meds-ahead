@@ -16,6 +16,7 @@ struct MedicationEditorView: View {
 
     private let medication: Medication?
     private let draftEvidence: [ScanEvidence]
+    private let draftNameProvenance: MedicationNameProvenance
     private let onSaved: (() -> Void)?
 
     @Query private var allMedications: [Medication]
@@ -54,6 +55,7 @@ struct MedicationEditorView: View {
     init(medication: Medication? = nil, draft: MedicationDraft = MedicationDraft(), onSaved: (() -> Void)? = nil) {
         self.medication = medication
         self.draftEvidence = draft.evidence
+        self.draftNameProvenance = draft.nameProvenance
         self.onSaved = onSaved
         let resolvedForm = medication?.form ?? draft.form
         _name = State(initialValue: medication?.name ?? draft.name)
@@ -413,6 +415,19 @@ struct MedicationEditorView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+            }
+            if draftNameProvenance == .ndc {
+                VStack(alignment: .leading, spacing: 3) {
+                    Label("Identified by its NDC", systemImage: "checkmark.seal.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(AppTheme.accent)
+                    Text("The name, strength and form come from the FDA directory entry for the code on this label. Check that they match the bottle.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.vertical, 2)
+                .accessibilityElement(children: .combine)
             }
             DisclosureGroup("Scan evidence") {
                 ForEach(draftEvidence) { evidence in

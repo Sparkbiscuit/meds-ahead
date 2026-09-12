@@ -64,6 +64,8 @@ struct ScanPreview: Equatable, Sendable {
     var hasQuantity = false
     var hasProductIdentifier = false
     var hasRefills = false
+    /// The name came from the label's NDC rather than from reading the printed name.
+    var isExactMatch = false
 
     var hasUsefulProgress: Bool {
         !medicationName.isEmpty || hasStrength || hasQuantity || hasProductIdentifier || hasRefills
@@ -71,15 +73,16 @@ struct ScanPreview: Equatable, Sendable {
 
     /// One pass over the pipeline. `offlineDraft` already begins from a full
     /// `ScanParser.parse`, so every field here comes from that single run.
-    static func make(from evidence: [ScanEvidence]) -> ScanPreview {
+    static func make(from evidence: [ScanEvidence], ndcDirectory: NDCDirectory = .shared) -> ScanPreview {
         guard !evidence.isEmpty else { return ScanPreview() }
-        let draft = MedicationLabelInterpreter.offlineDraft(evidence)
+        let draft = MedicationLabelInterpreter.offlineDraft(evidence, ndcDirectory: ndcDirectory)
         return ScanPreview(
             medicationName: draft.name,
             hasStrength: !draft.strength.isEmpty,
             hasQuantity: draft.currentSupply != nil,
             hasProductIdentifier: !draft.productIdentifier.isEmpty,
-            hasRefills: draft.refillsRemaining != nil
+            hasRefills: draft.refillsRemaining != nil,
+            isExactMatch: draft.nameProvenance == .ndc
         )
     }
 }

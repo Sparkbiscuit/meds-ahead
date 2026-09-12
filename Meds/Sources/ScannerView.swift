@@ -48,7 +48,10 @@ struct ScannerScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbarBackground(.hidden, for: .navigationBar)
-        .task { await resolveCameraAccess() }
+        .task {
+            NDCDirectory.warmUp()
+            await resolveCameraAccess()
+        }
         .onChange(of: evidence) { _, newValue in
             schedulePreviewUpdate(for: newValue)
         }
@@ -162,12 +165,18 @@ struct ScannerScreen: View {
     /// one arrived. Standing there dimmed, they say what the scanner is looking for
     /// before it finds any of it.
     ///
-    /// A barcode has no pill. One is captured and kept when it happens to be in
-    /// frame, but nothing in the app looks a code up, so announcing it only asked
-    /// someone to keep turning a bottle for a fact that changes nothing.
+    /// A barcode has no pill of its own. A manufacturer code that carries the
+    /// product's NDC resolves through the same directory as printed digits and
+    /// shows up here as the Name pill's exact-match state; a pharmacy's Rx-number
+    /// barcode changes nothing, so announcing codes in general only asked someone
+    /// to keep turning a bottle for a fact that changes nothing.
     private var scanProgress: some View {
         ScanProgressFlow(spacing: 7, rowSpacing: 7) {
-            ScanProgressPill(title: "Name", systemImage: "pills.fill", isFound: !preview.medicationName.isEmpty)
+            ScanProgressPill(
+                title: preview.isExactMatch ? "Exact match" : "Name",
+                systemImage: preview.isExactMatch ? "checkmark.seal.fill" : "pills.fill",
+                isFound: !preview.medicationName.isEmpty
+            )
             ScanProgressPill(title: "Strength", systemImage: "scalemass.fill", isFound: preview.hasStrength)
             ScanProgressPill(title: "Quantity", systemImage: "number", isFound: preview.hasQuantity)
             ScanProgressPill(title: "Refills", systemImage: "arrow.clockwise", isFound: preview.hasRefills)
@@ -203,16 +212,17 @@ struct ScannerScreen: View {
             }
         }()
 
+        let nameFound = preview.isExactMatch ? "Exact match from the label's code" : "Found the name"
         if canUseLiveScanner {
             if evidence.isEmpty { return "Keep the label inside the frame and slowly rotate the bottle" }
             if missing.isEmpty { return "Everything found — tap Review" }
             if preview.medicationName.isEmpty { return "Keep rotating until the full medication name is visible" }
-            return "Found the name. Keep rotating for \(missingDescription)"
+            return "\(nameFound). Keep rotating for \(missingDescription)"
         }
         guard !evidence.isEmpty else { return nil }
         if missing.isEmpty { return "Everything found — tap Review" }
         if preview.medicationName.isEmpty { return "Add a photo where the full medication name is visible" }
-        return "Found the name. Add a photo of the other sides for \(missingDescription)"
+        return "\(nameFound). Add a photo of the other sides for \(missingDescription)"
     }
 
     private var controls: some View {
