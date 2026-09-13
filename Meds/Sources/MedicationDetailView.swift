@@ -296,6 +296,9 @@ struct MedicationDetailView: View {
             if !medication.productIdentifier.isEmpty {
                 DetailLine(label: medication.productIdentifierType.isEmpty ? "Product code" : medication.productIdentifierType, value: medication.productIdentifier)
             }
+            if !medication.rxNormCode.isEmpty, medication.productIdentifier != medication.rxNormCode {
+                DetailLine(label: "RxNorm", value: medication.rxNormCode)
+            }
         }
         .padding(18)
         .cardSurface()

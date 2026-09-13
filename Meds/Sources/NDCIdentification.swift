@@ -114,7 +114,14 @@ enum NDCIdentification {
 
     /// Fills the identity fields from the directory when the label agrees. When it
     /// does not, the draft is returned as the parser left it, printed code and all.
-    static func applying(_ match: Match, to draft: MedicationDraft, labelText: String) -> MedicationDraft {
+    /// An accepted code also carries the RxNorm concept the bundled table gives
+    /// it, which is how the medication is later recognised in Apple Health.
+    static func applying(
+        _ match: Match,
+        to draft: MedicationDraft,
+        labelText: String,
+        rxNormTable: RxNormTable = .shared
+    ) -> MedicationDraft {
         guard verdict(for: match, against: draft, labelText: labelText) == .accepted else { return draft }
         let product = match.product
         var result = draft
@@ -127,6 +134,7 @@ enum NDCIdentification {
         result.nameProvenance = .ndc
         result.productIdentifier = match.code.hyphenated
         result.productIdentifierType = "NDC"
+        result.rxNormCode = rxNormTable.product(for: match.code)?.rxcui ?? ""
         return result
     }
 

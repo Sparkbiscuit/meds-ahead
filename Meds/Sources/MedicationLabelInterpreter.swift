@@ -37,7 +37,11 @@ struct LabelFieldSelection {
 }
 
 enum MedicationLabelInterpreter {
-    static func offlineDraft(_ evidence: [ScanEvidence], ndcDirectory: NDCDirectory = .shared) -> MedicationDraft {
+    static func offlineDraft(
+        _ evidence: [ScanEvidence],
+        ndcDirectory: NDCDirectory = .shared,
+        rxNormTable: RxNormTable = .shared
+    ) -> MedicationDraft {
         var draft = ScanParser.parse(evidence)
         let candidates = LabelCandidateBuilder.build(from: draft.evidence)
         if let resolvedName = uniqueExactMedicationName(in: candidates.medicationNames),
@@ -87,7 +91,7 @@ enum MedicationLabelInterpreter {
         let code = match.code.hyphenated
         switch NDCIdentification.verdict(for: match, against: labelDraft, labelText: labelText) {
         case .accepted:
-            result = NDCIdentification.applying(match, to: labelDraft, labelText: labelText)
+            result = NDCIdentification.applying(match, to: labelDraft, labelText: labelText, rxNormTable: rxNormTable)
             result.identification = .accepted(code: code)
         case .uncorroborated:
             result.identification = .uncorroborated(code: code, product: NDCIdentification.summary(of: match.product))

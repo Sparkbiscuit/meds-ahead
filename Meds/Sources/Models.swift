@@ -89,6 +89,25 @@ enum MedicationSource: String, Codable, Sendable {
     case appleHealth
 }
 
+/// Where a refill stands once the person has acted on a low-supply warning.
+/// The forecast is unchanged by it — the count is the count — but the alarms
+/// stop, because the thing they were asking for has been done.
+enum RefillStatus: String, Codable, CaseIterable, Sendable {
+    case none
+    /// Asked the pharmacy or the prescriber; nothing to pick up yet.
+    case requested
+    /// The pharmacy says it is ready.
+    case ready
+
+    var displayName: String {
+        switch self {
+        case .none: "Not started"
+        case .requested: "Requested"
+        case .ready: "Ready for pickup"
+        }
+    }
+}
+
 @Model
 final class Medication {
     @Attribute(.unique) var id: UUID
@@ -116,6 +135,23 @@ final class Medication {
     var isArchived: Bool
     var createdAt: Date
     var updatedAt: Date
+    // The 1.1.1 additions, declared together with inline defaults so existing
+    // stores take them through one lightweight migration, as `brandName` and
+    // `countsTowardSupply` did before them.
+    /// The pharmacy on the label, for the call a low-supply warning leads to.
+    var pharmacyName: String = ""
+    var pharmacyPhone: String = ""
+    /// The pharmacy's own prescription number, read aloud to the pharmacy.
+    var rxNumber: String = ""
+    /// Who takes this, in a household where more than one person does.
+    var personName: String = ""
+    /// The RxNorm concept the medication maps to: Health's own coding for an
+    /// imported medication, the bundled table's answer for a scanned NDC. It is
+    /// what links a medication here to the same one in Apple Health.
+    var rxNormCode: String = ""
+    var refillStatusRawValue: String = ""
+    /// When the refill was requested, or when it will be ready, by status.
+    var refillStatusDate: Date?
 
     init(
         id: UUID = UUID(),
@@ -142,7 +178,14 @@ final class Medication {
         detailedNotifications: Bool = false,
         isArchived: Bool = false,
         createdAt: Date = .now,
-        updatedAt: Date = .now
+        updatedAt: Date = .now,
+        pharmacyName: String = "",
+        pharmacyPhone: String = "",
+        rxNumber: String = "",
+        personName: String = "",
+        rxNormCode: String = "",
+        refillStatus: RefillStatus = .none,
+        refillStatusDate: Date? = nil
     ) {
         self.id = id
         self.name = name
@@ -169,6 +212,29 @@ final class Medication {
         self.isArchived = isArchived
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.pharmacyName = pharmacyName
+        self.pharmacyPhone = pharmacyPhone
+        self.rxNumber = rxNumber
+        self.personName = personName
+        self.rxNormCode = rxNormCode
+        self.refillStatusRawValue = refillStatus == .none ? "" : refillStatus.rawValue
+        self.refillStatusDate = refillStatusDate
+    }
+
+    var refillStatus: RefillStatus {
+        get { RefillStatus(rawValue: refillStatusRawValue) ?? .none }
+        set { refillStatusRawValue = newValue == .none ? "" : newValue.rawValue }
+    }
+
+    /// The RxNorm codes Apple Health may know this medication by. A medication
+    /// imported from Health stores its coding as the product identifier; a
+    /// scanned one carries the bundled table's answer for its NDC. Empty for a
+    /// medication with no exact identity, which is never matched by name.
+    var healthMatchingCodes: Set<String> {
+        var codes: Set<String> = []
+        if !rxNormCode.isEmpty { codes.insert(rxNormCode) }
+        if productIdentifierType == "RxNorm", !productIdentifier.isEmpty { codes.insert(productIdentifier) }
+        return codes
     }
 
     var form: MedicationForm {
@@ -240,6 +306,10 @@ final class DoseEvent {
     /// supply the person just entered. Declared with an inline default so existing
     /// stores take it through a lightweight migration, as `brandName` did.
     var countsTowardSupply: Bool = true
+    /// The Apple Health sample this event mirrors, when it mirrors one. The
+    /// sync skips a sample it has already stored and removes the copy of one
+    /// Health has since taken back.
+    var healthSampleID: UUID? = nil
 
     init(
         id: UUID = UUID(),
@@ -250,7 +320,8 @@ final class DoseEvent {
         doseQuantity: Double,
         status: DoseEventStatus,
         note: String = "",
-        countsTowardSupply: Bool = true
+        countsTowardSupply: Bool = true,
+        healthSampleID: UUID? = nil
     ) {
         self.id = id
         self.medicationID = medicationID
@@ -261,6 +332,7 @@ final class DoseEvent {
         self.statusRawValue = status.rawValue
         self.note = note
         self.countsTowardSupply = countsTowardSupply
+        self.healthSampleID = healthSampleID
     }
 
     /// The note an imported Health dose carries, so history reads honestly.
@@ -356,6 +428,9 @@ enum NDCIdentificationOutcome: Hashable, Sendable {
 struct ImportedDose: Hashable, Sendable {
     let date: Date
     let quantity: Double
+    /// Health's identifier for the sample, so the ongoing sync recognises the
+    /// dose it already imported.
+    var sampleID: UUID? = nil
 }
 
 struct MedicationDraft: Hashable, Sendable {
@@ -371,6 +446,10 @@ struct MedicationDraft: Hashable, Sendable {
     var lotNumber = ""
     var productIdentifier = ""
     var productIdentifierType = ""
+    var pharmacyName = ""
+    var pharmacyPhone = ""
+    var rxNumber = ""
+    var rxNormCode = ""
     var source: MedicationSource = .manual
     var nameProvenance: MedicationNameProvenance = .none
     var isAsNeeded = false

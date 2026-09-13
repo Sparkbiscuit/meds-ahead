@@ -27,7 +27,7 @@ struct HealthImportView: View {
                             .font(.title2)
                             .foregroundStyle(AppTheme.accent)
                             .accessibilityHidden(true)
-                        Text("Health shows you its own list and you tick the medications to share. Meds Ahead reads only those, along with the doses you logged for them in the last 30 days, never writes to Health, and keeps everything on this iPhone.")
+                        Text("Health shows you its own list and you tick the medications to share. Meds Ahead reads only those, along with the doses you logged for them in the last 30 days, and keeps bringing over doses you log in Health for them from then on. It never writes to Health, and everything stays on this iPhone.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)

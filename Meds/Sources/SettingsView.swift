@@ -13,6 +13,21 @@ struct SettingsView: View {
     @State private var showingStory = false
     @State private var showingTips = false
     @State private var tipAvailability: TipAvailability = .loading
+    @State private var healthCheckState: HealthCheckState = .idle
+    @Environment(\.modelContext) private var modelContext
+
+    private enum HealthCheckState: Equatable {
+        case idle
+        case checking
+        case done(String)
+    }
+
+    private var canSyncHealth: Bool {
+        if #available(iOS 26.0, *) {
+            return HealthMedicationImporter.isAvailable
+        }
+        return false
+    }
 
     /// App Review must always be able to find the in-app purchases, so the tip row
     /// is present in every state rather than appearing only once StoreKit answers.
@@ -70,6 +85,25 @@ struct SettingsView: View {
                 Text("Support Meds Ahead")
             } footer: {
                 Text("Meds Ahead is fully functional and free for everyone. Tips support continued improvements and never unlock features.")
+            }
+
+            if canSyncHealth {
+                Section {
+                    LabeledContent("Last checked", value: healthLastCheckText)
+                    Button(healthCheckState == .checking ? "Checking…" : "Check Now") {
+                        Task { await checkHealthNow() }
+                    }
+                    .disabled(healthCheckState == .checking)
+                    if case let .done(summary) = healthCheckState {
+                        Text(summary)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("Apple Health")
+                } footer: {
+                    Text("Doses you log in Health for a medication that is also here are brought over when Meds Ahead opens, and count toward its supply. Only medications shared from Health with an exact identity take part. Meds Ahead never writes to Health.")
+                }
             }
 
             Section("About") {
@@ -146,6 +180,29 @@ struct SettingsView: View {
                 TipJarView(products: products)
             }
         }
+    }
+
+    private var healthLastCheckText: String {
+        guard #available(iOS 26.0, *),
+              let date = UserDefaults.standard.object(forKey: HealthDoseSync.lastCheckKey) as? Date else { return "Not yet" }
+        return date.formatted(date: .abbreviated, time: .shortened)
+    }
+
+    @MainActor
+    private func checkHealthNow() async {
+        guard #available(iOS 26.0, *) else { return }
+        healthCheckState = .checking
+        let outcome = await HealthDoseSync.run(in: modelContext)
+        guard let outcome else {
+            healthCheckState = .done("No medication here is linked to one shared from Health yet.")
+            return
+        }
+        var parts: [String] = []
+        if outcome.inserted > 0 { parts.append("\(outcome.inserted) brought over") }
+        if outcome.removed > 0 { parts.append("\(outcome.removed) removed") }
+        if outcome.updated + outcome.adopted > 0 { parts.append("\(outcome.updated + outcome.adopted) matched") }
+        let medications = "\(outcome.linkedMedications) linked medication\(outcome.linkedMedications == 1 ? "" : "s")"
+        healthCheckState = .done(parts.isEmpty ? "\(medications); nothing new." : "\(medications): " + parts.joined(separator: ", ") + ".")
     }
 
     private var appVersion: String {

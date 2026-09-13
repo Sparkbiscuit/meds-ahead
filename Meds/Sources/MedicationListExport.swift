@@ -98,6 +98,10 @@ enum MedicationListDocument {
            ["NDC", "RxNorm"].contains(medication.productIdentifierType) {
             detailParts.append("\(medication.productIdentifierType) \(medication.productIdentifier)")
         }
+        // The concept clinic systems use, beside the package code a pharmacy uses.
+        if !medication.rxNormCode.isEmpty, medication.productIdentifier != medication.rxNormCode {
+            detailParts.append("RxNorm \(medication.rxNormCode)")
+        }
 
         return MedicationListEntry(
             id: medication.id,

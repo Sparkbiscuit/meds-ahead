@@ -69,6 +69,7 @@ struct ScannerScreen: View {
         .toolbarBackground(.hidden, for: .navigationBar)
         .task {
             NDCDirectory.warmUp()
+            RxNormTable.warmUp()
             await resolveCameraAccess()
         }
         .onChange(of: evidence) { _, newValue in

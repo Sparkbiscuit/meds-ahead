@@ -1,5 +1,6 @@
 import Foundation
 import HealthKit
+import SwiftData
 
 /// A medication as Apple Health describes it, reduced to plain values.
 ///
@@ -24,6 +25,9 @@ struct HealthMedicationSummary: Hashable, Sendable, Identifiable {
     /// Doses Health recorded as taken in the last thirty days, oldest first.
     /// Empty when the person declined to share dose logs, or logged none.
     var recentTakenDoses: [ImportedDose] = []
+    /// Every RxNorm coding Health carries for the medication; the sync matches
+    /// on any of them.
+    var rxNormCodes: Set<String> = []
 }
 
 /// Turns a Health medication into a draft for the review screen.
@@ -55,6 +59,7 @@ enum HealthMedicationMapper {
         if let code = summary.rxNormCode {
             draft.productIdentifier = code
             draft.productIdentifierType = "RxNorm"
+            draft.rxNormCode = code
         }
         return draft
     }
@@ -106,12 +111,23 @@ enum HealthMedicationMapper {
     }
 
     /// The medication already on file that this Health entry describes, if any:
-    /// the same RxNorm code, or the same name in either the generic or brand field.
-    static func existingMedication(for draft: MedicationDraft, among medications: [Medication]) -> Medication? {
+    /// the same RxNorm concept — or the same clinical drug, so a generic bottle
+    /// scanned here is the brand chosen in Health — or the same name in either
+    /// the generic or brand field.
+    static func existingMedication(
+        for draft: MedicationDraft,
+        among medications: [Medication],
+        rxNormTable: RxNormTable = .shared
+    ) -> Medication? {
         let active = medications.filter { !$0.isArchived }
-        if draft.productIdentifierType == "RxNorm", !draft.productIdentifier.isEmpty,
-           let byCode = active.first(where: { $0.productIdentifierType == "RxNorm" && $0.productIdentifier == draft.productIdentifier }) {
-            return byCode
+        let draftCodes = Set([draft.rxNormCode, draft.productIdentifierType == "RxNorm" ? draft.productIdentifier : ""].filter { !$0.isEmpty })
+        if !draftCodes.isEmpty {
+            let wanted = Set(draftCodes.map { rxNormTable.clinicalDrugCode(for: $0) })
+            if let byCode = active.first(where: { medication in
+                !wanted.isDisjoint(with: medication.healthMatchingCodes.map { rxNormTable.clinicalDrugCode(for: $0) })
+            }) {
+                return byCode
+            }
         }
         let keys = Set([draft.name, draft.brandName].map(key).filter { $0.count >= 4 })
         guard !keys.isEmpty else { return nil }
@@ -185,18 +201,50 @@ enum HealthMedicationImporter {
             .compactMap { sample -> ImportedDose? in
                 guard let event = sample as? HKMedicationDoseEvent, event.logStatus == .taken else { return nil }
                 let quantity = event.doseQuantity ?? event.scheduledDoseQuantity ?? 1
-                return ImportedDose(date: event.startDate, quantity: quantity > 0 ? quantity : 1)
+                return ImportedDose(date: event.startDate, quantity: quantity > 0 ? quantity : 1, sampleID: event.uuid)
             }
             .sorted { $0.date < $1.date }
     }
 
+    /// Taken and skipped doses for one medication over a window, as plain records
+    /// for the sync. Reminders the person never touched, snoozed, or undid are
+    /// not doses.
+    static func doseRecords(
+        for concept: HKMedicationConcept,
+        in store: HKHealthStore,
+        from start: Date,
+        to end: Date
+    ) async throws -> [HealthDoseRecord] {
+        let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
+            NSPredicate(format: "%K == %@", HKPredicateKeyPathMedicationConceptIdentifier, concept.identifier),
+            HKQuery.predicateForSamples(withStart: start, end: end, options: [])
+        ])
+        let descriptor = HKSampleQueryDescriptor(
+            predicates: [.sample(type: HKObjectType.medicationDoseEventType(), predicate: predicate)],
+            sortDescriptors: []
+        )
+        return try await descriptor.result(for: store).compactMap { sample -> HealthDoseRecord? in
+            guard let event = sample as? HKMedicationDoseEvent else { return nil }
+            let status: HealthDoseRecord.Status
+            switch event.logStatus {
+            case .taken: status = .taken
+            case .skipped: status = .skipped
+            default: return nil
+            }
+            return HealthDoseRecord(
+                sampleID: event.uuid,
+                date: event.startDate,
+                scheduledDate: event.scheduleType == .schedule ? (event.scheduledDate ?? event.startDate) : nil,
+                quantity: event.doseQuantity.flatMap { $0 > 0 ? $0 : nil },
+                status: status
+            )
+        }
+    }
+
     static func summary(index: Int, _ medication: HKUserAnnotatedMedication) -> HealthMedicationSummary {
         let concept = medication.medication
-        let rxNormCode = concept.relatedCodings
-            .filter { $0.system.lowercased().contains("rxnorm") }
-            .map(\.code)
-            .sorted { ($0.count, $0) < ($1.count, $1) }
-            .first
+        let codes = rxNormCodes(of: concept)
+        let rxNormCode = codes.sorted { ($0.count, $0) < ($1.count, $1) }.first
         return HealthMedicationSummary(
             id: "\(index)-\(concept.displayText)",
             displayText: concept.displayText,
@@ -204,8 +252,15 @@ enum HealthMedicationImporter {
             form: form(concept.generalForm),
             hasSchedule: medication.hasSchedule,
             isArchived: medication.isArchived,
-            rxNormCode: rxNormCode
+            rxNormCode: rxNormCode,
+            rxNormCodes: codes
         )
+    }
+
+    static func rxNormCodes(of concept: HKMedicationConcept) -> Set<String> {
+        Set(concept.relatedCodings
+            .filter { $0.system.lowercased().contains("rxnorm") }
+            .map(\.code))
     }
 
     private static func form(_ form: HKMedicationGeneralForm) -> HealthMedicationSummary.Form {
@@ -229,5 +284,128 @@ enum HealthMedicationImporter {
         case .topical: .topical
         default: .unknown
         }
+    }
+}
+
+/// Keeps the ledger in step with the doses a person logs in Apple Health for a
+/// medication that is also here.
+///
+/// Runs on launch and on returning to the foreground, beside notification
+/// replanning. Only medications with an exact identity Health shares — an RxNorm
+/// code — take part; nothing is ever matched by name, because a wrong match here
+/// changes a supply count. The medications come from the per-object grant the
+/// import already holds, so no picker and no new permission is shown, and the
+/// dose events come under the same grant; the dose-event type is never requested
+/// on its own, which HealthKit refuses with an exception. Still read-only: a
+/// dose logged here is never written to Health.
+@available(iOS 26.0, *)
+enum HealthDoseSync {
+    static let lastCheckKey = "healthDoseSync.lastCheck"
+
+    struct Outcome: Equatable, Sendable {
+        var linkedMedications = 0
+        var inserted = 0
+        var adopted = 0
+        var updated = 0
+        var removed = 0
+    }
+
+    /// The window checked on every pass: the same thirty days the as-needed
+    /// forecast measures over, so an undo in Health is caught for as long as the
+    /// dose still matters to the estimate.
+    static let windowDays = 30
+
+    @MainActor
+    static func run(in context: ModelContext, now: Date = .now) async -> Outcome? {
+        guard HealthMedicationImporter.isAvailable else { return nil }
+        let medications = (try? context.fetch(FetchDescriptor<Medication>())) ?? []
+        let linked = medications.filter { !$0.isArchived && !$0.healthMatchingCodes.isEmpty }
+        guard !linked.isEmpty else { return nil }
+        let store = HKHealthStore()
+        guard let shared = try? await HKUserAnnotatedMedicationQueryDescriptor().result(for: store),
+              let windowStart = Calendar.autoupdatingCurrent.date(byAdding: .day, value: -windowDays, to: now) else {
+            return nil
+        }
+
+        var outcome = Outcome()
+        let schedules = (try? context.fetch(FetchDescriptor<DoseSchedule>())) ?? []
+        let doseEvents = (try? context.fetch(FetchDescriptor<DoseEvent>())) ?? []
+        let table = RxNormTable.shared
+        for annotated in shared {
+            // Both sides are widened to the clinical drug, so a generic bottle
+            // scanned here and the brand chosen in Health read as one medication.
+            let codes = expanded(HealthMedicationImporter.rxNormCodes(of: annotated.medication), table: table)
+            let matches = linked.filter { !codes.isDisjoint(with: expanded($0.healthMatchingCodes, table: table)) }
+            // Two medications here with one identity in Health — the same drug for
+            // two people — cannot be told apart, so neither is touched.
+            guard matches.count == 1, let medication = matches.first else { continue }
+            outcome.linkedMedications += 1
+            let records = (try? await HealthMedicationImporter.doseRecords(
+                for: annotated.medication,
+                in: store,
+                from: windowStart,
+                to: now
+            )) ?? []
+            let plan = HealthDoseReconciler.plan(
+                records: records,
+                existing: doseEvents,
+                schedules: schedules,
+                medicationID: medication.id,
+                windowStart: windowStart,
+                now: now
+            )
+            apply(plan, to: medication, existing: doseEvents, in: context, outcome: &outcome)
+        }
+        if (try? context.save()) != nil {
+            UserDefaults.standard.set(now, forKey: lastCheckKey)
+        }
+        return outcome
+    }
+
+    static func expanded(_ codes: Set<String>, table: RxNormTable) -> Set<String> {
+        codes.union(codes.map { table.clinicalDrugCode(for: $0) })
+    }
+
+    @MainActor
+    private static func apply(
+        _ plan: HealthDosePlan,
+        to medication: Medication,
+        existing: [DoseEvent],
+        in context: ModelContext,
+        outcome: inout Outcome
+    ) {
+        for insertion in plan.insertions {
+            // A dose logged after the medication existed here was taken from the
+            // count this app is keeping, so it counts toward the supply.
+            context.insert(DoseEvent(
+                medicationID: medication.id,
+                scheduleID: insertion.scheduleID,
+                scheduledAt: insertion.scheduledAt,
+                recordedAt: insertion.record.date,
+                doseQuantity: insertion.quantity,
+                status: insertion.status,
+                note: DoseEvent.appleHealthNote,
+                countsTowardSupply: true,
+                healthSampleID: insertion.record.sampleID
+            ))
+            outcome.inserted += 1
+        }
+        for adoption in plan.adoptions {
+            guard let event = existing.first(where: { $0.id == adoption.eventID }) else { continue }
+            event.healthSampleID = adoption.sampleID
+            if event.status != adoption.status { event.status = adoption.status }
+            outcome.adopted += 1
+        }
+        for change in plan.statusChanges {
+            guard let event = existing.first(where: { $0.id == change.eventID }) else { continue }
+            event.status = change.status
+            outcome.updated += 1
+        }
+        for eventID in plan.deletions {
+            guard let event = existing.first(where: { $0.id == eventID }) else { continue }
+            context.delete(event)
+            outcome.removed += 1
+        }
+        if !plan.isEmpty { medication.updatedAt = .now }
     }
 }

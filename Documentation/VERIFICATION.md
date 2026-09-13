@@ -123,7 +123,7 @@ tapping it filled Tacrolimus, Prograf, 1 mg and Capsule, set the product code
 to 00469-0617-73, and the row read "Name, strength and form filled from the FDA
 directory entry for 00469-0617-73".
 
-### Results
+### Results of the scanner batch
 
 - Unit tests: 306/306 on the iPhone 17 Pro simulator (285 before, plus the
   confusable, spaced-hyphen and split-line readings, the outcome reporting, the
@@ -131,9 +131,85 @@ directory entry for 00469-0617-73".
   code-fragment shapes, the camera-sized and half-percent labels, the zoomed
   and tiled passes on their own, the wrapped code, and the four text-heavy
   labels).
+- UI tests: 9/9 on the iPhone 17 simulator, with the NDC field present on the
+  editor screens the accessibility audits cover.
+- Committed as `baec6e4`, the last commit without a model change; 1.1 can be
+  archived from it.
 - The two bottles from September 12 remain the acceptance test, on the phone.
   Read the capture note first; it now also says whether the second look ran
   and what it found.
+
+## September 12, 2026 (late) — 1.1.1: Health dose sync, the RxNorm table, one migration
+
+### The model change, batched
+
+Every stored property 1.1.1 adds landed in one commit so existing stores take
+them through one lightweight migration: `DoseEvent.healthSampleID`, and on
+`Medication` the pharmacy name and phone, the Rx number, the person it is for,
+the RxNorm code, and the refill-in-progress status with its date. All are
+declared with inline defaults, as `brandName` and `countsTowardSupply` were.
+Version bumped to 1.1.1, build 5.
+
+### Health dose sync
+
+- `HealthDoseReconciler` and its sixteen tests, over plain values: a stored
+  sample is skipped; a status changed in Health is restated; a dose the 1.1
+  import stored without a sample identifier is adopted by its time rather than
+  duplicated, and two samples cannot adopt one; a Health dose logged against a
+  reminder claims this app's nearest slot within two hours (Health's 8:00 is
+  this app's 8:30) and is skipped when that slot is already logged here; a dose
+  far from any slot is stored unscheduled at the nearest schedule's amount; a
+  Health quantity outranks the slot's; an unscheduled Health dose within thirty
+  minutes of a dose logged here is the same dose, and thirty-one minutes is not;
+  a mirrored Health dose never blocks a second Health dose beside it; skipped
+  in Health is skipped here; a sample Health took back is removed, and only
+  mirrored events inside the window can be; records outside the window and
+  another medication's events are invisible; and a name is never an identity.
+- `ScheduleEngine.nearestScheduledDose` answers the slot question, tested.
+- By hand on the iPhone 17 Pro simulator, on an on-disk store: Add > Import from
+  Apple Health > Choose Medications in Health > Turn On All > Allow listed
+  "Tacrolimus 1mg Oral capsule · 1 dose logged in 30 days"; the review screen
+  saved it with a count of 30 (and asked for notification permission, as a first
+  save does). In the Health app, Medications > As Needed Medications > + >
+  Taken > Done logged a capsule at 10:46 PM. Bringing Meds Ahead back to the
+  foreground ran the sync. The store, read directly: the medication carries
+  RxNorm 198377 as both product identifier and `rxNormCode`; the 3:38 PM dose
+  imported with the medication has `countsTowardSupply` 0 and now a sample
+  identifier; the 10:46 PM dose arrived with `countsTowardSupply` 1 and its
+  sample identifier; `healthDoseSync.lastCheck` reads the foreground moment.
+  Then, in Health, opening the 10:46 PM entry and tapping Taken again un-logged
+  it; bringing Meds Ahead forward again removed the mirrored copy, leaving only
+  the imported 3:38 PM dose, and the last check advanced. Health's simulator
+  quirks for the record: "As Needed Medications +" logs a dose dated now for any
+  shared medication, and the per-object picker still needs "Turn On All" rather
+  than its row toggle.
+- **Migration verified empirically, from 1.0.** The shipped 1.0 build 3 commit
+  (`6c5b235`) was built in a detached worktree, installed on the iPhone 17
+  simulator, and launched with `-seed-demo-data -seed-missed-doses` and without
+  the in-memory flag, so its store predates `countsTowardSupply` as well as
+  every 1.1.1 column; one missed dose was logged as taken. The new build was
+  installed over it, never uninstalled, and launched: three medications, four
+  schedules, three inventory events and the dose event survived; the pharmacy,
+  Rx number, person, RxNorm and refill-status columns read as empty strings,
+  the refill-status date and the Health sample identifier as null, and
+  `countsTowardSupply` as true. Nothing in the log mentioned a migration error.
+
+### RxNorm
+
+- `Tools/build_rxnorm_table.py` read the September 8, 2026 prescribable
+  release (74.7 MB zip, SHA-256 `82cc1679…`, downloaded from NLM without a
+  licence): RXNSAT's 441,035 NDC attributes cover 116,236 labeler-product keys,
+  79,604 of them in the app's FDA snapshot; 8,083 of those map to a branded
+  concept with a clinical drug behind it; 14,835 prescribable names. NLM's own
+  NDC rows outvote labeler-submitted SPL rows where a package's concept is
+  disputed (1,486 keys). `RxNormProducts.txt` is 1.5 MB and `RxNormNames.txt`
+  0.8 MB, 0.6 MB together compressed.
+- `RxNormTableTests` pin Prograf's product to 108513 with clinical drug 198377
+  — the code Health showed for tacrolimus — Zoloft and a generic sertraline to
+  the one clinical drug 312941, NLM's prescribable name for it ("sertraline
+  HCl 50 MG Oral Tablet"), an accepted NDC carrying its concept into the draft
+  and nothing when the table is absent, the Health duplicate check recognising
+  Zoloft-in-Health as the generic bottle here, and the sync widening both sides.
 
 
 Built in one session from the brief in `Documentation/handoff/NDC-SESSION-PROMPT.md`
