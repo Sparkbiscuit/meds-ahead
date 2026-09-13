@@ -73,6 +73,19 @@ stale, and get the record straight.
   the review notes' item 8 stands; and he had the website commit pushed, so
   the amended policy is live.
 
+### The first archive, and what App Store Connect refused
+
+- Nick archived at 15:46 with automatic signing. Signing went through, and
+  Organizer validation then failed with ITMS-90683: the `Meds.app` bundle
+  must carry `NSHealthUpdateUsageDescription` because it carries the HealthKit
+  entitlement, whether or not it ever writes. The app never writes to Health
+  and never asks for share authorization, so the key is now declared with a
+  string that says exactly that; it is never shown, because the request that
+  would show it is never made. Added as `INFOPLIST_KEY_NSHealthUpdateUsageDescription`
+  on the app target, confirmed present in the built Info.plist, and recorded in
+  `CONNECT_ANSWERS.md`. The archive has to be made again from this commit;
+  validating the 15:46 archive would fail the same way.
+
 ## September 12, 2026 (night) — 1.1.1: the scanner, from the real-bottle pass
 
 Built from `Documentation/handoff/1.1.1-SESSION-BRIEF.md`, first section, the
