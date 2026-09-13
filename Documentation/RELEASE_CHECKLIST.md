@@ -79,7 +79,7 @@ Everything built under the 1.1.1 name ships in 1.1, build 6 (decided September 1
 Still to do, on a physical iPhone and in App Store Connect:
 
 - [x] Push the privacy policy's dose-sync and widget sentences (Sparkbiscuit.github.io `3330616`, pushed September 13)
-- [ ] Archive with automatic signing so HealthKit and the App Group `group.com.christoforakis.Meds` join the app's App ID and the App Group joins the extension's (`com.christoforakis.Meds.MedsWidgets`), or add them by hand in Certificates, Identifiers & Profiles
+- [x] Archive with automatic signing so HealthKit and the App Group `group.com.christoforakis.Meds` join the app's App ID and the App Group joins the extension's (`com.christoforakis.Meds.MedsWidgets`): the 15:46 archive on September 13 created the extension's App ID and both store profiles with the capabilities; that archive then failed upload validation on a missing `NSHealthUpdateUsageDescription` (ITMS-90683), fixed in the project, so the upload comes from a fresh archive
 - [ ] Update from the App Store 1.0 on a physical iPhone: the store moves into the app group, and history is intact
 - [ ] Real bottles on a physical iPhone: printed NDC on retail and hospital-pharmacy vials and a manufacturer barcode on a box, through live scanning and the Review capture; on the two bottles from September 12, read the capture note first
 - [ ] Widgets on a physical iPhone: Next Dose (small, medium, Lock Screen rectangular, circular, inline) and Runs Out Next; the Taken button logs the dose once and Today shows it; names redact on the locked Lock Screen
