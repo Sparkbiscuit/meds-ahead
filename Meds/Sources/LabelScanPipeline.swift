@@ -193,18 +193,28 @@ struct LiveEvidenceTracker<ID: Hashable> {
 
 enum ScanFrameLayout {
     static let horizontalInset: CGFloat = 24
-    /// The top band holds the progress pills, which wrap onto a second row once a
-    /// label has yielded four or five facts, so it is deeper than the bottom band
-    /// that holds the one-line guidance banner.
-    ///
-    /// Both the drawn outline and `region` are inset by these same numbers. They
-    /// have to stay one source of truth: the green frame is a promise about where
-    /// the scanner is reading, and a frame that disagreed with the recognition
-    /// region would be pointing somewhere the app is not looking.
+    /// Where the progress pills begin, clear of the system scanner's own "Slow
+    /// down" hint, which sits just under the title.
+    static let pillRowTop: CGFloat = 44
+    /// Breathing room between the last row of pills and the frame's top edge.
+    static let pillRowGap: CGFloat = 16
+    /// The frame's top edge before the pill row has been measured: the depth of a
+    /// single row of pills. The pills wrap onto a second row at large text sizes,
+    /// so the live inset is measured from the row itself rather than assumed.
     static let topInset: CGFloat = 92
     static let bottomInset: CGFloat = 64
 
-    static func region(in bounds: CGRect) -> CGRect {
+    /// The frame's top edge for a pill row of the given height. The drawn outline
+    /// and the scanner's region of interest both derive from the outline's own
+    /// measured frame, so they cannot disagree: the green frame is a promise about
+    /// where the scanner is reading, and a frame that disagreed with the
+    /// recognition region would be pointing somewhere the app is not looking.
+    static func topInset(forPillRowHeight height: CGFloat) -> CGFloat {
+        guard height > 0 else { return topInset }
+        return pillRowTop + height + pillRowGap
+    }
+
+    static func region(in bounds: CGRect, topInset: CGFloat = topInset) -> CGRect {
         CGRect(
             x: bounds.minX + horizontalInset,
             y: bounds.minY + topInset,

@@ -17,7 +17,7 @@ struct MedicationEditorView: View {
     private let medication: Medication?
     private let draftEvidence: [ScanEvidence]
     private let draftSource: MedicationSource
-    private let draftNameProvenance: MedicationNameProvenance
+    private let draftIdentification: NDCIdentificationOutcome?
     private let draftImportedDoses: [ImportedDose]
     private let draftCaptureNote: String
     private let onSaved: (() -> Void)?
@@ -44,6 +44,8 @@ struct MedicationEditorView: View {
     @State private var lotNumber: String
     @State private var productIdentifier: String
     @State private var productIdentifierType: String
+    @State private var nameProvenance: MedicationNameProvenance
+    @State private var ndcEntry: String
     @State private var isAsNeeded: Bool
     @State private var remindersEnabled: Bool
     @State private var refillRemindersEnabled: Bool
@@ -60,7 +62,7 @@ struct MedicationEditorView: View {
         self.medication = medication
         self.draftEvidence = draft.evidence
         self.draftSource = medication?.source ?? draft.source
-        self.draftNameProvenance = draft.nameProvenance
+        self.draftIdentification = draft.identification
         self.draftImportedDoses = draft.importedDoses
         self.draftCaptureNote = draft.captureNote
         self.onSaved = onSaved
@@ -82,6 +84,10 @@ struct MedicationEditorView: View {
         _lotNumber = State(initialValue: medication?.lotNumber ?? draft.lotNumber)
         _productIdentifier = State(initialValue: medication?.productIdentifier ?? draft.productIdentifier)
         _productIdentifierType = State(initialValue: medication?.productIdentifierType ?? draft.productIdentifierType)
+        _nameProvenance = State(initialValue: medication == nil ? draft.nameProvenance : .none)
+        // A code that was read but filled nothing is offered back for checking,
+        // digit by digit against the bottle, rather than left in the evidence list.
+        _ndcEntry = State(initialValue: draft.identification?.codeToCheck ?? "")
         _isAsNeeded = State(initialValue: medication?.isAsNeeded ?? draft.isAsNeeded)
         _remindersEnabled = State(initialValue: medication?.remindersEnabled ?? true)
         _refillRemindersEnabled = State(initialValue: medication?.refillRemindersEnabled ?? true)
@@ -322,6 +328,9 @@ struct MedicationEditorView: View {
                             .multilineTextAlignment(.trailing)
                     }
                 }
+                NDCEntryRow(code: $ndcEntry, usedCode: nameProvenance == .ndc ? productIdentifier : nil) { code, product in
+                    applyDirectoryProduct(product, code: code)
+                }
             }
 
             Section {
@@ -425,19 +434,7 @@ struct MedicationEditorView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            if draftNameProvenance == .ndc {
-                VStack(alignment: .leading, spacing: 3) {
-                    Label("Identified by its NDC", systemImage: "checkmark.seal.fill")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(AppTheme.accent)
-                    Text("The name, strength and form come from the FDA directory entry for the code on this label. Check that they match the bottle.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(.vertical, 2)
-                .accessibilityElement(children: .combine)
-            }
+            identificationNote
             DisclosureGroup("Scan evidence") {
 #if DEBUG
                 // Debug builds only: whether the full-resolution Review capture
@@ -464,6 +461,91 @@ struct MedicationEditorView: View {
                 }
             }
         }
+    }
+
+    /// What became of the label's code, in words. "Not read" and "read but
+    /// refused" used to look the same, an empty screen, and only the second is
+    /// worth a second look at the digits.
+    @ViewBuilder
+    private var identificationNote: some View {
+        if nameProvenance == .ndc {
+            summaryNote(
+                title: "Identified by its NDC",
+                symbol: "checkmark.seal.fill",
+                tint: AppTheme.accent,
+                message: "The name, strength and form come from the FDA directory entry for the code on this label. Check that they match the bottle."
+            )
+        } else {
+            switch draftIdentification {
+            case let .uncorroborated(code, product):
+                summaryNote(
+                    title: "Code read, not used yet",
+                    symbol: "questionmark.circle.fill",
+                    tint: .orange,
+                    message: "The label prints \(code), which the FDA directory lists as \(product). Nothing else on the label confirmed it, so no field was filled from it. If the bottle agrees, use it under Prescription & package."
+                )
+            case let .contradicted(code, product):
+                summaryNote(
+                    title: "Code read, but the label disagrees",
+                    symbol: "exclamationmark.triangle.fill",
+                    tint: .orange,
+                    message: "The label prints \(code), which the FDA directory lists as \(product), but the printed name, strength or form says otherwise. Nothing was filled from the code. Check the bottle before saving."
+                )
+            case let .unlisted(code):
+                summaryNote(
+                    title: "Code read, not in the directory",
+                    symbol: "questionmark.circle.fill",
+                    tint: .orange,
+                    message: "\(code) was read as an NDC but is not in the bundled FDA directory. A digit may have been misread; it is ready to check under Prescription & package."
+                )
+            case .ambiguous:
+                summaryNote(
+                    title: "More than one code read",
+                    symbol: "exclamationmark.triangle.fill",
+                    tint: .orange,
+                    message: "The label yielded codes for different products, so none was used. Enter the one on the bottle under Prescription & package."
+                )
+            case .accepted, nil:
+                Text("No NDC was read from this label. If it prints one, enter it under Prescription & package for an exact match.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func summaryNote(title: String, symbol: String, tint: Color, message: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Label(title, systemImage: symbol)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(tint)
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
+    }
+
+    /// The person has read the code off the bottle and chosen the product it
+    /// names, which is the corroboration a typed code has: the directory entry
+    /// fills the identity the way an accepted scan does, and every field stays
+    /// theirs to change.
+    private func applyDirectoryProduct(_ product: NDCProduct, code: NationalDrugCode) {
+        withAnimation(.medsSpring) {
+            name = NDCIdentification.displayName(for: product)
+            brandName = product.brandName.isEmpty
+                ? (MedicationBrandIndex.brandName(forGeneric: name) ?? "")
+                : product.brandName
+            if !brandName.isEmpty { isBrandNameVisible = true }
+            if !product.strength.isEmpty { strength = product.strength }
+            form = product.form
+            productIdentifier = code.hyphenated
+            productIdentifierType = "NDC"
+            nameProvenance = .ndc
+        }
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
     }
 
     private var healthSummarySection: some View {
@@ -639,6 +721,106 @@ struct MedicationEditorView: View {
 
     private static func date(minutes: Int) -> Date {
         Calendar.current.date(bySettingHour: minutes / 60, minute: minutes % 60, second: 0, of: .now) ?? .now
+    }
+}
+
+/// A field for the code off the bottle. Exactness should never depend on OCR
+/// alone: the smallest print on a label is the line worth an exact match, and a
+/// person can read it when the camera cannot.
+private struct NDCEntryRow: View {
+    @Binding var code: String
+    /// The code the identity was filled from, when it was, so the row says so.
+    let usedCode: String?
+    let onUse: (NationalDrugCode, NDCProduct) -> Void
+    @State private var lookup: Lookup = .empty
+    @State private var lookupTask: Task<Void, Never>?
+
+    private enum Lookup: Equatable {
+        case empty
+        case malformed
+        case unlisted
+        case ambiguous
+        case found(NationalDrugCode, NDCProduct)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            MedicationFieldTitle("NDC from the label")
+            TextField("NDC (optional)", text: $code)
+                .font(.body.monospaced())
+                .keyboardType(.numbersAndPunctuation)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .accessibilityIdentifier("ndc-entry")
+                .accessibilityHint("Optional; the 10 or 11 digit code printed on the label, for an exact match")
+            result
+        }
+        .padding(.vertical, 3)
+        .task(id: code) { await resolve() }
+    }
+
+    @ViewBuilder
+    private var result: some View {
+        switch lookup {
+        case .empty:
+            EmptyView()
+        case .malformed:
+            note("An NDC has 10 or 11 digits, printed like 0093-1039-01.", symbol: "info.circle", tint: .secondary)
+        case .unlisted:
+            note("Not in the bundled FDA directory. Check each digit against the label.", symbol: "questionmark.circle", tint: .orange)
+        case .ambiguous:
+            note("These digits fit more than one product. Type the code with its hyphens.", symbol: "questionmark.circle", tint: .orange)
+        case let .found(found, product):
+            if usedCode == found.hyphenated {
+                note("Name, strength and form filled from the FDA directory entry for \(found.hyphenated).", symbol: "checkmark.seal.fill", tint: AppTheme.accent)
+            } else {
+                note("FDA directory: \(NDCIdentification.summary(of: product)), \(product.form.displayName.lowercased()).", symbol: "text.magnifyingglass", tint: .secondary)
+                Button {
+                    onUse(found, product)
+                } label: {
+                    Label("Use This Product", systemImage: "checkmark.seal")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .accessibilityIdentifier("use-ndc-product")
+                .accessibilityHint("Fills the name, strength and form from the directory")
+            }
+        }
+    }
+
+    private func note(_ text: String, symbol: String, tint: Color) -> some View {
+        Label(text, systemImage: symbol)
+            .font(.caption)
+            .foregroundStyle(tint)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityElement(children: .combine)
+    }
+
+    /// The directory's one-time load is a few hundred milliseconds of parsing,
+    /// which must not land on the keyboard, so the lookup runs off the main actor
+    /// and a keystroke cancels the one before it.
+    @MainActor
+    private func resolve() async {
+        let typed = code.filter { $0.isNumber || $0 == "-" }
+        guard !typed.isEmpty else {
+            lookup = .empty
+            return
+        }
+        let candidates = NationalDrugCode.candidates(fromRendering: typed)
+        guard !candidates.isEmpty else {
+            lookup = typed.filter(\.isNumber).count >= 6 ? .malformed : .empty
+            return
+        }
+        try? await Task.sleep(for: .milliseconds(200))
+        guard !Task.isCancelled else { return }
+        let hits = await Task.detached(priority: .userInitiated) {
+            candidates.compactMap { code in NDCDirectory.shared.product(for: code).map { (code, $0) } }
+        }.value
+        guard !Task.isCancelled else { return }
+        switch Set(hits.map(\.1.productKey)).count {
+        case 0: lookup = .unlisted
+        case 1: lookup = .found(hits[0].0, hits[0].1)
+        default: lookup = .ambiguous
+        }
     }
 }
 

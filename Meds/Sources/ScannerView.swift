@@ -16,8 +16,13 @@ struct ScannerScreen: View {
     @State private var isProcessingPhoto = false
     @State private var isInterpreting = false
     @State private var errorMessage: String?
+    @State private var pillRowHeight: CGFloat = 0
+    @State private var outlineFrame: CGRect = .zero
+    @State private var scannerFrame: CGRect = .zero
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
+
+    private static let scanAreaSpace = "scanArea"
 
     private enum CameraAccess: Equatable {
         case resolving
@@ -34,6 +39,20 @@ struct ScannerScreen: View {
         (canUseLiveScanner || !evidence.isEmpty)
             && !isProcessingPhoto
             && !isInterpreting
+    }
+
+    /// The frame's top edge, measured from the pill row above it rather than
+    /// assumed: the pills wrap onto a second row at large text sizes, and a frame
+    /// sized for one row had the second row lying across it.
+    private var frameTopInset: CGFloat { ScanFrameLayout.topInset(forPillRowHeight: pillRowHeight) }
+
+    /// The drawn outline in the scanner's own coordinates. The scanner view reaches
+    /// up under the navigation bar while the outline does not, so the two frames
+    /// are measured in one space and the difference is taken out here; this is
+    /// the one rectangle both the green frame and the recognition region are.
+    private var recognitionRegion: CGRect {
+        guard outlineFrame.width > 0, outlineFrame.height > 0, scannerFrame.width > 0 else { return .zero }
+        return outlineFrame.offsetBy(dx: -scannerFrame.minX, dy: -scannerFrame.minY)
     }
 
     var body: some View {
@@ -93,11 +112,15 @@ struct ScannerScreen: View {
                 LiveDataScanner(
                     evidence: $evidence,
                     controller: scannerController,
+                    regionOfInterest: recognitionRegion,
                     // Swaps to the photo-fallback explanation; recognized
                     // evidence is kept and Review stays available.
                     onBecameUnavailable: { cameraAccess = .unavailable }
                 )
                 .ignoresSafeArea(edges: .top)
+                .onGeometryChange(for: CGRect.self) { proxy in
+                    proxy.frame(in: .named(Self.scanAreaSpace))
+                } action: { scannerFrame = $0 }
             } else {
                 LinearGradient(colors: [.black, Color(red: 0.06, green: 0.11, blue: 0.14)], startPoint: .top, endPoint: .bottom)
                 unavailableScannerMessage
@@ -108,8 +131,11 @@ struct ScannerScreen: View {
                     hasUsefulProgress ? Color.green : .white.opacity(0.72),
                     style: StrokeStyle(lineWidth: 2, dash: hasUsefulProgress ? [] : [9, 8])
                 )
+                .onGeometryChange(for: CGRect.self) { proxy in
+                    proxy.frame(in: .named(Self.scanAreaSpace))
+                } action: { outlineFrame = $0 }
                 .padding(.horizontal, ScanFrameLayout.horizontalInset)
-                .padding(.top, ScanFrameLayout.topInset)
+                .padding(.top, frameTopInset)
                 .padding(.bottom, ScanFrameLayout.bottomInset)
                 .allowsHitTesting(false)
                 .animation(reduceMotion ? nil : .medsSpring, value: hasUsefulProgress)
@@ -119,6 +145,7 @@ struct ScannerScreen: View {
                 Spacer()
             }
         }
+        .coordinateSpace(.named(Self.scanAreaSpace))
         .overlay(alignment: .bottom) {
             if let scanGuidance {
                 Text(scanGuidance)
@@ -169,21 +196,28 @@ struct ScannerScreen: View {
     /// product's NDC resolves through the same directory as printed digits and
     /// shows up here as the Name pill's exact-match state; a pharmacy's Rx-number
     /// barcode changes nothing, so announcing codes in general only asked someone
-    /// to keep turning a bottle for a fact that changes nothing.
+    /// to keep turning a bottle for a fact that changes nothing. The exact-match
+    /// state changes the pill's symbol and nothing else: retitling it "Exact
+    /// match" widened the row into a second line that lay across the frame, and
+    /// the guidance banner already says it in words.
     private var scanProgress: some View {
         ScanProgressFlow(spacing: 7, rowSpacing: 7) {
             ScanProgressPill(
-                title: preview.isExactMatch ? "Exact match" : "Name",
-                systemImage: preview.isExactMatch ? "checkmark.seal.fill" : "pills.fill",
-                isFound: !preview.medicationName.isEmpty
+                title: "Name",
+                systemImage: "pills.fill",
+                isFound: !preview.medicationName.isEmpty,
+                isExactMatch: preview.isExactMatch
             )
             ScanProgressPill(title: "Strength", systemImage: "scalemass.fill", isFound: preview.hasStrength)
             ScanProgressPill(title: "Quantity", systemImage: "number", isFound: preview.hasQuantity)
             ScanProgressPill(title: "Refills", systemImage: "arrow.clockwise", isFound: preview.hasRefills)
         }
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.height
+        } action: { pillRowHeight = $0 }
         // Clear of the system scanner's own "Slow down" hint, which sits just under
         // the title and was reading through the pills.
-        .padding(.top, 44)
+        .padding(.top, ScanFrameLayout.pillRowTop)
         .padding(.horizontal, 12)
         .animation(reduceMotion ? nil : .medsSpring, value: preview)
     }
@@ -382,10 +416,14 @@ struct ScannerScreen: View {
             if canUseLiveScanner {
                 do {
                     let frame = try await scannerController.captureCroppedPhoto()
-                    let captured = try await StillImageRecognizer.recognize(image: frame.image, origin: .cameraCapture)
+                    let captured = try await StillImageRecognizer.recognizeWithReport(image: frame.image, origin: .cameraCapture)
                     let liveCount = finalEvidence.count
-                    finalEvidence = ScanEvidenceQuality.mergingBest(existing: finalEvidence, additions: captured)
-                    captureNote = "Review capture: \(frame.description); read \(captured.filter { $0.kind == .text }.count) lines and \(captured.filter { $0.kind == .barcode }.count) codes; \(liveCount) live items before merging, \(finalEvidence.count) after (cap \(ScanEvidenceQuality.evidenceLimit))"
+                    // The capture leads the merge. It is the full-resolution reading
+                    // of the label and carries the line order the parser joins
+                    // wrapped text with, so it must never be what the evidence cap
+                    // cuts; the live items dedupe into it and fill in behind.
+                    finalEvidence = ScanEvidenceQuality.mergingBest(existing: captured.evidence, additions: finalEvidence)
+                    captureNote = "Review capture: \(frame.description); \(captured.report); \(liveCount) live items, \(finalEvidence.count) after merging (cap \(ScanEvidenceQuality.evidenceLimit))"
                 } catch where finalEvidence.isEmpty {
                     isInterpreting = false
                     errorMessage = "The camera couldn’t capture a sharp label. Hold the bottle steady inside the frame and try again."
@@ -516,9 +554,20 @@ private struct ScanProgressPill: View {
     let title: String
     let systemImage: String
     let isFound: Bool
+    var isExactMatch = false
+
+    private var symbolName: String {
+        if isExactMatch { return "checkmark.seal.fill" }
+        return isFound ? "checkmark" : systemImage
+    }
+
+    private var accessibilityText: String {
+        if isExactMatch { return "\(title), exact match" }
+        return isFound ? "\(title) found" : "\(title) not found yet"
+    }
 
     var body: some View {
-        Label(title, systemImage: isFound ? "checkmark" : systemImage)
+        Label(title, systemImage: symbolName)
             .font(.caption2.weight(.semibold))
             .lineLimit(1)
             .fixedSize()
@@ -532,7 +581,7 @@ private struct ScanProgressPill: View {
                 Capsule()
                     .strokeBorder(isFound ? Color.green : .white.opacity(0.18), lineWidth: 1.5)
             }
-            .accessibilityLabel(isFound ? "\(title) found" : "\(title) not found yet")
+            .accessibilityLabel(accessibilityText)
     }
 }
 
@@ -645,35 +694,45 @@ private final class LiveScannerController: ObservableObject {
 
     /// What the Review capture produced, in the words a diagnostic wants: the
     /// photo's pixel size, the crop taken from it, and the zoom the person had
-    /// pinched to. The crop mapping assumes an unzoomed, aspect-filled preview,
-    /// which is one of the things this description exists to check on a device.
+    /// pinched to. The crop mapping assumes an aspect-filled preview of the same
+    /// field of view as the photo, which is one of the things this description
+    /// exists to check on a device.
     struct CapturedFrame {
         let image: UIImage
         let description: String
     }
 
+    /// The photo, cropped to the frame when the crop can be mapped and whole when
+    /// it cannot. A crop that fails is not a reason to lose the one
+    /// full-resolution look at the label: that used to throw, and with live
+    /// evidence on hand the throw was swallowed and the capture silently skipped.
     func captureCroppedPhoto() async throws -> CapturedFrame {
         guard let scanner else { throw ScannerError.scannerUnavailable }
         let image = try await scanner.capturePhoto()
         let viewSize = scanner.view.bounds.size
         let visibleRect = scanner.regionOfInterest ?? scanner.view.bounds
         let zoom = scanner.zoomFactor
-        guard let sourceRect = AspectFillCropMapper.sourceRect(
+        let pixels = CGSize(width: image.size.width * image.scale, height: image.size.height * image.scale)
+        let sourceRect = AspectFillCropMapper.sourceRect(
             imageSize: image.size,
             displayedIn: viewSize,
             visibleRect: visibleRect
-        ), let cropped = image.cropped(to: sourceRect) else {
-            throw ScannerError.invalidCapture
-        }
-        let pixels = CGSize(width: image.size.width * image.scale, height: image.size.height * image.scale)
-        let description = String(
-            format: "photo %.0f×%.0f px, crop %.0f×%.0f at (%.0f, %.0f), zoom %.1f×",
-            pixels.width, pixels.height,
-            sourceRect.width * image.scale, sourceRect.height * image.scale,
-            sourceRect.minX * image.scale, sourceRect.minY * image.scale,
-            zoom
         )
-        return CapturedFrame(image: cropped, description: description)
+        if let sourceRect, let cropped = image.cropped(to: sourceRect) {
+            let description = String(
+                format: "photo %.0f×%.0f px, crop %.0f×%.0f at (%.0f, %.0f), zoom %.1f×",
+                pixels.width, pixels.height,
+                sourceRect.width * image.scale, sourceRect.height * image.scale,
+                sourceRect.minX * image.scale, sourceRect.minY * image.scale,
+                zoom
+            )
+            return CapturedFrame(image: cropped, description: description)
+        }
+        let description = String(
+            format: "photo %.0f×%.0f px, read whole (crop could not be mapped), zoom %.1f×",
+            pixels.width, pixels.height, zoom
+        )
+        return CapturedFrame(image: image, description: description)
     }
 }
 
@@ -692,6 +751,9 @@ private extension UIImage {
 private struct LiveDataScanner: UIViewControllerRepresentable {
     @Binding var evidence: [ScanEvidence]
     let controller: LiveScannerController
+    /// The drawn frame, in this view's coordinates, measured by the screen that
+    /// draws it. Zero until it has been measured.
+    let regionOfInterest: CGRect
     let onBecameUnavailable: () -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
@@ -750,8 +812,14 @@ private struct LiveDataScanner: UIViewControllerRepresentable {
             self.parent = parent
         }
 
+        /// The measured outline when the screen has measured it; the layout's
+        /// default proportions until then, so the first frames are not read
+        /// edge to edge.
         func configureRegion(for scanner: DataScannerViewController) {
-            let region = ScanFrameLayout.region(in: scanner.view.bounds)
+            let measured = parent.regionOfInterest.intersection(scanner.view.bounds)
+            let region = measured.isNull || measured.isEmpty
+                ? ScanFrameLayout.region(in: scanner.view.bounds)
+                : measured
             guard region.width > 0, region.height > 0, scanner.regionOfInterest != region else { return }
             scanner.regionOfInterest = region
         }
@@ -877,33 +945,44 @@ private struct LiveDataScanner: UIViewControllerRepresentable {
 }
 
 enum StillImageRecognizer {
+    /// The evidence a pass over an image produced, and what it took to get it,
+    /// in the words the capture note on the review screen shows.
+    struct Result {
+        let evidence: [ScanEvidence]
+        let report: String
+    }
+
+    private struct Line {
+        let text: String
+        let confidence: Double
+        /// Normalized to the whole upright image, the way Vision reports it:
+        /// origin at the bottom left.
+        let box: CGRect
+    }
+
+    /// Text sizes Vision reads comfortably start around this many pixels tall; a
+    /// smaller line is scaled up to it before its second reading.
+    private static let comfortableLineHeight: CGFloat = 40
+    private static let maximumRegionPasses = 5
+    /// A frame smaller than this on its short side was already read at a size
+    /// Vision handles whole, so tiling it would only cost time.
+    private static let minimumTiledDimension: CGFloat = 1500
+
     static func recognize(data: Data, origin: ScanEvidence.Origin) async throws -> [ScanEvidence] {
-        try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                do {
-                    let handler = VNImageRequestHandler(data: data, options: [:])
-                    let recognized = try performRecognition(handler: handler)
-                    continuation.resume(returning: makeEvidence(from: recognized, origin: origin))
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
-        }
+        guard let image = UIImage(data: data) else { throw ScannerError.unreadableImage }
+        return try await recognizeWithReport(image: image, origin: origin).evidence
     }
 
     static func recognize(image: UIImage, origin: ScanEvidence.Origin) async throws -> [ScanEvidence] {
-        guard let cgImage = image.cgImage else { throw ScannerError.unreadableImage }
-        let orientation = CGImagePropertyOrientation(image.imageOrientation)
+        try await recognizeWithReport(image: image, origin: origin).evidence
+    }
+
+    static func recognizeWithReport(image: UIImage, origin: ScanEvidence.Origin) async throws -> Result {
+        guard let upright = image.uprightCGImage() else { throw ScannerError.unreadableImage }
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    let handler = VNImageRequestHandler(
-                        cgImage: cgImage,
-                        orientation: orientation,
-                        options: [:]
-                    )
-                    let recognized = try performRecognition(handler: handler)
-                    continuation.resume(returning: makeEvidence(from: recognized, origin: origin))
+                    continuation.resume(returning: try recognize(upright: upright, origin: origin))
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -911,55 +990,243 @@ enum StillImageRecognizer {
         }
     }
 
-    private struct RecognitionResult {
-        let text: [VNRecognizedTextObservation]
-        let barcodes: [VNBarcodeObservation]
-
-    }
-
-    private static func performRecognition(handler: VNImageRequestHandler) throws -> RecognitionResult {
-        let textRequest = VNRecognizeTextRequest()
-        textRequest.recognitionLevel = .accurate
-        textRequest.usesLanguageCorrection = true
-        // Match the live scanner's language set so a photo of the same label
-        // reads the same way the camera does.
-        textRequest.recognitionLanguages = ["en-US", "es-ES", "fr-FR"]
-        let barcodeRequest = VNDetectBarcodesRequest()
+    /// One reading of the whole image, then a second look for the one line that
+    /// is routinely too small for the first: the NDC.
+    ///
+    /// Vision works the whole frame at a bounded resolution, so on a
+    /// twelve-megapixel photo a two-millimetre line of print is handed to the
+    /// recognizer a few pixels tall, whatever `minimumTextHeight` says. When the
+    /// first pass yields no code, every line that looks like it might be the
+    /// code's — the caption, or digits with hyphens — is cut out of the
+    /// full-resolution image, scaled up, and read again with language correction
+    /// off, because correction is built for words and a code is not a word. If
+    /// nothing looked like the code at all, the frame is read in tiles at full
+    /// resolution instead. Only code-bearing lines come back from the second
+    /// look; the rest of the label was already read the first time.
+    private static func recognize(upright: CGImage, origin: ScanEvidence.Origin) throws -> Result {
+        let handler = VNImageRequestHandler(cgImage: upright, orientation: .up, options: [:])
+        let textRequest = makeTextRequest(languageCorrection: true)
         try handler.perform([textRequest])
         // Barcode inference is optional and can be unavailable even when OCR succeeds.
         // Never discard usable medication text because a code model could not initialize.
+        let barcodeRequest = VNDetectBarcodesRequest()
         try? handler.perform([barcodeRequest])
-        return RecognitionResult(
-            text: textRequest.results ?? [],
-            barcodes: barcodeRequest.results ?? []
+        let observations = textRequest.results ?? []
+        let barcodes = barcodeRequest.results ?? []
+
+        var lines = observations.compactMap(line(from:))
+        var report = "read \(lines.count) lines and \(barcodes.count) codes"
+
+        // Judged on the lines read together, in order: a code split around its
+        // hyphen onto a second line is a code once the lines are joined, and
+        // does not need the second look.
+        let readTogether = sorted(lines).map(\.text).joined(separator: "\n")
+        if NationalDrugCode.readings(inLabelText: readTogether).isEmpty {
+            let suspects = observations
+                .filter { observation in
+                    observation.topCandidates(1).first.map { looksLikeCodeFragment($0.string) } ?? false
+                }
+                .sorted { $0.boundingBox.height > $1.boundingBox.height }
+                .prefix(maximumRegionPasses)
+            var found: [Line] = []
+            for suspect in suspects {
+                found += zoomedCodeLines(around: suspect.boundingBox, in: upright)
+            }
+            report += "; zoomed \(suspects.count) line\(suspects.count == 1 ? "" : "s") for the NDC, found \(found.count)"
+            if found.isEmpty {
+                found = tiledCodeLines(in: upright)
+                if found.isEmpty {
+                    report += "; tiling found none"
+                } else {
+                    report += "; tiling found \(found.count)"
+                }
+            }
+            for line in found {
+                // The first pass's misreading of the same print gives way to the
+                // zoomed reading, so the two never compete as equivalent lines.
+                lines.removeAll { !carriesCode($0) && overlap($0.box, line.box) > 0.5 }
+                lines.append(line)
+            }
+        }
+
+        return Result(evidence: makeEvidence(lines: lines, barcodes: barcodes, origin: origin), report: report)
+    }
+
+    private static func makeTextRequest(languageCorrection: Bool) -> VNRecognizeTextRequest {
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = languageCorrection
+        // Match the live scanner's language set so a photo of the same label
+        // reads the same way the camera does.
+        request.recognitionLanguages = ["en-US", "es-ES", "fr-FR"]
+        return request
+    }
+
+    private static func line(from observation: VNRecognizedTextObservation) -> Line? {
+        guard let candidate = observation.topCandidates(3).first(where: {
+            $0.confidence >= 0.25 && LabelTextPolicy.sanitized($0.string) != nil
+        }), let value = LabelTextPolicy.sanitized(candidate.string) else { return nil }
+        return Line(text: value, confidence: Double(candidate.confidence), box: observation.boundingBox)
+    }
+
+    private static func carriesCode(_ line: Line) -> Bool {
+        !NationalDrugCode.readings(inLabelText: line.text).isEmpty
+    }
+
+    /// The caption, or digits broken by hyphens the way a code is. Small print
+    /// turns "NDC" into "N0C" or "NOC" often enough that those count.
+    private static let codeFragmentPattern =
+        /(?i)\bN\s?[D0O]\s?C\b|[0-9OIl]{4,5}\s?-\s?[0-9OIl]{3,4}|(?:^|[^0-9A-Za-z])[0-9OIl]{8,11}(?![0-9A-Za-z])/
+
+    static func looksLikeCodeFragment(_ text: String) -> Bool {
+        text.firstMatch(of: codeFragmentPattern) != nil
+    }
+
+    /// A code-bearing line the second pass read, as plain values for the tests
+    /// that exercise the crop, the scaling and the mapping back.
+    struct CodeLine: Equatable {
+        let text: String
+        let box: CGRect
+    }
+
+    static func zoomedCodeReadings(around box: CGRect, in image: CGImage) -> [CodeLine] {
+        zoomedCodeLines(around: box, in: image).map { CodeLine(text: $0.text, box: $0.box) }
+    }
+
+    static func tiledCodeReadings(in image: CGImage) -> [CodeLine] {
+        tiledCodeLines(in: image).map { CodeLine(text: $0.text, box: $0.box) }
+    }
+
+    /// Cuts the line out of the full-resolution image with room on every side —
+    /// the code often runs on past the box the first pass drew — scales it up to
+    /// a size Vision reads well, and reads it again without language correction.
+    private static func zoomedCodeLines(around box: CGRect, in image: CGImage) -> [Line] {
+        let imageSize = CGSize(width: image.width, height: image.height)
+        let pixelRect = pixelRect(fromNormalized: box, imageSize: imageSize)
+        let padX = max(pixelRect.height * 2, pixelRect.width * 0.25)
+        let padY = pixelRect.height * 0.8
+        let region = pixelRect
+            .insetBy(dx: -padX, dy: -padY)
+            .intersection(CGRect(origin: .zero, size: imageSize))
+            .integral
+        guard !region.isNull, region.width >= 8, region.height >= 8,
+              let crop = image.cropping(to: region) else { return [] }
+        let scale = min(4, max(2, comfortableLineHeight / max(pixelRect.height, 1)))
+        guard let scaled = crop.scaled(by: scale) else { return [] }
+        return codeLines(in: scaled, region: region, imageSize: imageSize)
+    }
+
+    /// Reads the image in overlapping tiles at full resolution. A fallback for a
+    /// frame whose first pass produced nothing that even looked like the code.
+    private static func tiledCodeLines(in image: CGImage) -> [Line] {
+        let imageSize = CGSize(width: image.width, height: image.height)
+        guard min(imageSize.width, imageSize.height) >= minimumTiledDimension else { return [] }
+        let columns = imageSize.width >= imageSize.height ? 3 : 2
+        let rows = imageSize.width >= imageSize.height ? 2 : 3
+        let tileOverlap: CGFloat = 0.15
+        let stepX = imageSize.width / CGFloat(columns)
+        let stepY = imageSize.height / CGFloat(rows)
+        var found: [Line] = []
+        for row in 0..<rows {
+            for column in 0..<columns {
+                let tile = CGRect(
+                    x: CGFloat(column) * stepX,
+                    y: CGFloat(row) * stepY,
+                    width: stepX * (1 + tileOverlap),
+                    height: stepY * (1 + tileOverlap)
+                )
+                .intersection(CGRect(origin: .zero, size: imageSize))
+                .integral
+                guard !tile.isNull, let crop = image.cropping(to: tile) else { continue }
+                for line in codeLines(in: crop, region: tile, imageSize: imageSize)
+                    where !found.contains(where: { overlap($0.box, line.box) > 0.5 }) {
+                    found.append(line)
+                }
+            }
+        }
+        return found
+    }
+
+    /// The code-bearing lines in a crop, with their boxes mapped back onto the
+    /// whole image. A reading that carries a code is kept at a lower confidence
+    /// than the first pass demands: the identification gate still requires the
+    /// label to vouch for it.
+    private static func codeLines(in crop: CGImage, region: CGRect, imageSize: CGSize) -> [Line] {
+        let handler = VNImageRequestHandler(cgImage: crop, orientation: .up, options: [:])
+        let request = makeTextRequest(languageCorrection: false)
+        try? handler.perform([request])
+        return (request.results ?? []).compactMap { observation -> Line? in
+            guard let candidate = observation.topCandidates(3).first(where: {
+                $0.confidence >= 0.1 && !NationalDrugCode.readings(inLabelText: $0.string).isEmpty
+            }), let value = LabelTextPolicy.sanitized(candidate.string) else { return nil }
+            return Line(
+                text: value,
+                confidence: Double(candidate.confidence),
+                box: fullImageBox(fromCropBox: observation.boundingBox, cropRect: region, imageSize: imageSize)
+            )
+        }
+    }
+
+    /// Vision's normalized box, with its bottom-left origin, as pixels from the
+    /// top left of the image.
+    static func pixelRect(fromNormalized box: CGRect, imageSize: CGSize) -> CGRect {
+        CGRect(
+            x: box.minX * imageSize.width,
+            y: (1 - box.maxY) * imageSize.height,
+            width: box.width * imageSize.width,
+            height: box.height * imageSize.height
         )
     }
 
+    /// A box Vision reported inside a crop, as the same normalized box on the
+    /// whole image. Scaling the crop before reading it does not move its
+    /// normalized coordinates, so only the crop's place in the image matters.
+    static func fullImageBox(fromCropBox box: CGRect, cropRect: CGRect, imageSize: CGSize) -> CGRect {
+        let bottomInPixels = cropRect.maxY - box.minY * cropRect.height
+        return CGRect(
+            x: (cropRect.minX + box.minX * cropRect.width) / imageSize.width,
+            y: 1 - bottomInPixels / imageSize.height,
+            width: box.width * cropRect.width / imageSize.width,
+            height: box.height * cropRect.height / imageSize.height
+        )
+    }
+
+    /// How much of the smaller box the two share.
+    private static func overlap(_ lhs: CGRect, _ rhs: CGRect) -> CGFloat {
+        let shared = lhs.intersection(rhs)
+        guard !shared.isNull, !shared.isEmpty else { return 0 }
+        let smaller = min(lhs.width * lhs.height, rhs.width * rhs.height)
+        guard smaller > 0 else { return 0 }
+        return (shared.width * shared.height) / smaller
+    }
+
+    /// Reading order: top to bottom, left to right within a row.
+    private static func sorted(_ lines: [Line]) -> [Line] {
+        lines.sorted { lhs, rhs in
+            if abs(lhs.box.midY - rhs.box.midY) > 0.02 {
+                return lhs.box.midY > rhs.box.midY
+            }
+            return lhs.box.minX < rhs.box.minX
+        }
+    }
+
     private static func makeEvidence(
-        from result: RecognitionResult,
+        lines: [Line],
+        barcodes: [VNBarcodeObservation],
         origin: ScanEvidence.Origin
     ) -> [ScanEvidence] {
         let captureID = UUID()
-        let sortedText = result.text.sorted { lhs, rhs in
-            if abs(lhs.boundingBox.midY - rhs.boundingBox.midY) > 0.02 {
-                return lhs.boundingBox.midY > rhs.boundingBox.midY
-            }
-            return lhs.boundingBox.minX < rhs.boundingBox.minX
-        }
-        var evidence = sortedText.enumerated().compactMap { index, observation -> ScanEvidence? in
-            guard let candidate = observation.topCandidates(3).first(where: {
-                $0.confidence >= 0.25 && LabelTextPolicy.sanitized($0.string) != nil
-            }), let value = LabelTextPolicy.sanitized(candidate.string) else { return nil }
-            return ScanEvidence(
+        var evidence = sorted(lines).enumerated().map { index, line in
+            ScanEvidence(
                 kind: .text,
-                value: value,
-                confidence: Double(candidate.confidence),
+                value: line.text,
+                confidence: line.confidence,
                 origin: origin,
                 captureID: captureID,
                 lineIndex: index
             )
         }
-        evidence.append(contentsOf: result.barcodes.compactMap { observation in
+        evidence.append(contentsOf: barcodes.compactMap { observation in
             guard let payload = observation.payloadStringValue, !payload.isEmpty else { return nil }
             return ScanEvidence(
                 kind: .barcode,
@@ -974,18 +1241,40 @@ enum StillImageRecognizer {
     }
 }
 
-private extension CGImagePropertyOrientation {
-    init(_ orientation: UIImage.Orientation) {
-        switch orientation {
-        case .up: self = .up
-        case .upMirrored: self = .upMirrored
-        case .down: self = .down
-        case .downMirrored: self = .downMirrored
-        case .left: self = .left
-        case .leftMirrored: self = .leftMirrored
-        case .right: self = .right
-        case .rightMirrored: self = .rightMirrored
-        @unknown default: self = .up
-        }
+private extension UIImage {
+    /// The pixels with the orientation baked in, so a box Vision reports maps
+    /// straight onto them when a line is cut out for its second reading. A camera
+    /// photo is stored sideways with a flag; only that case costs a redraw.
+    func uprightCGImage() -> CGImage? {
+        guard let cgImage else { return nil }
+        if imageOrientation == .up, scale == 1 { return cgImage }
+        let pixelSize = CGSize(width: size.width * scale, height: size.height * scale)
+        guard pixelSize.width >= 1, pixelSize.height >= 1 else { return nil }
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: pixelSize, format: format).image { _ in
+            draw(in: CGRect(origin: .zero, size: pixelSize))
+        }.cgImage
+    }
+}
+
+private extension CGImage {
+    func scaled(by factor: CGFloat) -> CGImage? {
+        let newWidth = Int((CGFloat(width) * factor).rounded())
+        let newHeight = Int((CGFloat(height) * factor).rounded())
+        guard newWidth > 0, newHeight > 0,
+              let context = CGContext(
+                data: nil,
+                width: newWidth,
+                height: newHeight,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue
+              ) else { return nil }
+        context.interpolationQuality = .high
+        context.draw(self, in: CGRect(x: 0, y: 0, width: newWidth, height: newHeight))
+        return context.makeImage()
     }
 }

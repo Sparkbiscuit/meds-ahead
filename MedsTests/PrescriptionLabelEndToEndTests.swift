@@ -238,6 +238,101 @@ final class PrescriptionLabelEndToEndTests: XCTestCase {
         XCTAssertEqual(draft.brandName, "Zoloft")
     }
 
+    // MARK: - Text-heavy labels
+
+    /// A sig that wraps over three lines, restates the dose in parentheses and
+    /// opens mid-sentence after the wrap. The restated dose used to be taken for
+    /// the strength, the name search ran on that sig line, found nothing, and the
+    /// product line below it was never consulted.
+    func testAWrappedSigRestatingTheDoseIsNotTheProductLine() {
+        let draft = MedicationLabelInterpreter.offlineDraft(evidence([
+            "WALGREENS #04821", "1200 MAIN ST", "SPRINGFIELD MA 01103",
+            "RX# 8842197", "DOE, JOHN",
+            "TAKE 1 TABLET",
+            "(25 MG) BY MOUTH EVERY 6 HOURS",
+            "AS NEEDED FOR PAIN",
+            "HYDROXYZINE HCL 25 MG TABLET",
+            "QTY: 30", "NO REFILLS REMAINING",
+            "DR. A. GREENE"
+        ]))
+
+        XCTAssertEqual(draft.name, "Hydroxyzine")
+        XCTAssertEqual(draft.strength, "25 mg")
+        XCTAssertEqual(draft.directions, "TAKE 1 TABLET (25 MG) BY MOUTH EVERY 6 HOURS AS NEEDED FOR PAIN")
+        XCTAssertEqual(draft.currentSupply, 30)
+        XCTAssertEqual(draft.refillsRemaining, 0)
+    }
+
+    /// Five lines of sig, the longest a label prints, assembled whole.
+    func testAFiveLineSigAssemblesWhole() {
+        let draft = MedicationLabelInterpreter.offlineDraft(evidence([
+            "RX# 8842197",
+            "TAKE 1 TABLET BY MOUTH",
+            "EVERY MORNING WITH FOOD",
+            "AND 2 TABLETS BY MOUTH",
+            "EVERY EVENING WITH FOOD",
+            "FOR 30 DAYS THEN STOP",
+            "LISINOPRIL 10 MG TABLET",
+            "QTY: 90"
+        ]))
+
+        XCTAssertEqual(draft.name, "Lisinopril")
+        XCTAssertEqual(draft.strength, "10 mg")
+        XCTAssertEqual(
+            draft.directions,
+            "TAKE 1 TABLET BY MOUTH EVERY MORNING WITH FOOD AND 2 TABLETS BY MOUTH EVERY EVENING WITH FOOD FOR 30 DAYS THEN STOP"
+        )
+        XCTAssertEqual(draft.currentSupply, 90)
+    }
+
+    /// A first line that passes the gate on its own is not the whole sig when
+    /// the label carries on underneath it.
+    func testATrustedFirstLineKeepsItsContinuation() {
+        let draft = MedicationLabelInterpreter.offlineDraft(evidence([
+            "TAKE 1 TABLET BY MOUTH EVERY 6 HOURS",
+            "AS NEEDED FOR PAIN",
+            "OXYCODONE HCL 5 MG TABLET",
+            "QTY: 20"
+        ]))
+
+        XCTAssertEqual(draft.directions, "TAKE 1 TABLET BY MOUTH EVERY 6 HOURS AS NEEDED FOR PAIN")
+        XCTAssertEqual(draft.name, "Oxycodone")
+        XCTAssertEqual(draft.strength, "5 mg")
+    }
+
+    /// The line after the sig is often a warning sticker or the product line;
+    /// neither continues the sig.
+    func testASigDoesNotSwallowTheLineAfterIt() {
+        let sticker = MedicationLabelInterpreter.offlineDraft(evidence([
+            "TAKE 1 TABLET BY MOUTH DAILY",
+            "MAY CAUSE DROWSINESS",
+            "SERTRALINE HCL 50 MG TABLET"
+        ]))
+        XCTAssertEqual(sticker.directions, "TAKE 1 TABLET BY MOUTH DAILY")
+        XCTAssertEqual(sticker.name, "Sertraline")
+
+        let product = MedicationLabelInterpreter.offlineDraft(evidence([
+            "TAKE 1 TABLET BY MOUTH DAILY",
+            "SERTRALINE HCL 50 MG TABLET",
+            "QTY: 30"
+        ]))
+        XCTAssertEqual(product.directions, "TAKE 1 TABLET BY MOUTH DAILY")
+        XCTAssertEqual(product.name, "Sertraline")
+        XCTAssertEqual(product.strength, "50 mg")
+    }
+
+    /// Sig vocabulary anywhere marks a line as directions for the purpose of
+    /// choosing the product line; the field's own gate stays as strict as it was.
+    func testSigVocabularyAnywhereMarksALineAsDirections() {
+        XCTAssertTrue(ScanParser.isSigLike("(25 MG) BY MOUTH EVERY 6 HOURS"))
+        XCTAssertTrue(ScanParser.isSigLike("WITH FOOD FOR 7 DAYS"))
+        XCTAssertTrue(ScanParser.isSigLike("1 WEEK, THEN INCREAS EVERY EVENING 50 MG"))
+        XCTAssertTrue(ScanParser.isSigLike("(2 TABLETS) AT BEDTIME"))
+        XCTAssertFalse(ScanParser.isSigLike("SERTRALINE HCL 50 MG TABLET"))
+        XCTAssertFalse(ScanParser.isSigLike("AMOXICILLIN 400 MG TABLETS FOR ORAL SUSPENSION"))
+        XCTAssertFalse(ScanParser.isSigLike("DAILY MULTIVITAMIN 1000 IU"), "a product called Daily is a product")
+    }
+
     /// The shape rule that separates a pharmacy's own wording from a clipped sig.
     func testUnconfirmedNamesMustLookLikeAName() {
         XCTAssertTrue(ScanParser.looksLikeMedicationName("Amphetamine Salt Combo"))

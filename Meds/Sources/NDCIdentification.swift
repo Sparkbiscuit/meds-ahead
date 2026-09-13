@@ -34,13 +34,7 @@ enum NDCIdentification {
     /// needs no corroboration.
     static func match(in evidence: [ScanEvidence], directory: NDCDirectory = .shared) -> Match? {
         guard !directory.isEmpty else { return nil }
-        var readings: [NDCReading] = []
-        for item in evidence {
-            switch item.kind {
-            case .text: readings += NationalDrugCode.readings(inLabelText: item.value)
-            case .barcode: readings += NationalDrugCode.readings(inBarcode: item.value)
-            }
-        }
+        let readings = readings(in: evidence)
 
         var resolved: [Match] = []
         for reading in readings {
@@ -52,6 +46,44 @@ enum NDCIdentification {
         }
         guard Set(resolved.map(\.product.productKey)).count == 1 else { return nil }
         return resolved.first { $0.source == .barcode } ?? resolved.first
+    }
+
+    /// Every code the evidence carries. The text is read as one document in line
+    /// order rather than line by line: a code broken across two recognized lines
+    /// ("NDC 00093-" then "1039-01") is only a code when the lines are looked at
+    /// together, and the reader already allows one break inside a rendering.
+    static func readings(in evidence: [ScanEvidence]) -> [NDCReading] {
+        let text = LabelCandidateBuilder.textLines(from: evidence).joined(separator: "\n")
+        var readings = NationalDrugCode.readings(inLabelText: text)
+        for item in evidence where item.kind == .barcode {
+            readings += NationalDrugCode.readings(inBarcode: item.value)
+        }
+        return readings
+    }
+
+    /// Why nothing resolved, when a code was read at all: the review screen must
+    /// not show the same blank for "no code on the label" and "a code that
+    /// matched nothing", because only the second is worth a second look at the
+    /// digits.
+    static func unresolvedOutcome(in evidence: [ScanEvidence], directory: NDCDirectory = .shared) -> NDCIdentificationOutcome? {
+        guard !directory.isEmpty else { return nil }
+        let readings = readings(in: evidence)
+        guard !readings.isEmpty else { return nil }
+        let listed = Set(readings.flatMap { reading in
+            reading.candidates.compactMap { directory.product(for: $0)?.productKey }
+        })
+        if listed.count > 1 { return .ambiguous }
+        let printed = readings.first { $0.source == .printedText }
+        let code = printed?.raw ?? readings.first?.candidates.first?.hyphenated ?? ""
+        return listed.isEmpty ? .unlisted(code: code) : nil
+    }
+
+    /// The product in the words the review screen uses: "Sertraline 50 mg (Zoloft)".
+    static func summary(of product: NDCProduct) -> String {
+        var text = displayName(for: product)
+        if !product.strength.isEmpty { text += " " + product.strength }
+        if !product.brandName.isEmpty { text += " (\(product.brandName))" }
+        return text
     }
 
     static func verdict(for match: Match, against draft: MedicationDraft, labelText: String) -> Verdict {

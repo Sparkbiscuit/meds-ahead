@@ -51,6 +51,18 @@ Notification planning is global across the medication set. Doses that occur at t
 
 Delivery can fail silently in two ways iOS reports quietly: a refused or withdrawn authorization, and an individual request the system declines to hold. Both outcomes are recorded by `NotificationHealth` on every scheduling pass and stated on Today, because an app that exists to remember a dose must not fail without saying so.
 
+## Scanner frame
+
+The green frame is a promise about where the scanner is reading, so the drawn
+outline and `DataScannerViewController.regionOfInterest` are one rectangle: the
+screen measures the outline's own frame and the scanner view's frame in one
+coordinate space and hands the difference to the scanner, which reaches up under
+the navigation bar while the outline does not. The frame's top edge is measured
+from the pill row above it rather than assumed, because the row wraps onto a
+second line at large text sizes and a frame sized for one row had the second
+row lying across it. The exact-match state changes the Name pill's symbol and
+nothing else; retitling it widened the row into that same second line.
+
 ## Scanner responsiveness
 
 The live scanner's overlay reports which fields have been recognised so far. Deriving that runs the whole parse pipeline, including a match against the bundled name vocabulary, which costs far too much to sit in a SwiftUI body that re-evaluates on every recognised frame. `ScanPreview` is computed off the main actor, debounced, and cancelled when superseded, and the view only reads the stored result. The camera preview must never wait on parsing.
@@ -58,6 +70,19 @@ The live scanner's overlay reports which fields have been recognised so far. Der
 ## Label parsing
 
 The parser is deliberately biased toward a blank directions field. Three real prescription bottles produced unusable directions under the old acceptance rule, which was willing to promote text that looked instruction-like but was actually pharmacy or OCR residue. A candidate now has to open with a direction verb or dose phrase, contain a frequency, and contain none of the dispensing markers, dates, phone numbers, or OCR garbage the label commonly contributes. A wrapped sig may still be assembled from up to three adjacent OCR lines, but the combined text must pass the same gate. The blank is intentional: a person can confirm or enter a missing direction, while a false instruction can change how they take a medication.
+
+The product line is chosen once and the strength and the name both come from it:
+the first line that is not a sig and reads as a name once its strength is set
+aside, else the first line that is not a sig and carries a strength at all. "Not
+a sig" is judged on sig vocabulary anywhere in the line, not only on how it
+opens, because a wrapped sig opens mid-sentence after the wrap — "(25 MG) BY
+MOUTH EVERY 6 HOURS" — and restates the dose in parentheses; that line used to
+be taken for the product line, the name search ran on it, found nothing, and
+the real product line below was never consulted. A sig that passes the gate on
+its own first line is carried on through the adjacent lines that continue it,
+up to five in one capture, as long as every continuation reads as sig text and
+the whole still passes the same gate; a package count, a warning sticker and
+the product line never continue a sig.
 
 Strength is canonicalised as it is captured so casing and spacing variants such as `50MG` and `50 mg` become one display value. Combination strengths are matched before single-strength forms and retained as one value — `400-80 mg`, `5/325 mg`, or `800 mg/160 mg` — because keeping only a trailing component misstates the product; the old Bactrim path reduced its strength to `80 mg`.
 
@@ -103,6 +128,28 @@ it blanks the name, type and strength of every delisted listing, so the snapshot
 is the current directory alone, and a bottle from a product delisted since the
 snapshot falls back to the printed name like any other.
 
+The line is also the hardest to read. Vision works a whole frame at a bounded
+resolution, so on a twelve-megapixel capture a two-millimetre line of print
+reaches the recognizer a few pixels tall whatever `minimumTextHeight` says. The
+still pipeline therefore takes a second look when its first pass yields no code:
+every line that looks like it might be the code's — the caption, which small
+print turns into "N0C", or digits with hyphens — is cut out of the
+full-resolution image with room around it, scaled up to a height Vision reads
+comfortably, and read again with language correction off, because correction is
+built for words and a code is not a word; when nothing even looked like the code
+the frame is read in overlapping full-resolution tiles instead. Only code-bearing
+lines come back from the second look, and they take the place of the first
+pass's misreading of the same print. After the caption every digit confusable is
+repaired — O, D and Q for 0, I and l for 1, Z for 2, S for 5, G for 6, T for 7,
+B for 8 — and the hyphens of a small code, which come through as spaces at least
+as often as its digits come through as letters, are accepted as spaces when the
+segments fit a layout, after the caption only. A code broken across two
+recognized lines is read by looking at the label's lines together in order
+rather than one at a time. The Review capture is merged ahead of the live items
+rather than behind them, so the evidence cap cuts live extras and never the
+capture, and a better live reading of a captured line keeps that line's place
+in the capture's order so the adjacency wrapped text depends on survives.
+
 `NDCIdentification` is the gate between a resolved code and the review screen.
 It runs after the ordinary label reading, not instead of it, because that reading
 is what a code is checked against. A code from a barcode is accepted on its own: a
@@ -119,7 +166,21 @@ read, so the person can see it; it just fills nothing. An accepted one fills nam
 brand, strength and form, carries `MedicationNameProvenance.ndc`, outranks the
 pharmacy's own barcode as the stored product code, and is not overridden by the
 language model, which may still choose among directions, quantity and refill
-readings. The review screen says which happened.
+readings. The review screen says which happened: the draft carries an
+`NDCIdentificationOutcome` — accepted, uncorroborated, contradicted, unlisted,
+or ambiguous — because "no code was read" and "a code was read and refused"
+used to look the same, an empty screen, and only the second is worth a second
+look at the digits. A code that was read but filled nothing is offered back in
+the review screen's own NDC field, digit by digit, for the person to check
+against the bottle.
+
+That field is the last resort exactness should have had from the start: the
+smallest print on a label is the line worth an exact match, and a person can
+read it when the camera cannot. A code typed there is looked up in the same
+directory and the listing is shown — "Tacrolimus 1 mg (Prograf), capsule" — with
+a button that fills name, brand, strength and form from it. The corroboration
+rule holds: the code fills nothing on its own word, and the person's reading it
+off the bottle and choosing the product it names is the word that fills it.
 
 Strengths are compared as amounts, not strings, because the directory and the
 label write one fact several ways: `800-160 mg` against `800 mg/160 mg`,

@@ -325,6 +325,33 @@ enum MedicationNameProvenance: String, Hashable, Sendable {
     case appleHealth
 }
 
+/// What became of the code a label carried. The review screen says which, so a
+/// code that was never read and a code that was read but refused never look
+/// the same: only the second is worth checking digit by digit against the bottle.
+enum NDCIdentificationOutcome: Hashable, Sendable {
+    /// The code resolved, the label vouched for it, and it filled the identity.
+    case accepted(code: String)
+    /// The code resolved but nothing else on the label backed it up.
+    case uncorroborated(code: String, product: String)
+    /// The code resolved but the label plainly names something else.
+    case contradicted(code: String, product: String)
+    /// A code was read that the bundled directory does not list.
+    case unlisted(code: String)
+    /// The label yielded codes for more than one product.
+    case ambiguous
+
+    /// The code as read, for the person to check against the bottle, when it was
+    /// read but did not fill anything.
+    var codeToCheck: String? {
+        switch self {
+        case let .uncorroborated(code, _), let .contradicted(code, _), let .unlisted(code):
+            code
+        case .accepted, .ambiguous:
+            nil
+        }
+    }
+}
+
 /// A dose Apple Health logged before the medication existed here.
 struct ImportedDose: Hashable, Sendable {
     let date: Date
@@ -352,6 +379,8 @@ struct MedicationDraft: Hashable, Sendable {
     var importedDoses: [ImportedDose] = []
     var overallConfidence = 1.0
     var evidence: [ScanEvidence] = []
+    /// What became of the label's NDC, when it carried one.
+    var identification: NDCIdentificationOutcome?
     /// What the scanner's Review capture did, for the debug line on the review
     /// screen. Never stored.
     var captureNote = ""

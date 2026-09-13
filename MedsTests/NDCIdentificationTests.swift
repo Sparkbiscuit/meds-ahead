@@ -157,6 +157,55 @@ final class NDCIdentificationTests: XCTestCase {
         XCTAssertEqual(draft.form, .liquid)
     }
 
+    /// Small print breaks a code around its hyphen into two recognized lines.
+    /// Read line by line, neither half is a code; read in order, it is.
+    func testACodeSplitAcrossTwoCapturedLinesResolves() {
+        let draft = draft(["SERTRALINE HCL 50 MG TABLET", "NDC 00093-", "1039-01", "TAKE 1 TABLET BY MOUTH DAILY"])
+        XCTAssertEqual(draft.nameProvenance, .ndc)
+        XCTAssertEqual(draft.productIdentifier, "00093-1039-01")
+    }
+
+    // MARK: - What the review screen is told
+
+    func testTheDraftSaysWhatBecameOfTheCode() {
+        XCTAssertEqual(
+            draft(["SERTRALINE HCL 50 MG TABLET", "NDC 0093-1039-01"]).identification,
+            .accepted(code: "00093-1039-01")
+        )
+        XCTAssertEqual(
+            draft(["RX# 8842197", "NDC 0093-1039-01", "QTY: 30"]).identification,
+            .uncorroborated(code: "00093-1039-01", product: "Sertraline 50 mg")
+        )
+        XCTAssertEqual(
+            draft(["TACROLIMUS 1 MG CAPSULE", "NDC 0093-1039-01"]).identification,
+            .contradicted(code: "00093-1039-01", product: "Sertraline 50 mg")
+        )
+        XCTAssertEqual(
+            draft(["SERTRALINE HCL 50 MG TABLET", "NDC 0093-9999-01"]).identification,
+            .unlisted(code: "0093-9999-01"),
+            "the code as read, so the person can check its digits"
+        )
+        XCTAssertEqual(
+            draft(["NDC 0093-1039-01", "NDC 0054-4161-01"]).identification,
+            .ambiguous
+        )
+        XCTAssertNil(draft(["SERTRALINE HCL 50 MG TABLET", "TAKE 1 TABLET DAILY"]).identification, "no code was read")
+        XCTAssertEqual(
+            draft(["ZOLOFT 50 MG", "NDC 0049-4960-66"]).identification,
+            .accepted(code: "00049-4960-66")
+        )
+        XCTAssertEqual(NDCIdentificationOutcome.uncorroborated(code: "1", product: "p").codeToCheck, "1")
+        XCTAssertNil(NDCIdentificationOutcome.accepted(code: "1").codeToCheck)
+    }
+
+    func testAnEmptyDirectoryReportsNoOutcome() {
+        let draft = MedicationLabelInterpreter.offlineDraft(
+            evidence(["NDC 0093-1039-01"]),
+            ndcDirectory: NDCDirectory(data: Data())
+        )
+        XCTAssertNil(draft.identification)
+    }
+
     // MARK: - Barcodes
 
     func testAManufacturerBarcodeNeedsNoCorroboration() {
