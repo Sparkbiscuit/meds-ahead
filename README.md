@@ -30,6 +30,8 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 ## Repository map
 
 - `Meds/Sources`: application code
+- `Shared`: the data model, schedule and forecast engines, and store location, compiled into the app and its widgets
+- `MedsWidgets`: the Home and Lock Screen widget extension
 - `Meds/Resources`: assets, privacy manifest, name vocabulary, and the FDA NDC Directory snapshot
 - `Tools`: the script that rebuilds the NDC Directory snapshot from the FDA's files
 - `MedsTests`: forecasting and scan parsing tests

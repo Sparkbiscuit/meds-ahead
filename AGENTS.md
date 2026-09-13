@@ -8,6 +8,8 @@ no cloud, no network lookups.
 ## Map
 
 - `Meds/Sources` — app code
+- `Shared` — the model, schedule and forecast engines, theme and store location, compiled into the app and the widgets
+- `MedsWidgets` — the widget extension: next dose and runs-out-next, Home and Lock Screen, with the Taken intent
 - `Meds/Resources` — assets, privacy manifest, name vocabulary, FDA NDC Directory snapshot
 - `Tools/build_ndc_directory.py` — rebuilds that snapshot from the FDA's files
 - `MedsTests` / `MedsUITests` — tests
@@ -19,7 +21,10 @@ no cloud, no network lookups.
 Violating any of these is a defect, regardless of what the task asked for.
 
 - **Never change an `@Model` as a side effect.** SwiftData migrations can destroy
-  a person's on-device history. Stop and flag it instead.
+  a person's on-device history. Stop and flag it instead. The store lives in the
+  app group container (`StoreLocation`); the widget extension must never create
+  it, only open one that exists, or the app's one-time move of a legacy store
+  would be skipped and the history left behind.
 - **The ledger is append-only.** Supply derives from inventory events minus taken
   dose events that count toward supply; history imported from Apple Health with
   a medication is stored with `countsTowardSupply` false and feeds only the
