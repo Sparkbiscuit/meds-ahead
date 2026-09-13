@@ -47,9 +47,21 @@ Meds Ahead is an organization tool. It does not provide medical advice, recommen
 
 medication,medicine,refill,pill,reminder,schedule,tracker,inventory,dose,health,caregiver,ndc
 
-## What's New in 1.1
+## What's New in 1.1.1
 
 Paste into App Store Connect > Version > What's New in This Version.
+
+```
+A second look for the NDC. When the small print on a label is hard to read, Meds Ahead now zooms in on the code line of the captured frame and reads it again, repairs the digits small print confuses, and joins a code split across two lines. The review screen says whether a code was read, refused, or not in the directory, and you can type the code off the bottle to fill the exact product.
+
+Apple Health keeps counting. On iOS 26 and later, doses you log in Health for a medication that is also here are brought over whenever Meds Ahead opens, count toward its supply, and never double a dose you logged here. Still read-only: nothing is written to Health.
+
+Also new: the pharmacy, phone and Rx number read off the label with a Call button; mark a refill as requested or ready for pickup and the low-supply reminder pauses; a trip check in Supply; a person per medication for households with more than one; a reminder a week before a package expires; and a month calendar of taken and skipped doses on every medication.
+```
+
+## What's New in 1.1
+
+Pasted for the 1.1 submission.
 
 ```
 Exact identification. When a pharmacy label prints its NDC, or a package barcode carries one, Meds Ahead now looks it up in a bundled copy of the FDA's National Drug Code Directory and fills in the exact product: name, brand, strength, and form. It only does so when the rest of the label agrees, the printed name remains the fallback, and every field is still yours to confirm.

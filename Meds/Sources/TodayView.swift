@@ -100,6 +100,7 @@ struct TodayView: View {
                 LazyVStack(alignment: .leading, spacing: 18) {
                     header(now: now)
                     notificationBanner
+                    pickupsCard(now: now)
                     missedDosesCard(now: now)
                     if activeMedications.isEmpty {
                         EmptyStateCard(
@@ -118,15 +119,24 @@ struct TodayView: View {
                     } else {
                         progressCard(doses: doses)
                         logAllDueButton(doses: doses, now: now)
-                        ForEach(doses, id: \.1.id) { medication, dose in
-                            DoseCard(
-                                medication: medication,
-                                dose: dose,
-                                now: now,
-                                status: status(for: dose),
-                                onTaken: { record(dose, for: medication, status: .taken) },
-                                onSkipped: { record(dose, for: medication, status: .skipped) }
-                            )
+                        ForEach(doseGroups(in: doses), id: \.person) { person, groupedDoses in
+                            if !person.isEmpty || doseGroups(in: doses).count > 1 {
+                                Text(person.isEmpty ? "Not assigned to anyone" : "For \(person)")
+                                    .font(.headline)
+                                    .foregroundStyle(.secondary)
+                                    .padding(.top, 4)
+                                    .accessibilityAddTraits(.isHeader)
+                            }
+                            ForEach(groupedDoses, id: \.1.id) { medication, dose in
+                                DoseCard(
+                                    medication: medication,
+                                    dose: dose,
+                                    now: now,
+                                    status: status(for: dose),
+                                    onTaken: { record(dose, for: medication, status: .taken) },
+                                    onSkipped: { record(dose, for: medication, status: .skipped) }
+                                )
+                            }
                         }
                     }
                 }
@@ -139,6 +149,54 @@ struct TodayView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text("This dose wasn't logged. Try again.")
+        }
+    }
+
+    /// The day's doses under the person each is for, when the household names
+    /// more than one; one group and no headers otherwise. Order within a group
+    /// stays by time.
+    private func doseGroups(in doses: [(Medication, ScheduledDose)]) -> [(person: String, doses: [(Medication, ScheduledDose)])] {
+        let names = Set(doses.map { $0.0.personName.trimmingCharacters(in: .whitespaces) })
+        guard names.count > 1 else { return [("", doses)] }
+        let ordered = names.sorted { lhs, rhs in
+            if lhs.isEmpty { return false }
+            if rhs.isEmpty { return true }
+            return lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending
+        }
+        return ordered.map { person in
+            (person, doses.filter { $0.0.personName.trimmingCharacters(in: .whitespaces) == person })
+        }
+    }
+
+    /// Refills under way: what to pick up, and what is still expected. The
+    /// pharmacy trip is the other thing this app exists to remember.
+    @ViewBuilder
+    private func pickupsCard(now: Date) -> some View {
+        let inProgress = activeMedications
+            .filter { $0.refillStatus != .none }
+            .sorted { ($0.refillStatusDate ?? .distantFuture) < ($1.refillStatusDate ?? .distantFuture) }
+        if !inProgress.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Label(inProgress.count == 1 ? "A refill is on its way" : "\(inProgress.count) refills are on their way", systemImage: "bag.fill")
+                    .font(.headline)
+                ForEach(inProgress) { medication in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(medication.displayName)
+                            .font(.subheadline.weight(.semibold))
+                        Spacer(minLength: 8)
+                        Text(RefillStatusText.line(for: medication, now: now) ?? "")
+                            .font(.subheadline)
+                            .foregroundStyle(medication.refillStatus == .ready ? AppTheme.accent : .secondary)
+                            .multilineTextAlignment(.trailing)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+                Text("Add the refill on the medication's page when it is in hand.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(18)
+            .cardSurface()
         }
     }
 

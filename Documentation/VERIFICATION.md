@@ -194,6 +194,71 @@ Version bumped to 1.1.1, build 5.
   the refill-status date and the Health sample identifier as null, and
   `countsTowardSupply` as true. Nothing in the log mentioned a migration error.
 
+### The features
+
+Six of the brief's seven, each on facts the one migration carried. Widgets
+are not in 1.1.1: they need a widget extension target and the store moved into
+an app group, which is a data migration of its own kind, and they wait for a
+session of their own.
+
+- **The pharmacy card.** `ScanParser` reads the pharmacy (a chain, or a line
+  with "pharmacy" in it, within the first dozen lines), its phone (on or
+  beside that line, else the first on the label, never a fax or a ten-digit
+  NPI) and the Rx number with its fill suffix. Tested on a Walgreens-shaped
+  label with a prescriber's number lower down and on a hospital pharmacy line.
+  The editor gained a Pharmacy section, the detail screen a card with the Rx
+  number in large type and a Call button, and a detailed low-supply reminder
+  ends "Call Walgreens #04821 with Rx 8842197." — but not a renewal reminder,
+  whose call is to the prescriber. Tested.
+- **A refill under way.** Supply menu > Refill Requested… or Ready for
+  Pickup…, each with a date, and Clear Refill Status. The low-supply reminder
+  is suppressed while the status stands (tested), Supply's row reads the
+  status instead of "Act soon" and drops the orange, Today shows "A refill is
+  on its way" with what to pick up and when, and Add Refill clears it.
+- **Trip check.** `TripCheck` sorts forecasts into refill-before-you-go
+  (running out on or before the return day, soonest first), can't-say and
+  fine; tested, including that an archived medication is left out. A
+  suitcase button on Supply opens it with the return date a week out.
+- **Who it's for.** A "Who takes this" field; Today, Supply and the shared
+  list group under the names when more than one person is named, with the
+  unassigned last; the Medications list shows "For Lukas" and searches it.
+  The list's grouping and order are tested.
+- **Expiration reminders.** One reminder a week before a package expiration
+  at nine, under the refill-reminders toggle, never once its moment has
+  passed; tested, and the test caught the planner formatting the date in the
+  device's zone rather than the plan's calendar, which is fixed for refill
+  bodies too.
+- **Doses by day.** `AdherenceSummary` and its tests: taken, skipped, missed,
+  partial, upcoming and none, day by day, with an unscheduled dose standing in
+  for the day's slot, today not yet a miss, another medication's dose
+  invisible, and a schedule that starts mid-month leaving earlier days blank.
+  The detail screen shows the month with a legend, pages back but not past
+  the current month, and sums the month in a sentence; the shared list prints
+  "12 doses logged in the last 30 days, 1 skipped", with the day the
+  medication was added when that is under a month ago.
+
+By hand on the iPhone 17 Pro simulator, on the Tacrolimus imported from
+Health: the calendar showed September with the 12th complete from the Health
+dose and later days outlined; Ready for Pickup… saved with today's date and
+the forecast card read "Ready for pickup"; Edit Medication took "Lukas",
+"Boston Children's Hospital Pharmacy", "617-355-6000" and "7719204", and the
+detail screen then showed the Pharmacy card with the Rx number in large type
+and "Call Boston Children's Hospital Pharmacy"; Today led with "A refill is on
+its way · Tacrolimus · Ready for pickup"; Supply's row read "Ready for pickup"
+with no orange, and Trip Check with a return date a week out listed Tacrolimus
+under "Fine through your return · Runs out around Oct 12".
+
+### Results
+
+- Unit tests: 340/340 on the iPhone 17 Pro simulator (306 after the scanner
+  batch, plus the reconciler, the RxNorm slice, the pharmacy card, the planner
+  additions, the trip check, the adherence month and the person-grouped list).
+- UI tests: 9/9 on the iPhone 17 simulator, with the Pharmacy section and the
+  person field present on the editor screens the accessibility audits cover.
+- Release static analysis on the app target: succeeded, nothing beyond Xcode's no-AppIntents metadata note.
+- Version 1.1.1, build 5. Not archived; the physical-iPhone gates are listed
+  in the release checklist under "1.1.1 gates".
+
 ### RxNorm
 
 - `Tools/build_rxnorm_table.py` read the September 8, 2026 prescribable

@@ -44,7 +44,7 @@ actor NotificationService {
         var failed = 0
         let deliveredIdentifiers = Set(managedDelivered)
         for item in planned {
-            if item.kind == .refill, deliveredIdentifiers.contains(item.identifier) {
+            if item.kind != .dose, deliveredIdentifiers.contains(item.identifier) {
                 continue
             }
             let content = UNMutableNotificationContent()

@@ -19,9 +19,6 @@ struct MedicationEditorView: View {
     private let draftSource: MedicationSource
     private let draftIdentification: NDCIdentificationOutcome?
     private let draftImportedDoses: [ImportedDose]
-    private let draftPharmacyName: String
-    private let draftPharmacyPhone: String
-    private let draftRxNumber: String
     private let draftCaptureNote: String
     private let onSaved: (() -> Void)?
 
@@ -50,6 +47,10 @@ struct MedicationEditorView: View {
     @State private var nameProvenance: MedicationNameProvenance
     @State private var ndcEntry: String
     @State private var rxNormCode: String
+    @State private var personName: String
+    @State private var pharmacyName: String
+    @State private var pharmacyPhone: String
+    @State private var rxNumber: String
     @State private var isAsNeeded: Bool
     @State private var remindersEnabled: Bool
     @State private var refillRemindersEnabled: Bool
@@ -68,9 +69,6 @@ struct MedicationEditorView: View {
         self.draftSource = medication?.source ?? draft.source
         self.draftIdentification = draft.identification
         self.draftImportedDoses = draft.importedDoses
-        self.draftPharmacyName = draft.pharmacyName
-        self.draftPharmacyPhone = draft.pharmacyPhone
-        self.draftRxNumber = draft.rxNumber
         self.draftCaptureNote = draft.captureNote
         self.onSaved = onSaved
         let resolvedForm = medication?.form ?? draft.form
@@ -93,6 +91,10 @@ struct MedicationEditorView: View {
         _productIdentifierType = State(initialValue: medication?.productIdentifierType ?? draft.productIdentifierType)
         _nameProvenance = State(initialValue: medication == nil ? draft.nameProvenance : .none)
         _rxNormCode = State(initialValue: medication?.rxNormCode ?? draft.rxNormCode)
+        _personName = State(initialValue: medication?.personName ?? "")
+        _pharmacyName = State(initialValue: medication?.pharmacyName ?? draft.pharmacyName)
+        _pharmacyPhone = State(initialValue: medication?.pharmacyPhone ?? draft.pharmacyPhone)
+        _rxNumber = State(initialValue: medication?.rxNumber ?? draft.rxNumber)
         // A code that was read but filled nothing is offered back for checking,
         // digit by digit against the bottle, rather than left in the evidence list.
         _ndcEntry = State(initialValue: draft.identification?.codeToCheck ?? "")
@@ -223,6 +225,13 @@ struct MedicationEditorView: View {
                 }
                 .padding(.vertical, 3)
                 VStack(alignment: .leading, spacing: 4) {
+                    MedicationFieldTitle("Who takes this")
+                    TextField("Person (optional)", text: $personName)
+                        .textInputAutocapitalization(.words)
+                        .accessibilityHint("Optional; groups Today, Supply and the shared list by person")
+                }
+                .padding(.vertical, 3)
+                VStack(alignment: .leading, spacing: 4) {
                     MedicationFieldTitle("Label directions")
                     TextField("Label directions", text: $directions, axis: .vertical)
                         .lineLimit(2...5)
@@ -310,6 +319,35 @@ struct MedicationEditorView: View {
                     .disabled((!remindersEnabled || isAsNeeded) && !refillRemindersEnabled)
                 Stepper("Low supply: \(refillLeadDays) days before", value: $refillLeadDays, in: 1...30)
                     .disabled(!refillRemindersEnabled)
+            }
+
+            Section {
+                VStack(alignment: .leading, spacing: 4) {
+                    MedicationFieldTitle("Pharmacy")
+                    TextField("Pharmacy (optional)", text: $pharmacyName)
+                        .textInputAutocapitalization(.words)
+                }
+                .padding(.vertical, 3)
+                VStack(alignment: .leading, spacing: 4) {
+                    MedicationFieldTitle("Pharmacy phone")
+                    TextField("Phone (optional)", text: $pharmacyPhone)
+                        .keyboardType(.phonePad)
+                        .textContentType(.telephoneNumber)
+                }
+                .padding(.vertical, 3)
+                VStack(alignment: .leading, spacing: 4) {
+                    MedicationFieldTitle("Rx number")
+                    TextField("Rx number (optional)", text: $rxNumber)
+                        .keyboardType(.numbersAndPunctuation)
+                        .font(.body.monospaced())
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                }
+                .padding(.vertical, 3)
+            } header: {
+                Text("Pharmacy")
+            } footer: {
+                Text("For the call a low-supply reminder leads to. A scanned label fills in what it prints.")
             }
 
             Section("Prescription & package") {
@@ -666,11 +704,6 @@ struct MedicationEditorView: View {
                     ))
                 }
             }
-            // Facts the review screen does not edit but the draft read off the
-            // label or Health: the pharmacy.
-            newMedication.pharmacyName = draftPharmacyName
-            newMedication.pharmacyPhone = draftPharmacyPhone
-            newMedication.rxNumber = draftRxNumber
         }
 
         target.refillsRemaining = Int(refillsText.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -680,6 +713,10 @@ struct MedicationEditorView: View {
         target.productIdentifier = productIdentifier
         target.productIdentifierType = productIdentifierType
         target.rxNormCode = rxNormCode
+        target.personName = personName.trimmingCharacters(in: .whitespacesAndNewlines)
+        target.pharmacyName = pharmacyName.trimmingCharacters(in: .whitespacesAndNewlines)
+        target.pharmacyPhone = pharmacyPhone.trimmingCharacters(in: .whitespacesAndNewlines)
+        target.rxNumber = rxNumber.trimmingCharacters(in: .whitespacesAndNewlines)
         target.isAsNeeded = isAsNeeded
         target.remindersEnabled = remindersEnabled && !isAsNeeded
         target.refillRemindersEnabled = refillRemindersEnabled

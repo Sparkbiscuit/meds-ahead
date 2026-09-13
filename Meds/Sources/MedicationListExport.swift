@@ -12,6 +12,10 @@ struct MedicationListEntry: Identifiable, Equatable {
     let scheduleLines: [String]
     let supplyLine: String
     let detailLine: String
+    /// Who takes it, when the household says; entries group under it.
+    var personName = ""
+    /// What was actually logged, which a clinician reads as adherence.
+    var adherenceLine = ""
 }
 
 enum MedicationListDocument {
@@ -25,7 +29,18 @@ enum MedicationListDocument {
     ) -> [MedicationListEntry] {
         medications
             .filter { !$0.isArchived }
-            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+            .sorted { lhs, rhs in
+                // Grouped by person when the household names one; a medication
+                // with no person sorts after the named ones.
+                let left = lhs.personName.trimmingCharacters(in: .whitespaces)
+                let right = rhs.personName.trimmingCharacters(in: .whitespaces)
+                if left != right {
+                    if left.isEmpty { return false }
+                    if right.isEmpty { return true }
+                    return left.localizedCaseInsensitiveCompare(right) == .orderedAscending
+                }
+                return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+            }
             .map { medication in
                 entry(
                     for: medication,
@@ -110,8 +125,27 @@ enum MedicationListDocument {
             directions: medication.directions,
             scheduleLines: scheduleLines,
             supplyLine: supplyLine,
-            detailLine: detailParts.joined(separator: " · ")
+            detailLine: detailParts.joined(separator: " · "),
+            personName: medication.personName.trimmingCharacters(in: .whitespaces),
+            adherenceLine: adherenceLine(for: medication, doseEvents: doseEvents, now: now, calendar: calendar)
         )
+    }
+
+    /// "12 doses logged in the last 30 days, 1 skipped". Counted over the history
+    /// that exists; a medication added yesterday says so rather than implying a
+    /// month of misses.
+    static func adherenceLine(for medication: Medication, doseEvents: [DoseEvent], now: Date, calendar: Calendar) -> String {
+        guard let start = calendar.date(byAdding: .day, value: -30, to: now) else { return "" }
+        let recent = doseEvents.filter { $0.medicationID == medication.id && $0.recordedAt >= start && $0.recordedAt <= now }
+        let taken = recent.filter { $0.status == .taken }.count
+        let skipped = recent.filter { $0.status == .skipped }.count
+        guard taken + skipped > 0 else { return "No doses logged in the last 30 days" }
+        var line = "\(taken) dose\(taken == 1 ? "" : "s") logged in the last 30 days"
+        if skipped > 0 { line += ", \(skipped) skipped" }
+        if medication.createdAt > start {
+            line += " (added \(medication.createdAt.formatted(date: .abbreviated, time: .omitted)))"
+        }
+        return line
     }
 
     /// Bit 0 is Sunday, matching `Calendar.component(.weekday)`. Days print in
@@ -253,7 +287,15 @@ struct MedicationListPageView: View {
             if let generatedAt {
                 MedicationListHeaderView(generatedAt: generatedAt)
             }
-            ForEach(entries) { entry in
+            ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+                // A person's name heads their first entry on the page; the
+                // entries are already sorted by person.
+                if !entry.personName.isEmpty, index == 0 || entries[index - 1].personName != entry.personName {
+                    Text("For \(entry.personName)")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Color(white: 0.25))
+                        .padding(.top, index == 0 ? 0 : 4)
+                }
                 MedicationListEntryView(entry: entry)
             }
             if showsDisclaimer {
@@ -306,6 +348,9 @@ struct MedicationListEntryView: View {
             }
             documentLine(label: "Schedule", value: entry.scheduleLines.joined(separator: "\n"))
             documentLine(label: "Supply", value: entry.supplyLine)
+            if !entry.adherenceLine.isEmpty {
+                documentLine(label: "Logged", value: entry.adherenceLine)
+            }
             if !entry.detailLine.isEmpty {
                 documentLine(label: "Prescription", value: entry.detailLine)
             }

@@ -6,6 +6,7 @@ struct SupplyView: View {
     @Query private var schedules: [DoseSchedule]
     @Query private var inventoryEvents: [InventoryEvent]
     @Query private var doseEvents: [DoseEvent]
+    @State private var showingTripCheck = false
     let onAdd: () -> Void
 
     private var active: [Medication] { medications.filter { !$0.isArchived } }
@@ -35,9 +36,24 @@ struct SupplyView: View {
 
     private func attentionCount(in forecasts: [(Medication, SupplyForecast)]) -> Int {
         forecasts.filter { item in
-            guard let days = item.1.daysRemaining else { return false }
+            guard let days = item.1.daysRemaining, item.0.refillStatus == .none else { return false }
             return days <= item.0.refillLeadDays
         }.count
+    }
+
+    /// Ranked forecasts grouped under the person each medication is for, when
+    /// the household names more than one; one group, no headers, otherwise.
+    private func groups(in forecasts: [(Medication, SupplyForecast)]) -> [(person: String, items: [(Medication, SupplyForecast)])] {
+        let names = Set(forecasts.map { $0.0.personName.trimmingCharacters(in: .whitespaces) })
+        guard names.count > 1 else { return [("", forecasts)] }
+        let ordered = names.sorted { lhs, rhs in
+            if lhs.isEmpty { return false }
+            if rhs.isEmpty { return true }
+            return lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending
+        }
+        return ordered.map { person in
+            (person, forecasts.filter { $0.0.personName.trimmingCharacters(in: .whitespaces) == person })
+        }
     }
 
     var body: some View {
@@ -62,13 +78,22 @@ struct SupplyView: View {
                             action: onAdd
                         )
                     } else {
-                        ForEach(forecasts, id: \.0.id) { medication, forecast in
-                            NavigationLink {
-                                MedicationDetailView(medication: medication)
-                            } label: {
-                                SupplyRow(medication: medication, forecast: forecast)
+                        ForEach(groups(in: forecasts), id: \.person) { person, items in
+                            if !person.isEmpty || groups(in: forecasts).count > 1 {
+                                Text(person.isEmpty ? "Not assigned to anyone" : "For \(person)")
+                                    .font(.headline)
+                                    .foregroundStyle(.secondary)
+                                    .padding(.top, 4)
+                                    .accessibilityAddTraits(.isHeader)
                             }
-                            .buttonStyle(.plain)
+                            ForEach(items, id: \.0.id) { medication, forecast in
+                                NavigationLink {
+                                    MedicationDetailView(medication: medication)
+                                } label: {
+                                    SupplyRow(medication: medication, forecast: forecast)
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
                     }
                 }
@@ -77,6 +102,21 @@ struct SupplyView: View {
             }
         }
         .navigationTitle("Supply")
+        .toolbar {
+            if !forecasts.isEmpty {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        showingTripCheck = true
+                    } label: {
+                        Label("Trip Check", systemImage: "suitcase")
+                    }
+                    .accessibilityHint("See which medications need a refill before you travel")
+                }
+            }
+        }
+        .sheet(isPresented: $showingTripCheck) {
+            TripCheckSheet(forecasts: forecasts.map { (medication: $0.0, forecast: $0.1) })
+        }
     }
 
     private func header(attentionCount: Int) -> some View {
@@ -97,8 +137,10 @@ private struct SupplyRow: View {
     let forecast: SupplyForecast
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
+    /// Low, and nothing done about it yet: a refill under way turns the alarm off.
     private var isLow: Bool {
-        forecast.daysRemaining.map { $0 <= medication.refillLeadDays } ?? false
+        guard medication.refillStatus == .none else { return false }
+        return forecast.daysRemaining.map { $0 <= medication.refillLeadDays } ?? false
     }
 
     var body: some View {
@@ -159,9 +201,85 @@ private struct SupplyRow: View {
     }
 
     private var summary: String {
+        if let status = RefillStatusText.line(for: medication) { return status }
         if let date = forecast.depletionDate {
             return isLow ? "Act soon · around \(date.formatted(.dateTime.month(.abbreviated).day()))" : "Runs out around \(date.formatted(.dateTime.month(.abbreviated).day()))"
         }
         return forecast.explanation
+    }
+}
+
+/// Pick the day you are back; see what runs out before then.
+private struct TripCheckSheet: View {
+    let forecasts: [(medication: Medication, forecast: SupplyForecast)]
+    @State private var returnDate = Calendar.autoupdatingCurrent.date(byAdding: .day, value: 7, to: .now) ?? .now
+    @Environment(\.dismiss) private var dismiss
+
+    private var check: TripCheck {
+        TripCheck.make(returnDate: returnDate, forecasts: forecasts)
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    DatePicker("Back on", selection: $returnDate, in: Date.now..., displayedComponents: .date)
+                } footer: {
+                    Text("Counted from the confirmed supply and current schedules. A medication that runs out on the day you return still needs a refill before you go.")
+                }
+                let result = check
+                Section("Refill before you go") {
+                    if result.needsRefill.isEmpty {
+                        Label("Nothing runs out before you're back", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(AppTheme.accent)
+                    }
+                    ForEach(result.needsRefill, id: \.medicationID) { item in
+                        row(item, detail: item.forecast.depletionDate.map { "Runs out around \($0.formatted(.dateTime.month(.abbreviated).day()))" } ?? "", symbol: "exclamationmark.circle.fill", tint: .orange)
+                    }
+                }
+                if !result.uncertain.isEmpty {
+                    Section {
+                        ForEach(result.uncertain, id: \.medicationID) { item in
+                            row(item, detail: item.forecast.explanation, symbol: "questionmark.circle", tint: .secondary)
+                        }
+                    } header: {
+                        Text("Can't say")
+                    } footer: {
+                        Text("No forecast yet: as-needed medications need three logged doses, and a scheduled one needs a count and a schedule.")
+                    }
+                }
+                if !result.fine.isEmpty {
+                    Section("Fine through your return") {
+                        ForEach(result.fine, id: \.medicationID) { item in
+                            row(item, detail: item.forecast.depletionDate.map { "Runs out around \($0.formatted(.dateTime.month(.abbreviated).day()))" } ?? "", symbol: "checkmark.circle", tint: AppTheme.accent)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Trip Check")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+        }
+    }
+
+    private func row(_ item: TripCheck.Item, detail: String, symbol: String, tint: Color) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: symbol)
+                .foregroundStyle(tint)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.displayName)
+                    .font(.body.weight(.semibold))
+                if !detail.isEmpty {
+                    Text(detail)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
     }
 }

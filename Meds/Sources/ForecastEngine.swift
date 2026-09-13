@@ -16,6 +16,55 @@ struct SupplyForecast: Equatable {
     var isKnown: Bool { depletionDate != nil }
 }
 
+/// Which medications need a refill before a trip, from the forecasts that
+/// already exist. Pure arithmetic: a supply that runs out before the return
+/// date needs attention before leaving; one whose timing is unknown cannot be
+/// vouched for; the rest are fine.
+struct TripCheck: Equatable {
+    struct Item: Equatable {
+        let medicationID: UUID
+        let displayName: String
+        let forecast: SupplyForecast
+    }
+
+    let returnDate: Date
+    let needsRefill: [Item]
+    let uncertain: [Item]
+    let fine: [Item]
+
+    static func make(
+        returnDate: Date,
+        forecasts: [(medication: Medication, forecast: SupplyForecast)],
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> TripCheck {
+        let returnDay = calendar.startOfDay(for: returnDate)
+        var needsRefill: [Item] = []
+        var uncertain: [Item] = []
+        var fine: [Item] = []
+        for (medication, forecast) in forecasts where !medication.isArchived {
+            let item = Item(medicationID: medication.id, displayName: medication.displayName, forecast: forecast)
+            if let depletion = forecast.depletionDate {
+                // Running out on the day of return still means arriving home
+                // without a dose in hand, so that day counts as before.
+                if calendar.startOfDay(for: depletion) <= returnDay {
+                    needsRefill.append(item)
+                } else {
+                    fine.append(item)
+                }
+            } else {
+                uncertain.append(item)
+            }
+        }
+        let byName: (Item, Item) -> Bool = { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+        return TripCheck(
+            returnDate: returnDate,
+            needsRefill: needsRefill.sorted { ($0.forecast.depletionDate ?? .distantFuture) < ($1.forecast.depletionDate ?? .distantFuture) },
+            uncertain: uncertain.sorted(by: byName),
+            fine: fine.sorted(by: byName)
+        )
+    }
+}
+
 enum ForecastEngine {
     static func rawSupplyBalance(
         medicationID: UUID,
