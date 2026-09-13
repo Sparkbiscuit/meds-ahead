@@ -311,9 +311,44 @@ model already had or gained in 1.1.1's one migration.
   fact as a sentence: how many doses were logged in the last thirty days,
   with the day the medication was added when that is less than a month ago.
 
-Widgets and App Intents are not in 1.1.1. They need a widget extension target
-and the store moved into an app group, which is a data migration of a
-different kind, and they wait for a session of their own.
+## Widgets, and where the store lives
+
+Two widgets, for the Home Screen and the Lock Screen: Next Dose and Runs Out
+Next. They live in the `MedsWidgets` extension, which compiles the `Shared`
+folder — the model, `ScheduleEngine`, `ForecastEngine`, the theme and the
+store location — alongside the app, so the widget's answers come from the same
+code as the app's. `NextDoseSnapshot` and `RunsOutSnapshot` decide what to show
+over plain values: the earliest unlogged dose time of the day and everything
+due at it, overdue or not; and the medications in the order their supply runs
+out, with the unforecastable last. A timeline entry is planned for every moment
+the answer changes on its own — each unlogged dose time still ahead, the edges
+of its due window, and midnight — and the app reloads the widgets whenever the
+ledger changes, from the one place every change passes through, the
+notification replan. Names are marked privacy-sensitive, so a locked Lock
+Screen redacts them the way it redacts a notification preview.
+
+The Taken button on the next-dose widget is `LogNextDoseIntent`. It appears
+only when exactly one medication is due at that time, for the reason a grouped
+reminder offers no Taken action: one tap cannot safely stand for several doses.
+The intent matches the dose to its slot through `ScheduleEngine` and leaves a
+slot already logged alone, from Today, from a reminder, or from Health; the app
+replans notifications the next time it comes forward, as it does after a
+reminder action.
+
+A widget runs in its own process and can only reach a store in an app group
+container, so the store now lives in `group.com.christoforakis.Meds`.
+`StoreLocation.migrate` moves a store 1.0 or 1.1 kept in Application Support
+there once, on the first launch after the update, before any connection is
+opened: all three SQLite files together, because a committed transaction can
+sit in the write-ahead log until the next checkpoint; the copy is checked
+against the original's size before the original is set aside, and the original
+is renamed beside its old name rather than deleted, so a launch that somehow
+found the copy unusable could be recovered by hand. A copy that fails or cannot
+be trusted leaves nothing behind at the shared location and the app keeps using
+the legacy store, with the widgets saying to open the app. The widget itself
+never creates the store — opening a SwiftData container where none exists would
+create one, and an empty store at the shared location would tell the app the
+move had already happened — so it opens only a store that exists.
 
 ## Rating request
 

@@ -139,7 +139,77 @@ directory entry for 00469-0617-73".
   Read the capture note first; it now also says whether the second look ran
   and what it found.
 
-## September 12, 2026 (late) — 1.1.1: Health dose sync, the RxNorm table, one migration
+## September 12, 2026 (night, later) — 1.1.1: widgets, and the store moves into the app group
+
+Nick asked for the widgets session straight after the features landed.
+
+### What was built
+
+- `MedsWidgets`, a WidgetKit extension target added to the project file by
+  hand in the project's own style: a synchronized `Shared` folder that both
+  the app and the extension compile (the model, `ScheduleEngine`,
+  `ForecastEngine`, the theme, `MedicationGlyph`, the quantity text,
+  `RefillStatusText`, `StoreLocation` and the widget snapshots — the first
+  five moved out of `Meds/Sources` with `git mv`), the extension's own
+  synchronized folder with an Info.plist membership exception so the plist is
+  not also copied as a resource, an Embed Foundation Extensions phase, the
+  app group `group.com.christoforakis.Meds` in both entitlements, and the
+  extension's bundle `com.christoforakis.Meds.MedsWidgets` at 1.1.1 (5).
+- Two widgets. Next Dose (small, medium, Lock Screen rectangular, circular and
+  inline): the earliest unlogged dose time of the day and everything due at
+  it, overdue or not, with a Taken button when exactly one medication is due.
+  Runs Out Next (small, medium, rectangular, inline): the medications in the
+  order their supply runs out, the unforecastable last. Names are
+  privacy-sensitive. `NextDoseSnapshot` and `RunsOutSnapshot` decide both over
+  plain values, tested; the timeline gets an entry for every moment the
+  answer changes on its own, and the app reloads the widgets at the end of
+  every notification replan.
+- `LogNextDoseIntent`, the Taken button: matches the dose to its slot through
+  `ScheduleEngine`, leaves a logged slot alone, notes "Logged from widget".
+- `StoreLocation`: the store now lives in the app group container, and a
+  store 1.0 or 1.1 kept in Application Support is moved there once, before
+  it is opened, all three SQLite files together, size-checked, with the
+  originals renamed beside their old name. Seven tests on real files: a
+  fresh install has nothing to move, the sidecars travel and the originals
+  are retired, a shared store is never touched again, an empty legacy file
+  and an unwritable group location both keep the legacy store with nothing
+  left behind, and the second launch finds the move done. The widget never
+  creates the store.
+
+### What went wrong on the way, and the fix
+
+The first widget build crashed the extension inside SwiftData on every
+timeline request. The log, once read at info level, showed every fetch
+succeeding and the trap landing in `Medication.isArchived` from the snapshot
+code: `WidgetStore.load()` had returned the fetched models but let the
+`ModelContainer` go out of scope, so the models had lost their context. The
+app never meets this because it keeps one container for its life. The loaded
+contents now carry the container, and the intent holds it for the duration of
+its work. Two other findings: the simulator's `log show` needs `--info` to
+show `Logger.info` lines from an extension, and the Home Screen's accented
+rendering mode flattened a prominent button into a pill with no visible
+label, so the Taken button is bordered with an accentable label.
+
+### By hand on the iPhone 17 Pro simulator
+
+- The store move, observed cleanly: the retired files restored to their
+  legacy names and the shared store deleted, then the app launched. The three
+  files appeared in the group container, the originals were retired beside
+  their old name, the medication with its person, Rx number and refill
+  status, its dose and its inventory were all present, `lsof` showed the
+  running app holding only the shared files, and `pragma integrity_check`
+  answered ok. (A `sqlite3` diagnostic run on the legacy file before the
+  launch had checkpointed its write-ahead log on close, which is why the
+  retired log was empty; the app never opened the legacy store.)
+- The widget: Home Screen long-press > Edit > Add Widget > "Meds" found Meds
+  Ahead; the picker showed Next Dose with its placeholder preview; once added
+  and the app brought forward, the small widget read "Overdue · 8:00 AM ·
+  Tacrolimus" with the Taken button. Tapping Taken on the widget logged the
+  dose: the store gained a taken event at the 8:00 slot noted "Logged from
+  widget", counting toward supply, and the widget moved on.
+- Unit tests 354/354 on the iPhone 17 Pro simulator; UI tests 9/9 on the
+  iPhone 17.
+
 
 ### The model change, batched
 

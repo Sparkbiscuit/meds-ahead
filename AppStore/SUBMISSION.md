@@ -56,6 +56,8 @@ A second look for the NDC. When the small print on a label is hard to read, Meds
 
 Apple Health keeps counting. On iOS 26 and later, doses you log in Health for a medication that is also here are brought over whenever Meds Ahead opens, count toward its supply, and never double a dose you logged here. Still read-only: nothing is written to Health.
 
+Widgets. Put the next dose on your Home Screen or Lock Screen, with a Taken button when one medication is due, and see at a glance which medication runs out next.
+
 Also new: the pharmacy, phone and Rx number read off the label with a Call button; mark a refill as requested or ready for pickup and the low-supply reminder pauses; a trip check in Supply; a person per medication for households with more than one; a reminder a week before a package expires; and a month calendar of taken and skipped doses on every medication.
 ```
 

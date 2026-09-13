@@ -1,5 +1,6 @@
 import Foundation
 import UserNotifications
+import WidgetKit
 
 actor NotificationService {
     static let shared = NotificationService()
@@ -38,6 +39,7 @@ actor NotificationService {
                 planned: planned.count,
                 failed: 0
             )
+            WidgetCenter.shared.reloadAllTimelines()
             return
         }
 
@@ -111,5 +113,8 @@ actor NotificationService {
             planned: planned.count,
             failed: failed
         )
+        // Every change to the ledger ends here, so this is where the widgets
+        // learn about it.
+        WidgetCenter.shared.reloadAllTimelines()
     }
 }

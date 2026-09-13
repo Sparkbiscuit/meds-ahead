@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		E00000000000000000000001 /* MedsWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 100000000000000000000004 /* MedsWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		A00000000000000000000001 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -21,13 +25,45 @@
 			remoteGlobalIDString = 500000000000000000000001;
 			remoteInfo = Meds;
 		};
+		A00000000000000000000003 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 900000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 500000000000000000000004;
+			remoteInfo = MedsWidgets;
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		D00000000000000000000001 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				E00000000000000000000001 /* MedsWidgets.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		100000000000000000000001 /* Meds.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Meds.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		100000000000000000000002 /* MedsTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MedsTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		100000000000000000000003 /* MedsUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MedsUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		100000000000000000000004 /* MedsWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MedsWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		F00000000000000000000001 /* Exceptions for "MedsWidgets" folder in "MedsWidgets" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 500000000000000000000004 /* MedsWidgets */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		200000000000000000000001 /* Meds */ = {
@@ -43,6 +79,19 @@
 		200000000000000000000003 /* MedsUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = MedsUITests;
+			sourceTree = "<group>";
+		};
+		200000000000000000000004 /* Shared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		200000000000000000000005 /* MedsWidgets */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				F00000000000000000000001 /* Exceptions for "MedsWidgets" folder in "MedsWidgets" target */,
+			);
+			path = MedsWidgets;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -69,6 +118,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		300000000000000000000004 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -76,6 +132,8 @@
 			isa = PBXGroup;
 			children = (
 				200000000000000000000001 /* Meds */,
+				200000000000000000000004 /* Shared */,
+				200000000000000000000005 /* MedsWidgets */,
 				200000000000000000000002 /* MedsTests */,
 				200000000000000000000003 /* MedsUITests */,
 				400000000000000000000002 /* Products */,
@@ -88,6 +146,7 @@
 				100000000000000000000001 /* Meds.app */,
 				100000000000000000000002 /* MedsTests.xctest */,
 				100000000000000000000003 /* MedsUITests.xctest */,
+				100000000000000000000004 /* MedsWidgets.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -102,13 +161,16 @@
 				600000000000000000000001 /* Sources */,
 				300000000000000000000001 /* Frameworks */,
 				700000000000000000000001 /* Resources */,
+				D00000000000000000000001 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				800000000000000000000003 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				200000000000000000000001 /* Meds */,
+				200000000000000000000004 /* Shared */,
 			);
 			name = Meds;
 			packageProductDependencies = (
@@ -163,6 +225,29 @@
 			productReference = 100000000000000000000003 /* MedsUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		500000000000000000000004 /* MedsWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C00000000000000000000005 /* Build configuration list for PBXNativeTarget "MedsWidgets" */;
+			buildPhases = (
+				600000000000000000000004 /* Sources */,
+				300000000000000000000004 /* Frameworks */,
+				700000000000000000000004 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				200000000000000000000004 /* Shared */,
+				200000000000000000000005 /* MedsWidgets */,
+			);
+			name = MedsWidgets;
+			packageProductDependencies = (
+			);
+			productName = MedsWidgets;
+			productReference = 100000000000000000000004 /* MedsWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -189,6 +274,9 @@
 						CreatedOnToolsVersion = 26.6;
 						TestTargetID = 500000000000000000000001;
 					};
+					500000000000000000000004 = {
+						CreatedOnToolsVersion = 26.6;
+					};
 				};
 			};
 			buildConfigurationList = C00000000000000000000001 /* Build configuration list for PBXProject "Meds" */;
@@ -206,6 +294,7 @@
 			projectRoot = "";
 			targets = (
 				500000000000000000000001 /* Meds */,
+				500000000000000000000004 /* MedsWidgets */,
 				500000000000000000000002 /* MedsTests */,
 				500000000000000000000003 /* MedsUITests */,
 			);
@@ -228,6 +317,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		700000000000000000000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		700000000000000000000004 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -258,6 +354,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		600000000000000000000004 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -270,6 +373,11 @@
 			isa = PBXTargetDependency;
 			target = 500000000000000000000001 /* Meds */;
 			targetProxy = A00000000000000000000002 /* PBXContainerItemProxy */;
+		};
+		800000000000000000000003 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 500000000000000000000004 /* MedsWidgets */;
+			targetProxy = A00000000000000000000003 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -525,6 +633,72 @@
 			};
 			name = Release;
 		};
+		B00000000000000000000009 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = MedsWidgets/MedsWidgets.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 5;
+				DEVELOPMENT_TEAM = 8G2SF9YU87;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = MedsWidgets/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Meds Ahead";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.1.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.christoforakis.Meds.MedsWidgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = targeted;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		B0000000000000000000000A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = MedsWidgets/MedsWidgets.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 5;
+				DEVELOPMENT_TEAM = 8G2SF9YU87;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = MedsWidgets/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Meds Ahead";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.1.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.christoforakis.Meds.MedsWidgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = targeted;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -560,6 +734,15 @@
 			buildConfigurations = (
 				B00000000000000000000007 /* Debug */,
 				B00000000000000000000008 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C00000000000000000000005 /* Build configuration list for PBXNativeTarget "MedsWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B00000000000000000000009 /* Debug */,
+				B0000000000000000000000A /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

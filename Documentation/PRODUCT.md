@@ -51,6 +51,7 @@ Meds Ahead V1 is an iPhone-only, offline-first application with:
 - A person per medication, grouping Today, Supply and the shared list when a household names more than one (1.1.1)
 - A package-expiration reminder a week ahead, under the refill-reminders toggle (1.1.1)
 - A month calendar of taken, skipped and unlogged days on every medication, and a thirty-day count on the shared list (1.1.1)
+- Home and Lock Screen widgets: the next dose with a Taken button when one medication is due, and which medication runs out next (1.1.1)
 
 ## Safety boundary
 
@@ -73,5 +74,4 @@ For scheduled medications, the forecast subtracts confirmed future scheduled dos
 - Pharmacy ordering
 - Clinical interaction or contraindication checking
 - Writing dose history to Apple Health
-- Home and Lock Screen widgets, which need an app group and a widget target
 - Server-side medication identification

@@ -8,52 +8,74 @@ struct MedsApp: App {
     private let modelContainer: ModelContainer?
 
     init() {
-        // Medication history is entered by hand and cannot be recreated, so the
-        // store stays eligible for encrypted device and iCloud backup. It is
-        // protected at rest instead, which is what keeps it private on a locked
-        // or lost iPhone.
-        if let applicationSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
-            let protection = FileProtectionType.completeUntilFirstUserAuthentication
-            try? FileManager.default.createDirectory(at: applicationSupport, withIntermediateDirectories: true)
-            try? FileManager.default.setAttributes(
-                [.protectionKey: protection],
-                ofItemAtPath: applicationSupport.path
-            )
-            if let existingFiles = try? FileManager.default.contentsOfDirectory(
-                at: applicationSupport,
-                includingPropertiesForKeys: nil
-            ) {
-                for file in existingFiles {
-                    try? FileManager.default.setAttributes(
-                        [.protectionKey: protection],
-                        ofItemAtPath: file.path
-                    )
-                }
-            }
-        }
         let schema = Schema([
             Medication.self,
             DoseSchedule.self,
             DoseEvent.self,
             InventoryEvent.self
         ])
+        // The store lives in the app group container so the widgets can read
+        // it; a store from 1.0 or 1.1 is moved there once, before it is opened.
+        // UI tests keep their in-memory store and never touch either location.
 #if DEBUG
         let isUITesting = ProcessInfo.processInfo.arguments.contains("-ui-testing")
+        let storeURL = isUITesting ? nil : Self.resolveStoreURL()
 #else
         let isUITesting = false
+        let storeURL = Self.resolveStoreURL()
 #endif
-        let configuration = ModelConfiguration(
-            "Meds",
-            schema: schema,
-            isStoredInMemoryOnly: isUITesting,
-            cloudKitDatabase: .none
-        )
+        let configuration: ModelConfiguration
+        if let storeURL {
+            configuration = ModelConfiguration("Meds", schema: schema, url: storeURL, cloudKitDatabase: .none)
+        } else {
+            configuration = ModelConfiguration(
+                "Meds",
+                schema: schema,
+                isStoredInMemoryOnly: isUITesting,
+                cloudKitDatabase: .none
+            )
+        }
         do {
             let container = try ModelContainer(for: schema, configurations: [configuration])
             modelContainer = container
             appDelegate.modelContainer = container
+            if let storeURL { Self.protect(storeURL) }
         } catch {
             modelContainer = nil
+        }
+    }
+
+    /// The shared store, with a legacy store moved into it first. When the
+    /// group container is unavailable, or the move could not be trusted, the
+    /// store stays where 1.1 kept it and the widgets simply have nothing to show.
+    private static func resolveStoreURL() -> URL? {
+        guard let shared = StoreLocation.sharedURL else { return StoreLocation.legacyURL }
+        if let legacy = StoreLocation.legacyURL {
+            if case .keptLegacy = StoreLocation.migrate(from: legacy, to: shared) {
+                return legacy
+            }
+        }
+        return shared
+    }
+
+    /// Medication history is entered by hand and cannot be recreated, so the
+    /// store stays eligible for encrypted device and iCloud backup. It is
+    /// protected at rest instead, which is what keeps it private on a locked or
+    /// lost iPhone; the class still lets a reminder action log a dose while the
+    /// iPhone is locked, and lets a widget read the store after the first unlock.
+    private static func protect(_ storeURL: URL) {
+        let protection = FileProtectionType.completeUntilFirstUserAuthentication
+        try? FileManager.default.setAttributes([.protectionKey: protection], ofItemAtPath: storeURL.deletingLastPathComponent().path)
+        for suffix in StoreLocation.sidecarSuffixes {
+            try? FileManager.default.setAttributes([.protectionKey: protection], ofItemAtPath: storeURL.path + suffix)
+        }
+        if let legacy = StoreLocation.legacyURL {
+            for suffix in StoreLocation.sidecarSuffixes {
+                try? FileManager.default.setAttributes(
+                    [.protectionKey: protection],
+                    ofItemAtPath: legacy.path + StoreLocation.retiredSuffix + suffix
+                )
+            }
         }
     }
 

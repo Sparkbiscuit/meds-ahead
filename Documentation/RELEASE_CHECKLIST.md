@@ -73,6 +73,10 @@
 
 - [x] SwiftData migration for the batched 1.1.1 properties verified against stores the 1.0 build 3 and the 1.1 build created
 - [x] Apple Health dose sync by hand in the simulator: a dose logged in Health arrives on the foreground sync and counts toward supply; an undo in Health removes it
+- [x] The store's move into the app group container observed on the simulator: a 1.1 store at the legacy location moved with its sidecars, its originals retired, and the medication, doses and inventory intact
+- [ ] Archive with automatic signing so the App Group `group.com.christoforakis.Meds` joins both the app's and the extension's App IDs (or add it by hand in Certificates, Identifiers & Profiles); the extension's bundle ID is `com.christoforakis.Meds.MedsWidgets`
+- [ ] Widgets on a physical iPhone: Next Dose (small, medium, Lock Screen rectangular, circular, inline) and Runs Out Next; the Taken button logs the dose once and Today shows it; names redact on the locked Lock Screen
+- [ ] Update from the App Store 1.0 on a physical iPhone: the store moves, and history is intact
 - [ ] Real bottles on a physical iPhone: the two bottles from September 12 through live scanning and the Review capture, reading the capture note first
 - [ ] Apple Health dose sync on a physical iPhone on iOS 26, including a medication scanned from a bottle and matched to Health by RxNorm
 - [ ] VoiceOver pass on the NDC field, the identification notes, the pharmacy card, the calendar and the trip check
