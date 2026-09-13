@@ -1,6 +1,140 @@
 # Verification record
 
-## September 12, 2026 — 1.1: exact identification, Apple Health import, rating request
+## September 12, 2026 (night) — 1.1.1: the scanner, from the real-bottle pass
+
+Built from `Documentation/handoff/1.1.1-SESSION-BRIEF.md`, first section, the
+same night the brief was written. The two bottles that failed live on September
+12 were not at hand, so the capture note could not be read on them; every
+hypothesis the brief listed that code can close was closed instead, and the
+rendered-label tests were pushed to a camera's worth of pixels.
+
+### The frame (1a)
+
+- The Name pill keeps its title in the exact-match state and changes only its
+  symbol to `checkmark.seal.fill`, with the accessibility label "Name, exact
+  match"; retitling it "Exact match" was what wrapped the row into the frame.
+- The frame's top edge is measured from the pill row with `onGeometryChange`
+  rather than assumed, so a row that wraps at a large text size pushes the frame
+  down. The drawn outline's own frame, measured in the scan area's coordinate
+  space alongside the scanner view's frame, is what becomes
+  `regionOfInterest`; the two can no longer disagree. That also closed a quiet
+  mismatch: the scanner view reaches up under the navigation bar while the
+  outline does not, and the old constant inset was applied to the scanner's
+  bounds, so the recognition region began about a hundred points above the
+  drawn frame. In the simulator the frame now sits sixteen points under the
+  pills at the default text size.
+
+### NDC read reliability (1b)
+
+What the code can settle without the bottles, and what was done about each of
+the brief's hypotheses:
+
+- **The capture never ran.** `captureCroppedPhoto` no longer throws when the
+  crop cannot be mapped; the whole photo is read instead and the note says so.
+- **Zoom is ignored.** Examined and found not to lose anything: if the photo
+  carries the zoom the crop is right, and if it does not the crop still contains
+  everything the preview showed, at the photo's native resolution. The note
+  prints the zoom either way so the device can confirm which.
+- **The merge cap cuts the capture.** The capture is now merged ahead of the
+  live items, so the cap (raised from 80 to 120) cuts live extras and never the
+  capture; a better live reading of a captured line keeps that line's place in
+  the capture's order, so the adjacency that joins wrapped text and split codes
+  survives the merge. Tested.
+- **Small print.** Vision works a whole frame at a bounded resolution, which is
+  the mechanism behind "the rendered tests read one percent of a 1,500-point
+  canvas and the phone reads nothing": the canvas was small. The still pipeline
+  now takes a second look when the first pass yields no code: lines that look
+  like the code's (the caption, including "N0C", or hyphenated digits) are cut
+  out of the full-resolution image with padding, scaled up to about forty pixels
+  of text height, and read again with language correction off; if nothing even
+  looked like the code, the frame is read in six overlapping full-resolution
+  tiles. Only code-bearing lines come back, and they replace the first pass's
+  misreading of the same print.
+- **Confusables.** After the caption every one is repaired: O, D and Q to 0, I
+  and l to 1, Z to 2, S to 5, G to 6, T to 7, B to 8. Spaces stand in for the
+  hyphens after the caption when the segments fit a layout ("NDC 00093 1039
+  01"); a phone number's segments do not, and spaces never count without the
+  caption.
+- **Split lines.** The gate reads the label's lines together in order, so "NDC
+  00093-" on one line and "1039-01" on the next is one code; and the still
+  pipeline judges "was a code read" on the joined text too, so a split code no
+  longer triggers the second look for nothing.
+- **Manual entry.** The review screen's Prescription & package section has an
+  "NDC from the label" field. A typed code is looked up in the directory off the
+  main actor, the listing is shown ("FDA directory: Tacrolimus 1 mg (Prograf),
+  capsule."), and Use This Product fills name, brand, strength and form; the
+  row then says what it filled and from which code. A malformed code, an
+  unlisted one and ten bare digits that fit two products each get their own
+  line.
+- **Read but refused is said out loud.** The draft carries what became of the
+  code — accepted, uncorroborated, contradicted, unlisted, ambiguous — and the
+  review screen's summary states it in words, with the product the directory
+  lists where there is one. A code that was read but filled nothing is prefilled
+  into the NDC field so the person can check it digit by digit.
+
+Measured on rendered labels through the real Vision pipeline, canvas 2,400 by
+3,200 pixels at one pixel per point, the code line printed at 26, 22, 18, 16,
+14, 12 and 10 pixels (0.8 percent of the frame down to 0.3): every size
+resolved the exact product. All but one were read on the first pass; at 18
+pixels the first pass did not recognise the line at all and the tiled fallback
+found it. Two further tests exercise the second look directly — a 12-pixel
+code line cut out around a deliberately loose box, scaled and read, with its
+box mapped back to within a hundredth of the frame of where it was printed; and
+the same line found by the tiled pass in the right-hand half of the frame — and
+one puts the code split around its hyphen onto two lines.
+
+### Text-heavy labels (1c)
+
+- The product line is chosen once, and the strength and the name both come from
+  it: the first line that is not a sig and reads as a name once its strength is
+  set aside, else the first non-sig line carrying a strength. A line is a sig
+  for this purpose when sig vocabulary appears anywhere in it — "every",
+  "hours", "as needed", "with food", "then", a parenthesised dose — not only
+  when it opens like one. The brief's hypothesis held: "(25 MG) BY MOUTH EVERY
+  6 HOURS" had become the strength line and the product line below it was never
+  consulted.
+- A sig whose first line passes the gate alone is carried on through adjacent
+  continuation lines, up to five in one capture, as long as each reads as sig
+  text (sig vocabulary, a frequency, a second direction sentence, or a purpose
+  such as "FOR PAIN") and the whole still passes the gate. A bare package count
+  ("120 TABLETS"), a warning sticker and the product line never continue a sig;
+  the first of those was caught by the rendered OTC label test on the way.
+  `isTrustedDirections` accepts up to 300 characters, and "mfr" joined the
+  dispensing words.
+- Regression cases: the three-line wrapped sig with the restated dose
+  (Hydroxyzine 25 mg, directions assembled whole, quantity and refills intact),
+  a five-line sig, a trusted first line keeping its continuation, and the two
+  lines that must not be swallowed.
+
+### By hand in the simulator
+
+A rendered label carrying only "NDC 0093-1039-01", an Rx number, a quantity and
+a refill count, through Choose Photo: the scanner's pills showed quantity and
+refills found and the name withheld; Review opened with "Code read, not in the
+directory — 0093-1039-01 was read as an NDC but is not in the bundled FDA
+directory", the product-code row showing the code as read, and the NDC field
+prefilled with it and saying "Not in the bundled FDA directory. Check each digit
+against the label." (That code is the sertraline row of the unit tests'
+in-memory directory; it is not in the real snapshot, which is why this showed
+the unlisted state rather than the uncorroborated one — an honest answer either
+way.) Then, from Enter Manually, typing 0469-0617-73 into the NDC field showed
+"FDA directory: Tacrolimus 1 mg (Prograf), capsule." with Use This Product;
+tapping it filled Tacrolimus, Prograf, 1 mg and Capsule, set the product code
+to 00469-0617-73, and the row read "Name, strength and form filled from the FDA
+directory entry for 00469-0617-73".
+
+### Results
+
+- Unit tests: 306/306 on the iPhone 17 Pro simulator (285 before, plus the
+  confusable, spaced-hyphen and split-line readings, the outcome reporting, the
+  frame inset, the merge position and cap order, the box mapping, the
+  code-fragment shapes, the camera-sized and half-percent labels, the zoomed
+  and tiled passes on their own, the wrapped code, and the four text-heavy
+  labels).
+- The two bottles from September 12 remain the acceptance test, on the phone.
+  Read the capture note first; it now also says whether the second look ran
+  and what it found.
+
 
 Built in one session from the brief in `Documentation/handoff/NDC-SESSION-PROMPT.md`
 and the September 11 plan. The FDA snapshot itself is the one piece that waits on a

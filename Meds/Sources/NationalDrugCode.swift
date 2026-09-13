@@ -59,12 +59,16 @@ struct NDCReading: Hashable, Sendable {
 
 extension NationalDrugCode {
     /// Vision reads a printed zero as the letter O and a one as I or l often enough
-    /// that refusing those would drop a real code; the directory lookup and the
-    /// label itself decide whether the repaired digits name the right product.
-    /// The letters may be spaced ("N D C") and the code may be split around its
-    /// hyphens by the same small print that makes it hard to read in the first place.
+    /// that refusing those would drop a real code, and small print confuses more
+    /// than that: B for 8, S for 5, D or Q for 0, Z for 2, G for 6, T for 7. After
+    /// the caption no letter is possible, so every one of them is repaired; the
+    /// directory lookup and the label itself decide whether the repaired digits
+    /// name the right product. The letters may be spaced ("N D C"), the code may
+    /// be split around its hyphens by the same small print that makes it hard to
+    /// read, and the hyphens themselves may come through as spaces, which is
+    /// accepted only after the caption and only when the segments fit a layout.
     private static let printedPattern =
-        /(?i)\bN\s?D\s?C\b\s*(?:#|no\.?|number)?\s*[:.]?\s*([0-9OIl]{4,5}\s?-\s?[0-9OIl]{3,4}\s?-\s?[0-9OIl]{1,2}|[0-9OIl]{10,11})(?![0-9OIl])/
+        /(?i)\bN\s?D\s?C\b\s*(?:#|no\.?|number)?\s*[:.]?\s*([0-9OILBSDZGQT]{4,5}(?:\s?-\s?|\s+)[0-9OILBSDZGQT]{3,4}(?:\s?-\s?|\s+)[0-9OILBSDZGQT]{1,2}|[0-9OILBSDZGQT]{10,11})(?![0-9OILBSDZGQT])/
 
     /// A code printed without its "NDC" caption. Only the hyphenated native layouts
     /// qualify: eleven or ten bare digits also describe a phone number, and a
@@ -79,7 +83,7 @@ extension NationalDrugCode {
         var seen: Set<String> = []
         var readings: [NDCReading] = []
         for match in text.matches(of: printedPattern) {
-            let repaired = String(match.1.map(repairedDigit)).filter { !$0.isWhitespace }
+            let repaired = normalizedRendering(match.1)
             let candidates = candidates(fromRendering: repaired)
             guard !candidates.isEmpty, seen.insert(repaired).inserted else { continue }
             readings.append(NDCReading(candidates: candidates, source: .printedText, raw: repaired))
@@ -173,10 +177,24 @@ extension NationalDrugCode {
         return (10 - sum % 10) % 10 == check
     }
 
+    /// The captured digits with every confusable letter repaired and the segment
+    /// separators, spaced or hyphenated, written as the hyphens a rendering uses.
+    private static func normalizedRendering(_ captured: Substring) -> String {
+        var text = String(captured.map(repairedDigit))
+        text = text.replacing(/\s*-\s*/, with: "-")
+        text = text.replacing(/\s+/, with: "-")
+        return text
+    }
+
     private static func repairedDigit(_ character: Character) -> Character {
         switch character {
-        case "O", "o": "0"
+        case "O", "o", "D", "d", "Q", "q": "0"
         case "I", "i", "l", "L": "1"
+        case "Z", "z": "2"
+        case "S", "s": "5"
+        case "G", "g": "6"
+        case "T", "t": "7"
+        case "B", "b": "8"
         default: character
         }
     }

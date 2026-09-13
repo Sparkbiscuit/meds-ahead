@@ -4,10 +4,12 @@ enum ScanEvidenceQuality {
     static let minimumTextConfidence = 0.45
     private static let contextualMinimumConfidence = 0.30
     /// The most evidence items kept after a merge. Additions land after what is
-    /// already held, so on a text-heavy label the Review capture's lines are the
-    /// ones this cap would cut; the capture note on the review screen reports
-    /// the counts on either side of it.
-    static let evidenceLimit = 80
+    /// already held, so the Review capture is merged ahead of the live items: its
+    /// lines are the full-resolution reading of the label and carry the adjacency
+    /// the parser joins wrapped text with, and a text-heavy label with a few
+    /// stickers can push the live items alone past the old limit of eighty. The
+    /// capture note on the review screen reports the counts on either side.
+    static let evidenceLimit = 120
 
     static func isUsefulForAutofill(_ evidence: ScanEvidence) -> Bool {
         guard sanitized(evidence) != nil else { return false }
@@ -83,8 +85,28 @@ enum ScanEvidenceQuality {
             && editDistance(shorter, longer) <= allowedDistance
     }
 
+    /// The better of two readings of the same line. When the better one comes
+    /// from the live camera and the other from a capture, the capture's place in
+    /// its line order comes along: a live reading that replaced a captured line
+    /// used to arrive with no position at all, which broke the adjacency a
+    /// wrapped sig or a code split around its hyphen depends on.
     static func preferred(_ lhs: ScanEvidence, _ rhs: ScanEvidence) -> ScanEvidence {
-        readingScore(rhs) > readingScore(lhs) ? rhs : lhs
+        let rhsWins = readingScore(rhs) > readingScore(lhs)
+        let winner = rhsWins ? rhs : lhs
+        let loser = rhsWins ? lhs : rhs
+        guard winner.captureID == nil, let captureID = loser.captureID, let lineIndex = loser.lineIndex else {
+            return winner
+        }
+        return ScanEvidence(
+            id: winner.id,
+            kind: winner.kind,
+            value: winner.value,
+            symbology: winner.symbology,
+            confidence: winner.confidence,
+            origin: winner.origin,
+            captureID: captureID,
+            lineIndex: lineIndex
+        )
     }
 
     private static func readingScore(_ evidence: ScanEvidence) -> Double {
@@ -188,8 +210,9 @@ enum ScanParser {
         draft.source = .scanned
         draft.evidence = usableEvidence
         draft.overallConfidence = usableEvidence.isEmpty ? 0 : usableEvidence.map(\.confidence).reduce(0, +) / Double(usableEvidence.count)
-        draft.strength = capturedStrength(from: lines, combined: combined) ?? ""
-        let resolvedName = medicationName(from: lines, strength: draft.strength)
+        let product = productLine(in: lines)
+        draft.strength = product?.strength ?? capturedStrength(from: lines, combined: combined) ?? ""
+        let resolvedName = medicationName(from: lines, productLineIndex: product?.index, strength: draft.strength)
         draft.name = resolvedName.value
         draft.nameProvenance = resolvedName.provenance
         draft.form = inferForm(from: combined)
@@ -234,8 +257,39 @@ enum ScanParser {
         return result
     }
 
+    private struct ProductLine {
+        let index: Int
+        let strength: String
+    }
+
+    /// The line the product is printed on, when one carries a strength: the
+    /// first line that is not a sig and reads as a name once its strength is set
+    /// aside, else the first line that is not a sig and carries a strength at
+    /// all. The strength and the name both come from this one line, so they
+    /// cannot be taken from two different lines that happen to share a number.
+    ///
+    /// A text-heavy label restates the dose inside the directions — "(25 MG) BY
+    /// MOUTH EVERY 6 HOURS" — on a line that opens mid-sentence, so it does not
+    /// open like directions and used to be taken for the product line; the name
+    /// search then ran on it, found nothing, and the real product line below was
+    /// never consulted.
+    private static func productLine(in lines: [TextLine]) -> ProductLine? {
+        var fallback: ProductLine?
+        for (index, line) in lines.enumerated() where !isSigLike(line.value) {
+            guard let strength = normalizedStrength(line.value) else { continue }
+            let residue = cleanedNameLine(line.value, removing: strength)
+            if residue.count >= 4,
+               MedicationVocabulary.exactMatch(for: residue) != nil || looksLikeMedicationName(residue) {
+                return ProductLine(index: index, strength: strength)
+            }
+            if fallback == nil { fallback = ProductLine(index: index, strength: strength) }
+        }
+        return fallback
+    }
+
     private static func medicationName(
         from lines: [TextLine],
+        productLineIndex: Int?,
         strength: String
     ) -> (value: String, provenance: MedicationNameProvenance) {
         let stopWords = [
@@ -250,15 +304,15 @@ enum ScanParser {
             "color", "shape", "manufacturer", "mfg", "targeted health", "actual size", "topcare", "health"
         ]
 
-        if !strength.isEmpty,
-           let strengthLineIndex = lines.firstIndex(where: {
-               // A sig that happens to carry the strength is still a sig. This is the
-               // same rule `capturedStrength` applies in the other direction, and
-               // without it "1 WEEK, THEN INCREAS EVERY EVENING 50 MG" became a name.
-               !isDirectionLike($0.value)
-                   && ($0.value.localizedCaseInsensitiveContains(strength)
-                       || strengthMatches(in: $0.value).contains(strength))
-           }) {
+        // A sig that happens to carry the strength is still a sig. This is the
+        // same rule `productLine` applies, and without it "1 WEEK, THEN INCREAS
+        // EVERY EVENING 50 MG" became a name.
+        let anchorIndex = productLineIndex ?? (strength.isEmpty ? nil : lines.firstIndex(where: {
+            !isSigLike($0.value)
+                && ($0.value.localizedCaseInsensitiveContains(strength)
+                    || strengthMatches(in: $0.value).contains(strength))
+        }))
+        if !strength.isEmpty, let strengthLineIndex = anchorIndex {
             let line = lines[strengthLineIndex].value
             let cleaned = cleanedNameLine(line, removing: strength)
             if isPlausibleName(cleaned, stopWords: stopWords) {
@@ -540,7 +594,7 @@ enum ScanParser {
     /// dose, not a strength, and on an insulin label it is printed larger and read
     /// first. Direction-shaped lines are consulted only if nothing else carries one.
     private static func capturedStrength(from lines: [TextLine], combined: String) -> String? {
-        for line in lines where !isDirectionLike(line.value) {
+        for line in lines where !isSigLike(line.value) {
             if let match = normalizedStrength(line.value) { return match }
         }
         return normalizedStrength(combined)
@@ -575,6 +629,26 @@ enum ScanParser {
             " in the morning", " in the evening", " under the tongue"
         ]
         return frequencyMarkers.contains(where: lower.contains)
+    }
+
+    /// A dose restated inside a sig: "(25 MG)", "(2 TABLETS)".
+    private static let parenthesizedDosePattern = /\(\s*\d+(?:\.\d+)?\s*(?:mg|mcg|g|mL|units?|iu|tablets?|capsules?|puffs?|drops?)\s*\)/.ignoresCase()
+
+    /// Directions, whether or not the line opens like them. A wrapped sig opens
+    /// mid-sentence after the wrap — "(25 MG) BY MOUTH EVERY 6 HOURS", "WITH
+    /// FOOD FOR 7 DAYS" — and carries its vocabulary anywhere in the line. Used
+    /// where a line must be kept from being taken for the product line; the gate
+    /// that admits a line to the directions field is stricter and separate.
+    static func isSigLike(_ value: String) -> Bool {
+        if isDirectionLike(value) { return true }
+        let padded = " " + value.lowercased() + " "
+        let markers = [
+            " every ", " hours ", " hour ", " hrs ", " with food ", " with meals ", " without food ",
+            " then ", " if needed ", " as needed ", " times ", " before meals ", " after meals ",
+            " on an empty stomach ", " at night ", " each day ", " per day "
+        ]
+        if markers.contains(where: padded.contains) { return true }
+        return value.firstMatch(of: parenthesizedDosePattern) != nil
     }
 
     private static func capturedRefills(in value: String) -> Int? {
@@ -790,7 +864,8 @@ enum ScanParser {
 
     /// True when `value` is a complete, trustworthy label direction.
     static func isTrustedDirections(_ value: String) -> Bool {
-        guard (8...200).contains(value.count), opensLikeDirections(value) else { return false }
+        // Long enough for a sig that wraps over five lines of a real label.
+        guard (8...300).contains(value.count), opensLikeDirections(value) else { return false }
 
         let lower = value.lowercased()
         // Whole words, not substrings: "lot" inside "lotion" and "exp" inside
@@ -798,7 +873,7 @@ enum ScanParser {
         let dispensingWords: Set<String> = [
             "rph", "filled", "fill", "ndc", "qty", "quantity", "refill", "refills",
             "prescriber", "prescribed", "pharmacist", "pharmacy", "discard", "lot",
-            "mfg", "exp", "patient", "doctor", "dr"
+            "mfg", "mfr", "exp", "patient", "doctor", "dr"
         ]
         let words = lower.split(whereSeparator: { !$0.isLetter }).map(String.init)
         guard !words.contains(where: dispensingWords.contains) else { return false }
@@ -844,8 +919,9 @@ enum ScanParser {
             if hasRouteInstruction { score += 8 }
             return (line, score)
         }
-        if let best = trusted.max(by: { $0.score < $1.score }) {
-            return best.line.value
+        if let best = trusted.max(by: { $0.score < $1.score }),
+           let index = lines.firstIndex(where: { $0.order == best.line.order }) {
+            return extendedDirections(from: index, in: lines)
         }
 
         // A wrapped sig must stay adjacent, bounded, and inside a single capture.
@@ -855,15 +931,53 @@ enum ScanParser {
             let line = lines[index]
             guard opensLikeDirections(line.value),
                   !isTrustedDirections(line.value) else { continue }
-            for additionalLines in 1...2 {
+            for additionalLines in 1..<maximumJoinedDirectionLines {
                 let endIndex = index + additionalLines
                 guard lines.indices.contains(endIndex),
                       areAdjacent(lines[endIndex - 1], lines[endIndex]) else { break }
                 let joined = (index...endIndex).map { lines[$0].value }.joined(separator: " ")
-                if isTrustedDirections(joined) { return joined }
+                if isTrustedDirections(joined) { return extendedDirections(from: index, in: lines, minimumLines: additionalLines + 1) }
             }
         }
         return ""
+    }
+
+    /// Real sigs wrap over four or five lines of a label.
+    private static let maximumJoinedDirectionLines = 5
+
+    /// The sig that begins on a trusted line, carried on through the adjacent
+    /// lines that continue it. A line whose first row alone passed the gate used
+    /// to be the whole answer, so "TAKE 1 TABLET BY MOUTH EVERY 6 HOURS" lost its
+    /// "AS NEEDED FOR PAIN". Every continuation must read as sig text and the
+    /// whole must still pass the gate; the longest such run is the sig.
+    private static func extendedDirections(from index: Int, in lines: [TextLine], minimumLines: Int = 1) -> String {
+        var best = (index..<(index + minimumLines)).map { lines[$0].value }.joined(separator: " ")
+        var endIndex = index + minimumLines - 1
+        while endIndex + 1 < lines.count, endIndex - index + 1 < maximumJoinedDirectionLines,
+              areAdjacent(lines[endIndex], lines[endIndex + 1]),
+              continuesDirections(lines[endIndex + 1].value) {
+            endIndex += 1
+            let joined = (index...endIndex).map { lines[$0].value }.joined(separator: " ")
+            guard isTrustedDirections(joined) else { break }
+            best = joined
+        }
+        return best
+    }
+
+    /// Whether a line reads as the continuation of a sig rather than the next
+    /// thing printed on the label. Sig vocabulary anywhere, a second direction
+    /// sentence, or a purpose ("FOR PAIN") qualifies; a product line, with a
+    /// strength that is not a restated dose, never does.
+    private static func continuesDirections(_ value: String) -> Bool {
+        let lower = value.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !lower.isEmpty, !lower.contains(":") else { return false }
+        let bareStrength = value.replacing(parenthesizedDosePattern, with: "")
+        guard normalizedStrength(bareStrength) == nil else { return false }
+        if isSigLike(value) || hasDirectionFrequency(value) { return true }
+        // "120 TABLETS" opens like a dose phrase and is the package count.
+        if value.firstMatch(of: packageQuantityPattern) != nil { return false }
+        if opensLikeDirections(value) { return true }
+        return lower.hasPrefix("for ") && lower.rangeOfCharacter(from: .decimalDigits) == nil
     }
 
     private static func preferredBarcode(in evidence: [ScanEvidence]) -> ScanEvidence? {

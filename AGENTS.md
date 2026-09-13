@@ -38,8 +38,10 @@ Violating any of these is a defect, regardless of what the task asked for.
 - **An NDC never fills a field on its own word.** A code read by OCR must be
   corroborated by the label; a code from any source is refused when the label
   contradicts it; a refused code stays visible as the product code and fills
-  nothing. The gate is `NDCIdentification`. The directory is bundled — never look
-  a code up online.
+  nothing. The gate is `NDCIdentification`. A code the person types into the
+  review screen's NDC field fills the identity only when they tap Use This
+  Product on the listing shown to them: their reading of the bottle is the
+  corroboration. The directory is bundled — never look a code up online.
 - **Apple Health is read-only and per object.** Never request share
   authorization, never write to HealthKit, and keep HealthKit types inside
   `HealthMedicationImport.swift`.
@@ -54,17 +56,7 @@ Violating any of these is a defect, regardless of what the task asked for.
 - New behaviour needs a test in `MedsTests`.
 - Comments explain why a non-obvious decision was made, not what the line does.
 
-## Parallel execution
-
-Workers run concurrently in one checkout, each leased a disjoint file set.
-
-- Edit only your assigned paths. Never tidy, revert, or reformat outside them.
-- Peers' work is invisible to you and lands unpredictably. Do not wait for it or
-  depend on it; your brief contains everything you need.
-- Workers do not run `xcodebuild`. The coordinator builds and tests.
-- No network, credential, deployment, or external-account actions.
-
-## Build and test (coordinator only)
+## Build and test
 
 ```sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \

@@ -56,6 +56,43 @@ final class NationalDrugCodeTests: XCTestCase {
         XCTAssertEqual(readings.first?.raw, "0093-1039-01")
     }
 
+    /// Small print confuses more than O and I. After the caption no letter is
+    /// possible, so every confusable is repaired before the directory decides.
+    func testEveryDigitConfusableAfterTheCaptionIsRepaired() {
+        XCTAssertEqual(NationalDrugCode.readings(inLabelText: "NDC 644O6-OOG-O2").first?.candidates.map(\.hyphenated),
+                       ["64406-0006-02"], "G for 6")
+        XCTAssertEqual(NationalDrugCode.readings(inLabelText: "NDC 5B151-057S-1O").first?.candidates.map(\.hyphenated),
+                       ["58151-0575-10"], "B for 8, S for 5")
+        XCTAssertEqual(NationalDrugCode.readings(inLabelText: "NDC 4TT81-0174-01").first?.candidates.map(\.hyphenated),
+                       ["47781-0174-01"], "T for 7")
+        XCTAssertEqual(NationalDrugCode.readings(inLabelText: "NDC 00Z3-1Q39-D1").first?.candidates.map(\.hyphenated),
+                       ["00023-1039-01"], "Z for 2, Q and D for 0")
+        XCTAssertEqual(NationalDrugCode.readings(inLabelText: "NDC 5B151-057S-1O").first?.raw, "58151-0575-10")
+    }
+
+    /// The hyphens of a small code come through as spaces at least as often as
+    /// its digits come through as letters. Accepted after the caption only, and
+    /// only when the segments fit a layout: a phone number does not.
+    func testSpacesStandInForHyphensAfterTheCaption() {
+        XCTAssertEqual(NationalDrugCode.readings(inLabelText: "NDC 00093 1039 01").first?.candidates.map(\.hyphenated),
+                       ["00093-1039-01"])
+        XCTAssertEqual(NationalDrugCode.readings(inLabelText: "NDC: 0093 1039 01 QTY 30").first?.candidates.map(\.hyphenated),
+                       ["00093-1039-01"])
+        XCTAssertEqual(NationalDrugCode.readings(inLabelText: "NDC 00093 1039 01").first?.raw, "00093-1039-01")
+        XCTAssertTrue(NationalDrugCode.readings(inLabelText: "NDC 413 555 0123").isEmpty, "a phone number's segments fit no layout")
+        XCTAssertTrue(NationalDrugCode.readings(inLabelText: "TEVA 00093 1039 01").isEmpty, "spaces need the caption")
+        XCTAssertTrue(NationalDrugCode.readings(inLabelText: "NDC 12345 30 TABLETS").isEmpty)
+    }
+
+    /// A code broken across two recognized lines reads as one when the lines are
+    /// looked at in order, which is how the gate now reads them.
+    func testACodeSplitAcrossTwoLinesStillReads() {
+        XCTAssertEqual(NationalDrugCode.readings(inLabelText: "NDC 00093-\n1039-01").first?.candidates.map(\.hyphenated),
+                       ["00093-1039-01"])
+        XCTAssertEqual(NationalDrugCode.readings(inLabelText: "NDC\n0093-1039-01").first?.candidates.map(\.hyphenated),
+                       ["00093-1039-01"])
+    }
+
     func testEveryPrintedCodeIsReportedOnce() {
         let readings = NationalDrugCode.readings(inLabelText: "NDC 0093-1039-01\nLOT 1234\nNDC 0093-1039-01\nNDC 64406-006-02")
         XCTAssertEqual(readings.map { $0.candidates.first?.hyphenated }, ["00093-1039-01", "64406-0006-02"])

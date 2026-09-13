@@ -77,11 +77,24 @@ enum MedicationLabelInterpreter {
         // An NDC the label carries settles identity exactly, but only once the label
         // has been read the ordinary way and can vouch for it: the reading above is
         // what a resolved code is checked against before it may fill anything.
+        // Whatever the code came to is recorded, so the review screen can say it.
+        var result = labelDraft
         guard let match = NDCIdentification.match(in: labelDraft.evidence, directory: ndcDirectory) else {
-            return labelDraft
+            result.identification = NDCIdentification.unresolvedOutcome(in: labelDraft.evidence, directory: ndcDirectory)
+            return result
         }
         let labelText = LabelCandidateBuilder.textLines(from: labelDraft.evidence).joined(separator: "\n")
-        return NDCIdentification.applying(match, to: labelDraft, labelText: labelText)
+        let code = match.code.hyphenated
+        switch NDCIdentification.verdict(for: match, against: labelDraft, labelText: labelText) {
+        case .accepted:
+            result = NDCIdentification.applying(match, to: labelDraft, labelText: labelText)
+            result.identification = .accepted(code: code)
+        case .uncorroborated:
+            result.identification = .uncorroborated(code: code, product: NDCIdentification.summary(of: match.product))
+        case .contradicted:
+            result.identification = .contradicted(code: code, product: NDCIdentification.summary(of: match.product))
+        }
+        return result
     }
 
     static func interpret(_ evidence: [ScanEvidence]) async -> MedicationDraft {
