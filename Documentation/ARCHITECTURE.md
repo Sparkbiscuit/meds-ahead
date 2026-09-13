@@ -242,9 +242,9 @@ long as the dose still matters.
 
 `HealthDoseReconciler` decides, over plain values, what the ledger should do:
 never twice, never double. A sample already stored (`DoseEvent.healthSampleID`)
-is skipped, and a status Health changed is restated. A dose the 1.1 import
-stored before samples carried identifiers is recognised by its time and adopted
-rather than stored again. A Health dose logged against a reminder is mapped to
+is skipped, and a status Health changed is restated. A dose an earlier build's
+import stored before samples carried identifiers is recognised by its time and
+adopted rather than stored again. A Health dose logged against a reminder is mapped to
 this app's slot through `ScheduleEngine` — the nearest scheduled dose that day
 within two hours, because Health keeps its own times — and skipped when the
 person already logged that slot here; any Health dose within thirty minutes of
@@ -263,9 +263,10 @@ subset of RxNorm distributed without a UMLS licence, produced by
 `Tools/build_rxnorm_table.py` and read the way the FDA snapshot is read: sorted
 by a fixed-width numeric key and binary-searched in the file's own bytes. One
 file maps each FDA product in the app's own directory that RxNorm lists an NDC
-for to its concept and to the clinical drug a branded concept is a tradename of;
-the other holds the prescribable names of the concepts mentioned. It is a
-couple of megabytes. An accepted NDC, whether read or typed, carries its RxNorm
+for to its concept and to the clinical drug a branded concept is a tradename of, in a
+megabyte and a half. (The tool can also write NLM's prescribable names for
+those concepts, but nothing in the app reads them, so that file is not
+bundled.) An accepted NDC, whether read or typed, carries its RxNorm
 concept into `Medication.rxNormCode`, which is what lets the dose sync recognise
 a scanned bottle in Health, and both sides of that match are widened to the
 clinical drug so a generic bottle scanned here and the brand chosen in Health
@@ -276,7 +277,7 @@ system speaks RxNorm where a pharmacy's speaks NDC.
 ## The pharmacy card, refills under way, trips, people, expirations, and days
 
 Six small things a caregiver does around the count, each built on facts the
-model already had or gained in 1.1.1's one migration.
+model already had or gained in 1.1's one migration.
 
 - **The pharmacy card.** The label prints the pharmacy, its phone and the Rx
   number, and `ScanParser` reads all three: the pharmacy is the first short
@@ -337,7 +338,7 @@ reminder action.
 
 A widget runs in its own process and can only reach a store in an app group
 container, so the store now lives in `group.com.christoforakis.Meds`.
-`StoreLocation.migrate` moves a store 1.0 or 1.1 kept in Application Support
+`StoreLocation.migrate` moves a store 1.0 kept in Application Support
 there once, on the first launch after the update, before any connection is
 opened: all three SQLite files together, because a committed transaction can
 sit in the write-ahead log until the next checkpoint; the copy is checked

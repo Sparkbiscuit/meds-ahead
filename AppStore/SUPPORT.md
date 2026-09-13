@@ -6,4 +6,4 @@ For help, include the app version, iOS version, iPhone model, and a description 
 
 Contact nick@christoforakis.com. Do not include prescription-label photos or medication details unless you intentionally choose to disclose them.
 
-Published support page: https://sparkbiscuit.me/meds/support/
+Published support page: https://sparkbiscuit.me/meds/support/ (source: `meds/support/index.html` in the Sparkbiscuit.github.io repository)

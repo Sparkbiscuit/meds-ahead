@@ -8,13 +8,13 @@ Label text and supported barcodes are recognized on device. Imported or captured
 
 Meds Ahead ships with a copy of the U.S. FDA National Drug Code Directory, a public-domain list of marketed drug products. When a label prints an NDC, or a package barcode carries one, the app looks it up in that bundled copy on your iPhone. No code, barcode, photo, or label text is sent anywhere.
 
-On iOS 26 and later you can choose to import medications you already track in Apple Health. Health shows its own picker; only the medications you tick are shared, and you can change or withdraw that choice at any time in Health. Meds Ahead reads only those medications, along with the doses you logged for them in Health during the last 30 days. It never writes to Health, and it stores what it imports the same way it stores anything you type, on your iPhone. Health data is never used for advertising, analytics, or marketing, and is never shared with anyone.
+On iOS 26 and later you can choose to import medications you already track in Apple Health. Health shows its own picker; only the medications you tick are shared, and you can change or withdraw that choice at any time in Health. Meds Ahead reads only those medications and the doses you log for them in Health: the last 30 days when you import one, and, for a medication that is also in Meds Ahead, new doses each time the app opens, so its supply count stays right. It never writes to Health, and it stores what it reads the same way it stores anything you type, on your iPhone. Health data is never used for advertising, analytics, or marketing, and is never shared with anyone.
 
 Notifications are scheduled by iOS on your device. Detailed notification text is optional and off by default.
 
 Optional tips are processed by Apple through StoreKit. Meds Ahead does not receive or store payment-card information, and a tip does not transmit medication information.
 
-Your medication records are included in your encrypted device and iCloud backups, so a medication history you built by hand survives replacing or restoring an iPhone. The database is stored with iOS file protection and is readable only after you unlock the device. Meds Ahead never sends it anywhere; a backup goes to Apple under your own Apple Account and its own terms, not to Meds Ahead.
+Your medication records are included in your encrypted device and iCloud backups, so a medication history you built by hand survives replacing or restoring an iPhone. The database is stored with iOS file protection and is readable only after you unlock the device. Meds Ahead never sends it anywhere; a backup goes to Apple under your own Apple Account and its own terms, not to Meds Ahead. The Home and Lock Screen widgets read the same database on your iPhone, shared with them through an app group container; nothing leaves the device.
 
 You can delete individual dose logs or delete a medication and its associated local history in the app. Deleting the app removes its local data according to iOS behavior.
 
@@ -22,4 +22,4 @@ Meds Ahead is an organization tool, not a medical service. It does not provide m
 
 Questions about privacy can be sent to nick@christoforakis.com. Do not include prescription-label photos or medication details unless you intentionally choose to disclose them.
 
-Published policy: https://sparkbiscuit.me/meds/privacy/
+Published policy: https://sparkbiscuit.me/meds/privacy/ (source: `meds/privacy/index.html` in the Sparkbiscuit.github.io repository, which is where edits are made and pushed)

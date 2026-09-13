@@ -17,7 +17,7 @@ Medication records remain on the device. Scanned photos are processed locally an
 - Xcode 26.6 or later
 - iOS 18.0 or later
 - An iPhone for live camera scanning; the simulator supports photo import and manual entry
-- iOS 26 or later for the Apple Health import; everything else runs on iOS 18
+- iOS 26 or later for the Apple Health import and dose sync; everything else runs on iOS 18
 
 ## Build and test
 
@@ -32,9 +32,9 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 - `Meds/Sources`: application code
 - `Shared`: the data model, schedule and forecast engines, and store location, compiled into the app and its widgets
 - `MedsWidgets`: the Home and Lock Screen widget extension
-- `Meds/Resources`: assets, privacy manifest, name vocabulary, and the FDA NDC Directory snapshot
-- `Tools`: the script that rebuilds the NDC Directory snapshot from the FDA's files
-- `MedsTests`: forecasting and scan parsing tests
+- `Meds/Resources`: assets, privacy manifest, name vocabulary, the FDA NDC Directory snapshot, and the RxNorm table
+- `Tools`: the scripts that rebuild the NDC Directory snapshot and the RxNorm table from the FDA's and NLM's files
+- `MedsTests`: unit tests for scanning and identification, forecasting, notifications, the Health sync, and the widgets
 - `MedsUITests`: launch and critical-flow UI tests
 - `Documentation`: product, architecture, privacy, and release decisions
 - `AppStore`: submission copy and review notes

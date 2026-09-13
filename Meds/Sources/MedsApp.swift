@@ -15,7 +15,7 @@ struct MedsApp: App {
             InventoryEvent.self
         ])
         // The store lives in the app group container so the widgets can read
-        // it; a store from 1.0 or 1.1 is moved there once, before it is opened.
+        // it; a store from 1.0 is moved there once, before it is opened.
         // UI tests keep their in-memory store and never touch either location.
 #if DEBUG
         let isUITesting = ProcessInfo.processInfo.arguments.contains("-ui-testing")
@@ -47,7 +47,7 @@ struct MedsApp: App {
 
     /// The shared store, with a legacy store moved into it first. When the
     /// group container is unavailable, or the move could not be trusted, the
-    /// store stays where 1.1 kept it and the widgets simply have nothing to show.
+    /// store stays where 1.0 kept it and the widgets simply have nothing to show.
     private static func resolveStoreURL() -> URL? {
         guard let shared = StoreLocation.sharedURL else { return StoreLocation.legacyURL }
         if let legacy = StoreLocation.legacyURL {

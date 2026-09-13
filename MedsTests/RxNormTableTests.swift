@@ -13,15 +13,7 @@ final class RxNormTableTests: XCTestCase {
         999999999\t\t
 
         """
-        let names = """
-        # Test names
-        00108513\tPrograf 1 MG Oral Capsule
-        00198377\ttacrolimus 1 MG Oral Capsule
-        00208161\tZoloft 50 MG Oral Tablet
-        00312941\tsertraline 50 MG Oral Tablet
-
-        """
-        return RxNormTable(productsData: Data(products.utf8), namesData: Data(names.utf8))
+        return RxNormTable(productsData: Data(products.utf8))
     }
 
     func testAProductAnswersWithItsConceptAndClinicalDrug() throws {
@@ -45,23 +37,16 @@ final class RxNormTableTests: XCTestCase {
         XCTAssertEqual(table.product(for: try XCTUnwrap(NationalDrugCode(canonicalDigits: "00469061773")))?.rxcui, "108513")
     }
 
-    func testNamesAndClinicalDrugsResolve() {
+    func testClinicalDrugsResolve() {
         let table = table()
-        XCTAssertEqual(table.prescribableName(for: "198377"), "tacrolimus 1 MG Oral Capsule")
-        XCTAssertEqual(table.prescribableName(for: "108513"), "Prograf 1 MG Oral Capsule")
-        XCTAssertNil(table.prescribableName(for: "1"))
-        XCTAssertNil(table.prescribableName(for: ""))
-
         XCTAssertEqual(table.clinicalDrugCode(for: "108513"), "198377", "a brand answers with its clinical drug")
         XCTAssertEqual(table.clinicalDrugCode(for: "208161"), "312941")
         XCTAssertEqual(table.clinicalDrugCode(for: "198377"), "198377", "a clinical drug answers for itself")
         XCTAssertEqual(table.clinicalDrugCode(for: "424242"), "424242", "an unknown code answers for itself")
-        XCTAssertEqual(table.matchingCodes(for: "108513"), ["108513", "198377"])
-        XCTAssertTrue(table.matchingCodes(for: "").isEmpty)
     }
 
     func testAnEmptyTableAnswersNothing() {
-        let empty = RxNormTable(productsData: Data(), namesData: Data())
+        let empty = RxNormTable(productsData: Data())
         XCTAssertTrue(empty.isEmpty)
         XCTAssertNil(empty.product(forProductKey: "004690617"))
         XCTAssertEqual(empty.clinicalDrugCode(for: "108513"), "108513")
@@ -77,12 +62,10 @@ final class RxNormTableTests: XCTestCase {
         let prograf = try XCTUnwrap(shared.product(forProductKey: "004690617"))
         XCTAssertEqual(prograf.rxcui, "108513")
         XCTAssertEqual(prograf.clinicalDrugRxcui, "198377", "the code Health shows for tacrolimus 1 mg")
-        XCTAssertEqual(shared.prescribableName(for: "198377"), "tacrolimus 1 MG Oral Capsule")
 
         let zoloft = try XCTUnwrap(shared.product(forProductKey: "581510575"))
         let genericSertraline = try XCTUnwrap(shared.product(forProductKey: "167140612"))
         XCTAssertEqual(zoloft.clinicalDrugCode, genericSertraline.rxcui, "the brand and a generic are one clinical drug")
-        XCTAssertEqual(shared.prescribableName(for: genericSertraline.rxcui), "sertraline HCl 50 MG Oral Tablet", "NLM's prescribable name keeps the salt")
 
         let tecfidera = try XCTUnwrap(shared.product(forProductKey: "644060006"))
         XCTAssertNotNil(tecfidera.clinicalDrugRxcui)
@@ -104,7 +87,7 @@ final class RxNormTableTests: XCTestCase {
         let unresolvable = MedicationLabelInterpreter.offlineDraft(
             evidence,
             ndcDirectory: directory,
-            rxNormTable: RxNormTable(productsData: Data(), namesData: Data())
+            rxNormTable: RxNormTable(productsData: Data())
         )
         XCTAssertEqual(unresolvable.nameProvenance, .ndc)
         XCTAssertEqual(unresolvable.rxNormCode, "", "no table, no code, and the identification stands")

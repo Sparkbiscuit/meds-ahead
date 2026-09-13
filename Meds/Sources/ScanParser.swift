@@ -40,10 +40,6 @@ enum ScanEvidenceQuality {
         )
     }
 
-    static func deduplicationKey(for evidence: ScanEvidence) -> String {
-        "\(evidence.kind.rawValue):\(normalized(evidence.value))"
-    }
-
     static func mergingBest(
         existing: [ScanEvidence],
         additions: [ScanEvidence]

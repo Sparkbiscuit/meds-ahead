@@ -135,8 +135,8 @@ final class Medication {
     var isArchived: Bool
     var createdAt: Date
     var updatedAt: Date
-    // The 1.1.1 additions, declared together with inline defaults so existing
-    // stores take them through one lightweight migration, as `brandName` and
+    // Added in 1.1, declared together with inline defaults so a 1.0 store
+    // takes them through one lightweight migration, as `brandName` and
     // `countsTowardSupply` did before them.
     /// The pharmacy on the label, for the call a low-supply warning leads to.
     var pharmacyName: String = ""

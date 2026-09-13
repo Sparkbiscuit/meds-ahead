@@ -22,19 +22,15 @@ struct RxNormProduct: Hashable, Sendable {
 /// drug a branded concept is a tradename of, so a generic bottle and a Health
 /// entry made from the brand read as one medication. RxNorm is courtesy of the
 /// U.S. National Library of Medicine; the attribution is on the Safety sheet.
-/// `Tools/build_rxnorm_table.py` writes both files; an absent file leaves every
+/// `Tools/build_rxnorm_table.py` writes the file; an absent file leaves every
 /// question unanswered rather than wrong.
 struct RxNormTable: Sendable {
     static let productsResourceName = "RxNormProducts"
-    static let namesResourceName = "RxNormNames"
 
     static let shared: RxNormTable = {
-        func data(_ name: String) -> Data {
-            guard let url = Bundle.main.url(forResource: name, withExtension: "txt"),
-                  let data = try? Data(contentsOf: url) else { return Data() }
-            return data
-        }
-        return RxNormTable(productsData: data(productsResourceName), namesData: data(namesResourceName))
+        guard let url = Bundle.main.url(forResource: productsResourceName, withExtension: "txt"),
+              let data = try? Data(contentsOf: url) else { return RxNormTable(productsData: Data()) }
+        return RxNormTable(productsData: data)
     }()
 
     static func warmUp() {
@@ -42,12 +38,10 @@ struct RxNormTable: Sendable {
     }
 
     private let products: SortedKeyTable
-    private let names: SortedKeyTable
     let snapshotDescription: String?
 
-    init(productsData: Data, namesData: Data) {
+    init(productsData: Data) {
         products = SortedKeyTable(data: productsData, keyWidth: 9)
-        names = SortedKeyTable(data: namesData, keyWidth: 8)
         snapshotDescription = products.header
     }
 
@@ -63,27 +57,11 @@ struct RxNormTable: Sendable {
         return RxNormProduct(rxcui: fields[1], clinicalDrugRxcui: fields[2].isEmpty ? nil : fields[2])
     }
 
-    /// NLM's prescribable name for a concept: "tacrolimus 1 MG Oral Capsule".
-    func prescribableName(for rxcui: String) -> String? {
-        let digits = rxcui.filter(\.isNumber)
-        guard !digits.isEmpty, digits.count <= 8 else { return nil }
-        let padded = String(repeating: "0", count: 8 - digits.count) + digits
-        guard let fields = names.fields(forKey: padded), fields.count >= 2 else { return nil }
-        return fields[1]
-    }
-
     /// The clinical drug a code names, whichever brand of it: the code itself
     /// for a generic, the generic for a brand. Only brands the products file
     /// mentions are known; any other code answers for itself.
     func clinicalDrugCode(for rxcui: String) -> String {
         brandToClinicalDrug[rxcui] ?? rxcui
-    }
-
-    /// Every code a medication with this code could be recognised by in Apple
-    /// Health: the code, and the clinical drug it is a brand of.
-    func matchingCodes(for rxcui: String) -> Set<String> {
-        guard !rxcui.isEmpty else { return [] }
-        return [rxcui, clinicalDrugCode(for: rxcui)]
     }
 
     private var brandToClinicalDrug: [String: String] { products.brandToClinicalDrug }

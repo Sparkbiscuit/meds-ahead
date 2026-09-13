@@ -4,10 +4,10 @@
 
 - [x] Debug build passes for iOS Simulator
 - [x] Release build passes for iOS Simulator and generic iOS device
-- [x] Three hundred and forty unit tests pass (1.1.1), including the NDC second look, confusable and split-line readings, the identification outcomes, the Health dose reconciler, the RxNorm slice, the pharmacy card, refill-in-progress and expiration reminders, the trip check, the adherence month and the person-grouped list, on top of the 1.1 set:  multi-salt listings collapsing to the name people use, NDC rendering and barcode decoding, the bundled FDA snapshot's real products, the NDC corroboration gate and strength equivalence, a rendered label with its NDC printed at one percent of the frame, Apple Health name mapping, duplicate detection and imported dose history, the exact product code on the shared list, the rating-request policy, clipped-name rejection, sig-versus-product-line separation, combination and canonical strengths, wrapped-sig assembly across real capture shapes, brand/generic resolution, Latin-only stable multi-side evidence, ROI crop mapping, RxNorm-backed compound-fragment repair, low-confidence live-camera, noisy-label and printed-NDC parsing, scheduling, supply, grouped notifications, time-of-day greetings, Take Now dose reconciliation, as-needed rate windows, unit-denominated strengths, expiration plausibility, last-refill alerts, and medication-list pagination
+- [x] Three hundred and fifty-four unit tests pass (1.1, build 6), including the store's move into the app group, the widget snapshots and timelines, the NDC second look, confusable and split-line readings, the identification outcomes, the Health dose reconciler, the RxNorm slice, the pharmacy card, refill-in-progress and expiration reminders, the trip check, the adherence month and the person-grouped list, on top of the 1.1 set:  multi-salt listings collapsing to the name people use, NDC rendering and barcode decoding, the bundled FDA snapshot's real products, the NDC corroboration gate and strength equivalence, a rendered label with its NDC printed at one percent of the frame, Apple Health name mapping, duplicate detection and imported dose history, the exact product code on the shared list, the rating-request policy, clipped-name rejection, sig-versus-product-line separation, combination and canonical strengths, wrapped-sig assembly across real capture shapes, brand/generic resolution, Latin-only stable multi-side evidence, ROI crop mapping, RxNorm-backed compound-fragment repair, low-confidence live-camera, noisy-label and printed-NDC parsing, scheduling, supply, grouped notifications, time-of-day greetings, Take Now dose reconciliation, as-needed rate windows, unit-denominated strengths, expiration plausibility, last-refill alerts, and medication-list pagination
 - [x] Nine UI tests pass, including Today and medication-editor accessibility audits, largest accessibility text in the editor, and overdue-state coverage, with the Import from Apple Health card present
 - [x] Static analysis passes for the Release app target
-- [x] No source/compiler warnings; Xcode 26 emits only its no-AppIntents metadata-skip message
+- [x] No source/compiler warnings; Xcode 26 emits only its no-AppIntents metadata-skip message for the app target
 - [x] Privacy manifest is present in the built app, declares required-reason access for app-only UserDefaults and elapsed-event system uptime, and declares no collection or tracking
 - [x] Regular, dark, and tinted app icon variants validate
 - [x] `git diff --check`, trailing-whitespace, plist, and JSON checks pass
@@ -44,9 +44,6 @@
 - [x] Equal-time dose schedules consolidate into one slot-level reminder; grouped reminders omit unsafe one-tap multi-dose actions
 - [ ] `Taken` and `Skip` notification actions on a locked iPhone
 - [ ] Energy and thermal behavior during a five-minute scan session
-- [ ] Exact identification (1.1) against real bottles: printed NDC on retail and hospital-pharmacy vials, and a manufacturer barcode on a box
-- [ ] Apple Health import (1.1) on a fresh install of a physical iPhone on iOS 26
-- [ ] VoiceOver pass on the Apple Health screens and the NDC note on the review screen
 
 ## App Store Connect gates
 
@@ -60,32 +57,34 @@
 - [x] Prepare three accepted-size, no-alpha 6.9-inch screenshots
 - [x] Upload screenshots
 - [x] Export the final App Store-distribution-signed IPA and verify its signature, profile, privacy manifest, and ZIP integrity
-- [ ] Upload and complete App Store Connect server-side build validation
+- [x] Upload and complete App Store Connect server-side build validation (1.0 builds 1 to 3)
 - [x] Enter review notes and test instructions
-- [ ] Save Free pricing, tax category, and all-country availability in App Store Connect
-- [ ] Save the owner's non-trader EU DSA declaration in App Store Connect
-- [ ] Save the authorized App Review contact details in App Store Connect
+- [x] Save Free pricing, tax category, and all-country availability in App Store Connect (required before the 1.0 submission, which was approved September 7, 2026)
+- [x] Save the owner's non-trader EU DSA declaration in App Store Connect (same)
+- [x] Save the authorized App Review contact details in App Store Connect (same)
 - [ ] Publish verified accessibility declarations
 - [ ] Accept the Paid Apps Agreement and complete tax/banking setup
-- [ ] Create the three consumable tip products with the exact IDs in `AppStore/CONNECT_ANSWERS.md`, add them to the version 1.0 submission, and upload their review metadata/screenshots
+- [ ] Create the three consumable tip products with the exact IDs in `AppStore/CONNECT_ANSWERS.md`, add them to the version 1.0 submission, and upload their review metadata/screenshots. Confirm in App Store Connect > In-App Purchases before submitting 1.1: if all three read Approved and the live 1.0 shows the tip amounts, this and the agreement above are done and the review notes' item 8 is true; if not, either create them and submit them with 1.1, or take item 8 out of the notes
 
-## 1.1.1 gates
+## 1.1 gates
 
-- [x] SwiftData migration for the batched 1.1.1 properties verified against stores the 1.0 build 3 and the 1.1 build created
+Everything built under the 1.1.1 name ships in 1.1, build 6 (decided September 13, 2026, before the first archive). Verified in the simulator:
+
+- [x] SwiftData migration for the batched 1.1 properties verified against stores the 1.0 build 3 and an intermediate 1.1 build created
 - [x] Apple Health dose sync by hand in the simulator: a dose logged in Health arrives on the foreground sync and counts toward supply; an undo in Health removes it
-- [x] The store's move into the app group container observed on the simulator: a 1.1 store at the legacy location moved with its sidecars, its originals retired, and the medication, doses and inventory intact
-- [ ] Archive with automatic signing so the App Group `group.com.christoforakis.Meds` joins both the app's and the extension's App IDs (or add it by hand in Certificates, Identifiers & Profiles); the extension's bundle ID is `com.christoforakis.Meds.MedsWidgets`
+- [x] The store's move into the app group container observed on the simulator: a store at the legacy location moved with its sidecars, its originals retired, and the medication, doses and inventory intact
+- [x] Bundle the FDA NDC Directory snapshot with `Tools/build_ndc_directory.py` (September 11 files, 112,246 products) and the RxNorm table with `Tools/build_rxnorm_table.py` (September 8 release), and re-run the unit tests
+- [x] Publish the updated privacy policy page (Apple Health and NDC sections, corrected backup sentence); live at https://sparkbiscuit.me/meds/privacy/ with a September 13 effective date
+
+Still to do, on a physical iPhone and in App Store Connect:
+
+- [ ] Push the privacy policy's dose-sync and widget sentences: committed in the Sparkbiscuit.github.io repository on September 13 (`3330616`), not yet pushed
+- [ ] Archive with automatic signing so HealthKit and the App Group `group.com.christoforakis.Meds` join the app's App ID and the App Group joins the extension's (`com.christoforakis.Meds.MedsWidgets`), or add them by hand in Certificates, Identifiers & Profiles
+- [ ] Update from the App Store 1.0 on a physical iPhone: the store moves into the app group, and history is intact
+- [ ] Real bottles on a physical iPhone: printed NDC on retail and hospital-pharmacy vials and a manufacturer barcode on a box, through live scanning and the Review capture; on the two bottles from September 12, read the capture note first
 - [ ] Widgets on a physical iPhone: Next Dose (small, medium, Lock Screen rectangular, circular, inline) and Runs Out Next; the Taken button logs the dose once and Today shows it; names redact on the locked Lock Screen
-- [ ] Update from the App Store 1.0 on a physical iPhone: the store moves, and history is intact
-- [ ] Real bottles on a physical iPhone: the two bottles from September 12 through live scanning and the Review capture, reading the capture note first
-- [ ] Apple Health dose sync on a physical iPhone on iOS 26, including a medication scanned from a bottle and matched to Health by RxNorm
-- [ ] VoiceOver pass on the NDC field, the identification notes, the pharmacy card, the calendar and the trip check
-- [ ] Enter the 1.1.1 What's New from `AppStore/SUBMISSION.md`
-
-## 1.1 submission gates
-
-- [x] Bundle the FDA NDC Directory snapshot with `Tools/build_ndc_directory.py` (September 11 files, 112,246 products) and re-run the unit tests
-- [ ] Publish the updated privacy policy page (Apple Health and NDC sections, corrected backup sentence) before submitting
-- [ ] Archive with automatic signing; HealthKit joins the `com.christoforakis.Meds` App ID on the first archive, or is enabled by hand in Certificates, Identifiers & Profiles
-- [ ] Enter What's New, the description naming the Apple Health integration, the keywords, and the 1.1 review notes from `AppStore/SUBMISSION.md`
+- [ ] Apple Health import and dose sync on a fresh install of a physical iPhone on iOS 26, including a medication scanned from a bottle and matched to Health by RxNorm
+- [ ] The torch, and `Taken` and `Skip` reminder actions on a locked iPhone
+- [ ] VoiceOver pass on the Apple Health screens, the NDC field, the identification notes, the pharmacy card, the calendar and the trip check
+- [ ] Enter What's New, the description naming the Apple Health integration, the keywords, and the 1.1 review notes from `AppStore/SUBMISSION.md`; make the notes' item 2 true first
 - [ ] Confirm App Privacy stays `Data Not Collected` per `AppStore/CONNECT_ANSWERS.md`

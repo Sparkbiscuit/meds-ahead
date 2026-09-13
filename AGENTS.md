@@ -10,8 +10,8 @@ no cloud, no network lookups.
 - `Meds/Sources` — app code
 - `Shared` — the model, schedule and forecast engines, theme and store location, compiled into the app and the widgets
 - `MedsWidgets` — the widget extension: next dose and runs-out-next, Home and Lock Screen, with the Taken intent
-- `Meds/Resources` — assets, privacy manifest, name vocabulary, FDA NDC Directory snapshot
-- `Tools/build_ndc_directory.py` — rebuilds that snapshot from the FDA's files
+- `Meds/Resources` — assets, privacy manifest, name vocabulary, the FDA NDC Directory snapshot and the RxNorm table
+- `Tools` — `build_ndc_directory.py` and `build_rxnorm_table.py` rebuild those two tables from the FDA's and NLM's files
 - `MedsTests` / `MedsUITests` — tests
 - `Documentation/ARCHITECTURE.md` — why the data model and scanner work as they do
 - `AppStore` — submission copy
