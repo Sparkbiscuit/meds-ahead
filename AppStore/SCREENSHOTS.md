@@ -1,9 +1,8 @@
 # App Store screenshots
 
-The `6.9-inch` folder contains three English, portrait screenshots captured from an iPhone 17 Pro Max simulator at 1320 by 2868 pixels. They are JPEG files without alpha channels and are ready for the iPhone 6.9-inch screenshot slot.
+Two sets, both synthetic demo data with no real patient information.
 
-- `01-today.jpg`: scheduled-dose logging
-- `02-supply.jpg`: ranked, explainable refill runway
-- `03-medications.jpg`: searchable medication library
+- `6.9-inch-current/`: the three English, portrait PNGs uploaded to the iPhone 6.9-inch slot for 1.0 build 3, captured from an iPhone 17 Pro Max simulator at 1320 by 2868 pixels, without alpha. `01-today.png` shows scheduled-dose logging, `02-supply.png` the ranked, explainable refill runway, and `03-medications.png` the searchable medication library. They still show the current interface and stay on the store for 1.1.
+- `6.5-inch/`: `01-today.png`, 1242 by 2688 pixels, captured for the 1.0 build 3 review reply, which asked for that size.
 
-The records shown are synthetic demo data and contain no real patient information.
+The pharmacy card, the trip check, the calendar and the widgets that 1.1 adds are not pictured yet; a refreshed set is worth capturing after 1.1 is approved.

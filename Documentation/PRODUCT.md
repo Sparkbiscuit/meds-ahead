@@ -42,16 +42,16 @@ Meds Ahead V1 is an iPhone-only, offline-first application with:
 - Dynamic Type, VoiceOver, Reduce Motion, Reduce Transparency, dark mode, and high-contrast support
 - Optional, non-recurring StoreKit tips that unlock no features
 - A native rating request after a dose is logged, at most once per version and never within a season of the last (1.1)
-- A second look for the NDC on a captured frame, an NDC field on the review screen that fills the identity from the FDA directory once the person chooses the listing, and a review screen that says whether a code was read, refused, or unlisted (1.1.1)
-- Ongoing Apple Health dose sync for medications with an exact identity: doses logged in Health arrive on launch and on returning to the foreground, count toward supply, never double a dose logged here, and follow an undo in Health; still read-only (1.1.1)
-- A bundled RxNorm slice that links a scanned bottle's NDC to its RxNorm concept and clinical drug, printed on the shared list (1.1.1)
-- The pharmacy card: pharmacy, phone and Rx number read off the label, a Call button, and the pharmacy named in a detailed low-supply reminder (1.1.1)
-- A refill marked requested or ready for pickup, which pauses the low-supply reminder and tells Today what to pick up (1.1.1)
-- Trip check in Supply: pick the day you are back and see what runs out first (1.1.1)
-- A person per medication, grouping Today, Supply and the shared list when a household names more than one (1.1.1)
-- A package-expiration reminder a week ahead, under the refill-reminders toggle (1.1.1)
-- A month calendar of taken, skipped and unlogged days on every medication, and a thirty-day count on the shared list (1.1.1)
-- Home and Lock Screen widgets: the next dose with a Taken button when one medication is due, and which medication runs out next (1.1.1)
+- A second look for the NDC on a captured frame, an NDC field on the review screen that fills the identity from the FDA directory once the person chooses the listing, and a review screen that says whether a code was read, refused, or unlisted (1.1)
+- Ongoing Apple Health dose sync for medications with an exact identity: doses logged in Health arrive on launch and on returning to the foreground, count toward supply, never double a dose logged here, and follow an undo in Health; still read-only (1.1)
+- A bundled RxNorm slice that links a scanned bottle's NDC to its RxNorm concept and clinical drug, printed on the shared list (1.1)
+- The pharmacy card: pharmacy, phone and Rx number read off the label, a Call button, and the pharmacy named in a detailed low-supply reminder (1.1)
+- A refill marked requested or ready for pickup, which pauses the low-supply reminder and tells Today what to pick up (1.1)
+- Trip check in Supply: pick the day you are back and see what runs out first (1.1)
+- A person per medication, grouping Today, Supply and the shared list when a household names more than one (1.1)
+- A package-expiration reminder a week ahead, under the refill-reminders toggle (1.1)
+- A month calendar of taken, skipped and unlogged days on every medication, and a thirty-day count on the shared list (1.1)
+- Home and Lock Screen widgets: the next dose with a Taken button when one medication is due, and which medication runs out next (1.1)
 
 ## Safety boundary
 

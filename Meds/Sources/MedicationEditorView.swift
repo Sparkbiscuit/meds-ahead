@@ -786,7 +786,6 @@ private struct NDCEntryRow: View {
     let usedCode: String?
     let onUse: (NationalDrugCode, NDCProduct) -> Void
     @State private var lookup: Lookup = .empty
-    @State private var lookupTask: Task<Void, Never>?
 
     private enum Lookup: Equatable {
         case empty

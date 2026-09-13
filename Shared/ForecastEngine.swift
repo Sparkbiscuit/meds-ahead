@@ -12,8 +12,6 @@ struct SupplyForecast: Equatable {
     let daysRemaining: Int?
     let confidence: ForecastConfidence
     let explanation: String
-
-    var isKnown: Bool { depletionDate != nil }
 }
 
 /// Which medications need a refill before a trip, from the forecasts that

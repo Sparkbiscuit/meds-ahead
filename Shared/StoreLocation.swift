@@ -2,9 +2,9 @@ import Foundation
 
 /// Where the SwiftData store lives, and the one-time move that put it there.
 ///
-/// 1.0 and 1.1 kept the store in the app's own Application Support directory.
-/// A widget runs in its own process and can only reach a store in an app group
-/// container, so 1.1.1 moves the store there once, on the first launch after
+/// 1.0 kept the store in the app's own Application Support directory. A widget
+/// runs in its own process and can only reach a store in an app group
+/// container, so 1.1 moves the store there once, on the first launch after
 /// the update, before any connection is opened: all three SQLite files
 /// together, because a committed transaction can sit in the write-ahead log
 /// until the next checkpoint. The copy is checked against the original before
@@ -24,7 +24,7 @@ enum StoreLocation {
             .appendingPathComponent(fileName)
     }
 
-    /// Where 1.0 and 1.1 kept it.
+    /// Where 1.0 kept it.
     static var legacyURL: URL? {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
             .appendingPathComponent(fileName)

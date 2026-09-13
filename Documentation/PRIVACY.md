@@ -14,7 +14,8 @@ Meds Ahead treats medication information as sensitive even when a particular pri
 - `Taken` and `Skip` reminder actions carry only internal record identifiers and do not add medication details to a private notification.
 - Medication records and their associated histories can be deleted by the user. Export is intentionally deferred until a safe, clearly labeled format is implemented.
 - Exact identification uses a bundled copy of the FDA National Drug Code Directory. No code, barcode, photo, or label text is sent anywhere to be looked up.
-- On iOS 26 and later, the app can read the medications a person explicitly shares from Apple Health, along with the doses Health recorded as taken for those medications in the last thirty days. Access is per medication through Health's own picker, read-only, and can be withdrawn in Health at any time. Imported names and doses are stored like typed ones; the app never writes to Health, never sends Health data anywhere, and never uses it for anything but the person's own list and forecast.
+- On iOS 26 and later, the app can read the medications a person explicitly shares from Apple Health, along with the doses Health recorded for those medications: the last thirty days when one is imported, and new doses on every launch for a medication that is also here, matched by RxNorm code and never by name. Access is per medication through Health's own picker, read-only, and can be withdrawn in Health at any time. Imported names and doses are stored like typed ones; the app never writes to Health, never sends Health data anywhere, and never uses it for anything but the person's own list and forecast.
+- The Home and Lock Screen widgets read the same local store through an app group container on the device. Medication names in them are marked privacy-sensitive so iOS can redact them on a locked Lock Screen. The widget never creates the store, only opens one the app has already placed there.
 
 ## Camera
 

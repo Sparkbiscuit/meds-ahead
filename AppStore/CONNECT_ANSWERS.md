@@ -1,6 +1,6 @@
 # App Store Connect answer sheet
 
-Prepared for release 1.0 (build 1) on August 24, 2026, and updated for release 1.1 (build 4) on September 12, 2026. Owner-supplied release, availability, compliance, and review-contact decisions are recorded below.
+Prepared for release 1.0 (build 1) on August 24, 2026, and updated for release 1.1 (build 6) on September 13, 2026. Owner-supplied release, availability, compliance, and review-contact decisions are recorded below.
 
 ## New app record
 
@@ -34,7 +34,7 @@ Medication records, label text, barcodes, schedules, dose logs, and inventory ev
 
 The local database is included in the user's own encrypted device and iCloud backups. That is not collection: the backup is made by iOS under the user's Apple Account, and neither Meds Ahead nor its developer can read it. `Data Not Collected` remains the correct answer.
 
-Version 1.1 reads medications from Apple Health when the person chooses to share them, and the recent dose logs that come with that choice. What it reads stays in the app's local store on the iPhone and is never transmitted, so it is not collected in Apple's sense and `Data Not Collected` still holds. Apple's HealthKit rules apply regardless of that answer: the privacy policy names the Health integration and what is done with it, the App Store description mentions it, the app requests read access only, and Health data is never used for advertising or marketing. If the questionnaire is ever changed to declare Health data, it would be `Health` under Health & Fitness, linked to the user, used for App Functionality only, and not used for tracking.
+Version 1.1 reads medications from Apple Health when the person chooses to share them, the recent dose logs that come with that choice, and, for a medication that is also in the app, the doses logged in Health afterwards. What it reads stays in the app's local store on the iPhone and is never transmitted, so it is not collected in Apple's sense and `Data Not Collected` still holds. Apple's HealthKit rules apply regardless of that answer: the privacy policy names the Health integration and what is done with it, the App Store description mentions it, the app requests read access only, and Health data is never used for advertising or marketing. If the questionnaire is ever changed to declare Health data, it would be `Health` under Health & Fitness, linked to the user, used for App Functionality only, and not used for tracking.
 
 ## Age rating
 
@@ -55,7 +55,7 @@ Recommended questionnaire answers:
 
 Rationale: Meds Ahead stores and organizes information entered or confirmed by the person using it. It does not diagnose, offer treatment guidance, recommend or modify a dose, state what a medication is for or does, check interactions, or make wellness recommendations. Every field it derives from a label is shown in an editable review screen and is stored only after the person confirms it. On that basis `None` is accurate for both questions, and the expected global result is 4+.
 
-Disclose accurately if App Review asks what the app knows about medications. The app ships four things that are easy to mischaracterise, and none supplies medical information:
+Disclose accurately if App Review asks what the app knows about medications. The app ships five things that are easy to mischaracterise, and none supplies medical information:
 
 - A bundled list of roughly 12,900 medication *names* derived from RxNorm (`Meds/Resources/MedicationNames.txt`). It is used only to decide whether scanned text spells a real medication name, so a misread label cannot invent one. It carries no indications, dosing, warnings, or interactions — names only.
 - A bundled table of roughly 270 generic-to-brand name pairs
@@ -77,6 +77,12 @@ Disclose accurately if App Review asks what the app knows about medications. The
   and fills the review screen only when the rest of the label agrees with it.
   Like the other two files it carries no indications, dosing, warnings, or
   interactions; a strength is a packaging fact, not a dose.
+- A bundled RxNorm table (`Meds/Resources/RxNormProducts.txt`, from 1.1),
+  a slice of NLM's public "current prescribable content" that links each
+  product in the FDA snapshot to its RxNorm concept code and to the clinical
+  drug a brand is a tradename of. It exists so a scanned bottle can be
+  recognised as the same medication in Apple Health, whose codings are
+  RxNorm's; it holds codes and nothing else.
 
 Risk note: this is a Medical-category app whose subject matter is prescriptions, and the questionnaire is applied by Apple, not self-certified. Apple may still set Medical or Treatment Information to `Infrequent/Mild` and land the rating at 12+. That outcome is acceptable and is not worth arguing; do not overstate the app's capabilities to avoid it, and do not understate the two items above to secure 4+.
 
@@ -98,13 +104,13 @@ Meds Ahead relies only on encryption supplied by Apple operating-system services
 ## Version information
 
 - Version: 1.1
-- Build: 4
+- Build: 6
 - Price: Free
-- Promotional text (1.1): `Exact names from the label's NDC, import from Apple Health, and a calm forecast of what runs out next. Every feature is free; tips are optional.`
+- Promotional text (1.1): `Exact names from the label's NDC, Apple Health import and dose sync, widgets, and a calm forecast of what runs out next. Every feature is free; tips are optional.`
 - What's New, description, and keywords: Use `AppStore/SUBMISSION.md`; the description now names the Apple Health integration, which Apple requires of HealthKit apps
 - Screenshots: The 1.0 set in `AppStore/Screenshots/6.9-inch-current/` still shows the current interface and can stay; refresh later
 - Export options: `AppStore/ExportOptions-AppStore.plist`
-- Distribution artifact: **re-archive before uploading.** Every existing export under `build/` predates the scanner-performance, refill-notification, backup, camera-permission, and tip-surface changes, and none of them should be uploaded. Archive fresh from the current commit and export with `AppStore/ExportOptions-AppStore.plist`.
+- Distribution artifact: **archive fresh from the current commit** (Xcode > Product > Archive with automatic signing, or `xcodebuild archive` plus `-exportArchive` with `AppStore/ExportOptions-AppStore.plist`). The August archives under `build/` are 1.0 build 1 and must never be uploaded.
 
 ## Optional tip products
 
@@ -122,12 +128,13 @@ The tip row in Settings is always present, in all three states: a disabled row w
 
 The Account Holder must accept the current Paid Apps Agreement and complete Apple's tax and banking setup. Product metadata can take up to one hour to appear in the sandbox. Add all three products to the version 1.0 review submission; Apple requires the first consumable purchase to be submitted with a new app version.
 
-## HealthKit (1.1)
+## HealthKit and App Groups (1.1)
 
 - Capability: HealthKit, enabled on the app target (`com.apple.developer.healthkit` in `Meds/Meds.entitlements`, `SystemCapabilities` in the project). Automatic signing adds it to the `com.christoforakis.Meds` App ID on the first archive; if the archive fails with a provisioning error, enable HealthKit on that identifier in Certificates, Identifiers & Profiles and archive again.
-- Purpose string: `NSHealthShareUsageDescription` only. The app never writes to Health, so it declares no update purpose string and never calls share authorization. It reads two things through that one per-object authorization: the medications ticked in Health's picker, and the dose events logged against them. HealthKit refuses a type-level read request for the dose-event type, so none is made.
+- Capability: App Groups, `group.com.christoforakis.Meds`, on both the app and the widget extension (`MedsWidgets/MedsWidgets.entitlements`; extension bundle ID `com.christoforakis.Meds.MedsWidgets`). The store lives in the group container so the widgets can read it. Automatic signing registers the extension's App ID and the group on the first archive; a provisioning error means adding the group to both identifiers by hand.
+- Purpose string: `NSHealthShareUsageDescription` only. The app never writes to Health, so it declares no update purpose string and never calls share authorization. It reads two things through that one per-object authorization: the medications ticked in Health's picker, and the dose events logged against them, both at import and on every launch afterwards for a medication that is also in the app. HealthKit refuses a type-level read request for the dose-event type, so none is made.
 - Authorization: per object. `requestPerObjectReadAuthorization` presents Health's own medication picker; the app receives only what the person ticks, and the choice is reversible in Health at any time.
-- Guideline 5.1.3 posture: Health data is used only to prefill the same review screen every medication goes through and, for dose logs, to give an as-needed medication its usage rate; it is stored locally like typed data, is never written to iCloud by the app, is never used for advertising or marketing, and is never shared. The privacy policy and the description both say so.
+- Guideline 5.1.3 posture: Health data is used only to prefill the same review screen every medication goes through and to keep that medication's dose history and supply count right; it is stored locally like typed data, is never written to iCloud by the app, is never used for advertising or marketing, and is never shared. The privacy policy and the description both say so.
 - Simulator: HealthKit is available in the iOS 26 simulator, so the import can be exercised there; a fresh install on a physical iPhone is still what the review recording should show.
 
 ## Accessibility declarations
@@ -157,7 +164,7 @@ Do not declare captions, audio descriptions, voice control, or switch control wi
 - Camera: denying the camera prompt is a supported path. The scanner shows an explanatory screen with an `Open Settings` button and photo import stays available, so the reviewer is never left on a blank camera view.
 - Health: cancelling Health's picker is a supported path. The Apple Health screen explains that nothing was shared and offers Choose Again; Scan a Label and Enter Manually remain available.
 
-Suggested review route: complete onboarding, choose Add, then Scan a Label and point the camera at any printed prescription label. Recognition runs on device and every recognized field is editable before save; a label that prints its NDC also shows an Identified by its NDC note on the review screen. Enter Manually reaches the same editor when no label is at hand, and Import from Apple Health lists whatever the reviewer shares from Health. Then Today to log a dose, Supply for the forecast, and Medications > a medication for a refill or inventory correction.
+Suggested review route: complete onboarding, choose Add, then Scan a Label and point the camera at any printed prescription label. Recognition runs on device and every recognized field is editable before save; a label that prints its NDC also shows an Identified by its NDC note on the review screen, and the NDC field under Prescription & package takes the code typed off the bottle. Enter Manually reaches the same editor when no label is at hand, and Import from Apple Health lists whatever the reviewer shares from Health. Then Today to log a dose, Supply for the forecast and the trip check, Medications > a medication for a refill, an inventory correction, the pharmacy card and the calendar, and the Home Screen for the Next Dose and Runs Out Next widgets.
 
 Lead with the scanner, not manual entry: App Review works on physical hardware, where the scanner is the core feature. Do not describe what the simulator can and cannot do — the earlier notes did, and a caveat about a core feature not being exercisable reads as an admission of incompleteness in a Medical-category app already triaged under App Completeness.
 

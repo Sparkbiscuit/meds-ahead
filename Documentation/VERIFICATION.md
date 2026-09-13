@@ -1,5 +1,77 @@
 # Verification record
 
+## September 13, 2026 — the cleanup pass before the 1.1 archive
+
+Nick asked for a pass over the codebase before uploading everything built so
+far as 1.1: confirm the 1.1.1 brief was finished, remove what is useless or
+stale, and get the record straight.
+
+### The brief, checked
+
+- Section 1 (the frame, NDC reliability, text-heavy labels), section 2 (the
+  Health dose sync), section 3 (RxNorm) and all seven of section 4's features,
+  widgets included, are built and recorded in the two entries below. Nothing
+  from the brief is outstanding in code; what remains is on a physical iPhone,
+  listed in `RELEASE_CHECKLIST.md` under "1.1 gates".
+
+### One release, not two
+
+- Everything built under the 1.1.1 name ships in 1.1: there was never a 1.1
+  upload for a 1.1.1 to follow, so the split existed only in the docs. The
+  project is 1.1, build 6 (builds 4 and 5 were never uploaded). `PRODUCT.md`,
+  `ARCHITECTURE.md`, the brief's status note, `RELEASE_CHECKLIST.md`,
+  `SUBMISSION.md` (one What's New; the review notes rewritten to cover
+  identification, the Health import and sync, the widgets and the caregiver
+  features, 3945 characters) and `CONNECT_ANSWERS.md` (build 6, the App Group
+  capability, the RxNorm table among the bundled files) now say so. Code
+  comments that said 1.1 kept the store in Application Support now say 1.0,
+  the only shipped build that did.
+
+### What was removed
+
+- `RxNormNames.txt` (791 KB) and `RxNormTable.prescribableName`: nothing in
+  the app read the prescribable names, and the table was parsed into memory on
+  every first use for nothing. `build_rxnorm_table.py` still writes the file
+  with `--names` for a future use. Also unreferenced, and gone:
+  `RxNormTable.matchingCodes` (test-only; the sync and the duplicate check use
+  `clinicalDrugCode`), `ScanEvidenceQuality.deduplicationKey`,
+  `ScannerError.invalidCapture` (the crop no longer throws),
+  `SupplyForecast.isKnown`, and an unused `lookupTask` state in the NDC field.
+- `AppStore/Web/` (August copies of the privacy and support pages, superseded
+  by the website repository, where the live pages are edited),
+  `AppStore/Screenshots/6.9-inch/` (the JPGs the current PNG set replaced for
+  1.0 build 3) and `Documentation/QA/` (five August screenshots nothing
+  referenced): about eight megabytes out of the public repository.
+- Left alone on purpose: `Medication.notes`,
+  `Medication.prescriptionExpirationDate` and `DoseSchedule.label` are stored
+  but unused, and dropping an `@Model` property is a schema change the rules
+  say never to make as a side effect. The three unused `InventoryReason` cases
+  (lost, discarded, returned) stay as ledger vocabulary.
+
+### Privacy policy
+
+- The policy covered the one-time import of a medication's last thirty days of
+  Health doses. The shipped build also brings over doses logged in Health
+  afterwards, on every launch, and the widgets read the store through an app
+  group. Both are now said in `AppStore/PRIVACY_POLICY.md`,
+  `Documentation/PRIVACY.md` and the website page, committed in the
+  Sparkbiscuit.github.io repository as `3330616` for Nick to push. The live
+  page already carries the September 13 effective date with the NDC and Health
+  sections, so the "publish the policy" gate is done and this is an amendment.
+
+### Results
+
+- Unit tests: 354/354 on the iPhone 17 Pro simulator. UI tests: 9/9 on the
+  iPhone 17. Release static analysis on the app target: succeeded; besides the
+  usual no-AppIntents metadata lines it prints "not stripping binary because
+  it is signed" for the widget extension embedded in the legacy build folder,
+  a packaging note rather than a source finding.
+- Still Nick's, and not claimed here: the physical-iPhone gates, the first
+  archive with automatic signing (HealthKit and the App Group join the App
+  IDs), and a look in App Store Connect at whether the three tip products
+  exist and are Approved, which the checklist never recorded and the review
+  notes' item 8 assumes.
+
 ## September 12, 2026 (night) — 1.1.1: the scanner, from the real-bottle pass
 
 Built from `Documentation/handoff/1.1.1-SESSION-BRIEF.md`, first section, the

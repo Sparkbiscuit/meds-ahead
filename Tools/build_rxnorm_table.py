@@ -5,17 +5,21 @@ Source: https://download.nlm.nih.gov/rxnorm/RxNorm_full_prescribe_current.zip �
 the subset of RxNorm limited to prescribable drugs, which NLM distributes without
 a UMLS licence. Unzip it and point this tool at the rrf/ directory.
 
-Two tab-separated files come out, each sorted by a fixed-width numeric key so
-the app can binary-search the file's own bytes the way it does the FDA snapshot:
+One tab-separated file comes out, sorted by a fixed-width numeric key so the
+app can binary-search the file's own bytes the way it does the FDA snapshot:
 
   RxNormProducts.txt  labeler-product key (9 digits) → RXCUI → clinical-drug RXCUI
       One row per FDA product in the app's own NDC Directory snapshot that RxNorm
       lists an NDC for. The RXCUI is the concept RxNorm attaches to the package
       (a clinical drug for a generic, a branded drug for a brand); the third
       column is the clinical drug a branded RXCUI is a tradename of, or empty.
+
+With --names a second file is written, which the app does not bundle:
+
   RxNormNames.txt     RXCUI (8 digits, zero-padded) → prescribable name
       The PSN for every concept the products file mentions, or the concept's own
-      name when NLM has not assigned a PSN.
+      name when NLM has not assigned a PSN. Kept for a future use of the
+      prescribable names; nothing in the app reads it today.
 
 RxNorm is courtesy of the U.S. National Library of Medicine, National Institutes
 of Health, Department of Health and Human Services; NLM is not responsible for
@@ -117,6 +121,7 @@ def main() -> int:
     parser.add_argument("--ndc-directory", required=True, type=Path, help="the app's NDCDirectory.txt")
     parser.add_argument("--release", required=True, help="the release date, YYYY-MM-DD, from the Readme")
     parser.add_argument("--out", required=True, type=Path, help="Meds/Resources")
+    parser.add_argument("--names", action="store_true", help="also write RxNormNames.txt, which the app does not bundle")
     args = parser.parse_args()
 
     fda_keys = load_fda_keys(args.ndc_directory)
@@ -140,16 +145,17 @@ def main() -> int:
                 mentioned.add(generic)
             handle.write(f"{key}\t{rxcui}\t{generic}\n")
 
-    with (args.out / "RxNormNames.txt").open("w", encoding="utf-8") as handle:
-        handle.write(f"# RxNorm current prescribable content {args.release}: prescribable names for {len(mentioned)} "
-                     f"concepts. {attribution}\n")
-        for rxcui in sorted(mentioned, key=int):
-            name = psn.get(rxcui) or concepts[rxcui]
-            handle.write(f"{rxcui.zfill(8)}\t{name}\n")
+    if args.names:
+        with (args.out / "RxNormNames.txt").open("w", encoding="utf-8") as handle:
+            handle.write(f"# RxNorm current prescribable content {args.release}: prescribable names for {len(mentioned)} "
+                         f"concepts. {attribution}\n")
+            for rxcui in sorted(mentioned, key=int):
+                name = psn.get(rxcui) or concepts[rxcui]
+                handle.write(f"{rxcui.zfill(8)}\t{name}\n")
 
     branded = sum(1 for rxcui in products.values() if rxcui in generic_of)
     print(f"{len(products)} of {len(fda_keys)} FDA products mapped; {branded} to a branded concept with a clinical drug; "
-          f"{len(mentioned)} names written", file=sys.stderr)
+          f"{len(mentioned)} concepts mentioned" + ("; names written" if args.names else ""), file=sys.stderr)
     return 0
 
 

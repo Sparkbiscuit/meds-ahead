@@ -589,7 +589,6 @@ private struct ScanProgressPill: View {
 private enum ScannerError: Error {
     case unreadableImage
     case scannerUnavailable
-    case invalidCapture
 }
 
 @MainActor

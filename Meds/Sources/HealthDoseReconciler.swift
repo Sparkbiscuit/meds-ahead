@@ -65,7 +65,8 @@ enum HealthDoseReconciler {
     /// How far a Health reminder slot may sit from this app's schedule and
     /// still be the same slot.
     static let slotTolerance: TimeInterval = 2 * 60 * 60
-    /// A dose imported by 1.1 is recognised by its time, which was Health's time.
+    /// A dose imported before samples carried identifiers is recognised by its
+    /// time, which was Health's time.
     static let importedDoseTolerance: TimeInterval = 60
 
     static func plan(
@@ -98,8 +99,8 @@ enum HealthDoseReconciler {
                 continue
             }
 
-            // The import that came with the medication in 1.1 stored Health's
-            // doses without their sample identifiers. Recognise them by their time.
+            // Earlier builds' import stored Health's doses without their sample
+            // identifiers. Recognise them by their time.
             if let imported = events.first(where: {
                 $0.healthSampleID == nil
                     && $0.note == DoseEvent.appleHealthNote
