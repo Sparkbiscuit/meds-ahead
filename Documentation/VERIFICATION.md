@@ -66,11 +66,12 @@ stale, and get the record straight.
   usual no-AppIntents metadata lines it prints "not stripping binary because
   it is signed" for the widget extension embedded in the legacy build folder,
   a packaging note rather than a source finding.
-- Still Nick's, and not claimed here: the physical-iPhone gates, the first
+- Still Nick's, and not claimed here: the physical-iPhone gates and the first
   archive with automatic signing (HealthKit and the App Group join the App
-  IDs), and a look in App Store Connect at whether the three tip products
-  exist and are Approved, which the checklist never recorded and the review
-  notes' item 8 assumes.
+  IDs). Nick confirmed the same afternoon that the three tip products were
+  created and approved with 1.0, which the checklist had never recorded, so
+  the review notes' item 8 stands; and he had the website commit pushed, so
+  the amended policy is live.
 
 ## September 12, 2026 (night) — 1.1.1: the scanner, from the real-bottle pass
 

@@ -128,6 +128,8 @@ The tip row in Settings is always present, in all three states: a disabled row w
 
 The Account Holder must accept the current Paid Apps Agreement and complete Apple's tax and banking setup. Product metadata can take up to one hour to appear in the sandbox. Add all three products to the version 1.0 review submission; Apple requires the first consumable purchase to be submitted with a new app version.
 
+Status: all three were created, submitted with 1.0 and approved with it (confirmed September 13, 2026). A later version needs nothing added for them unless a product changes.
+
 ## HealthKit and App Groups (1.1)
 
 - Capability: HealthKit, enabled on the app target (`com.apple.developer.healthkit` in `Meds/Meds.entitlements`, `SystemCapabilities` in the project). Automatic signing adds it to the `com.christoforakis.Meds` App ID on the first archive; if the archive fails with a provisioning error, enable HealthKit on that identifier in Certificates, Identifiers & Profiles and archive again.
