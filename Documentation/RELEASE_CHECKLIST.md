@@ -63,8 +63,8 @@
 - [x] Save the owner's non-trader EU DSA declaration in App Store Connect (same)
 - [x] Save the authorized App Review contact details in App Store Connect (same)
 - [ ] Publish verified accessibility declarations
-- [ ] Accept the Paid Apps Agreement and complete tax/banking setup
-- [ ] Create the three consumable tip products with the exact IDs in `AppStore/CONNECT_ANSWERS.md`, add them to the version 1.0 submission, and upload their review metadata/screenshots. Confirm in App Store Connect > In-App Purchases before submitting 1.1: if all three read Approved and the live 1.0 shows the tip amounts, this and the agreement above are done and the review notes' item 8 is true; if not, either create them and submit them with 1.1, or take item 8 out of the notes
+- [x] Accept the Paid Apps Agreement and complete tax/banking setup (done for 1.0; the tips went on sale with it)
+- [x] Create the three consumable tip products with the exact IDs in `AppStore/CONNECT_ANSWERS.md`, add them to the version 1.0 submission, and upload their review metadata/screenshots (created and approved with 1.0, confirmed September 13, 2026; nothing to add for 1.1, and the review notes' item 8 stands)
 
 ## 1.1 gates
 
@@ -78,7 +78,7 @@ Everything built under the 1.1.1 name ships in 1.1, build 6 (decided September 1
 
 Still to do, on a physical iPhone and in App Store Connect:
 
-- [ ] Push the privacy policy's dose-sync and widget sentences: committed in the Sparkbiscuit.github.io repository on September 13 (`3330616`), not yet pushed
+- [x] Push the privacy policy's dose-sync and widget sentences (Sparkbiscuit.github.io `3330616`, pushed September 13)
 - [ ] Archive with automatic signing so HealthKit and the App Group `group.com.christoforakis.Meds` join the app's App ID and the App Group joins the extension's (`com.christoforakis.Meds.MedsWidgets`), or add them by hand in Certificates, Identifiers & Profiles
 - [ ] Update from the App Store 1.0 on a physical iPhone: the store moves into the app group, and history is intact
 - [ ] Real bottles on a physical iPhone: printed NDC on orange retail and blue BCH vials and a manufacturer barcode on a box, through live scanning and the Review capture; on the two bottles from September 12, read the capture note first
