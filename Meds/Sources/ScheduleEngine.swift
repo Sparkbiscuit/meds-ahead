@@ -124,6 +124,24 @@ enum ScheduleEngine {
             }
     }
 
+    /// The scheduled dose a dose logged elsewhere belongs to: the slot on the same
+    /// day nearest to the time it was meant for, when one lies within `tolerance`.
+    /// Apple Health keeps its own schedule for a medication, and its times need
+    /// not be this app's, so a Health dose meant for "8:00" claims this app's
+    /// 8:30 slot and not a second, unscheduled dose beside it. Slot identity is
+    /// answered here and nowhere else.
+    static func nearestScheduledDose(
+        to date: Date,
+        schedules: [DoseSchedule],
+        medicationID: UUID,
+        tolerance: TimeInterval = 2 * 60 * 60,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> ScheduledDose? {
+        doses(schedules: schedules, medicationID: medicationID, onDayOf: date, calendar: calendar)
+            .filter { abs($0.date.timeIntervalSince(date)) <= tolerance }
+            .min { abs($0.date.timeIntervalSince(date)) < abs($1.date.timeIntervalSince(date)) }
+    }
+
     /// The amount to assume when a dose is logged outside any scheduled slot: the
     /// amount belonging to the schedule closest to this time of day. Reaching for
     /// the first schedule instead would always answer with the morning amount, so an

@@ -21,9 +21,14 @@ Violating any of these is a defect, regardless of what the task asked for.
 - **Never change an `@Model` as a side effect.** SwiftData migrations can destroy
   a person's on-device history. Stop and flag it instead.
 - **The ledger is append-only.** Supply derives from inventory events minus taken
-  dose events that count toward supply; history imported from Apple Health is
-  stored with `countsTowardSupply` false and feeds only the as-needed rate.
-  Correct a wrong number with a new event; never rewrite history.
+  dose events that count toward supply; history imported from Apple Health with
+  a medication is stored with `countsTowardSupply` false and feeds only the
+  as-needed rate, while a dose Health logs after the medication exists here is
+  brought over by `HealthDoseSync` with it true and carries its
+  `healthSampleID`. Correct a wrong number with a new event; never rewrite
+  history. The one mirror exception: a Health sample the person undoes or
+  changes in Health is removed or restated here, because the copy was never
+  the person's entry in this app.
 - **`ScheduleEngine` owns dose-slot identity.** Views ask it which slot a dose
   belongs to. Never answer that locally.
 - **As-needed rates measure over the history that exists, capped at 30 days** —

@@ -101,6 +101,27 @@ final class ScheduleEngineTests: XCTestCase {
         XCTAssertTrue(doses.allSatisfy { calendar.component(.hour, from: $0.date) == 9 })
     }
 
+    /// Health keeps its own reminder times; the slot a Health dose belongs to is
+    /// the nearest one on that day, within tolerance, and none when none is near.
+    func testNearestScheduledDoseClaimsTheSlotWithinTolerance() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let day = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 9, day: 10)))
+        let medicationID = UUID()
+        let schedules = [
+            DoseSchedule(medicationID: medicationID, minutesAfterMidnight: 8 * 60 + 30, doseQuantity: 1, startDate: day),
+            DoseSchedule(medicationID: medicationID, minutesAfterMidnight: 20 * 60, doseQuantity: 2, startDate: day)
+        ]
+        let eight = try XCTUnwrap(calendar.date(byAdding: .hour, value: 8, to: day))
+        let claimed = try XCTUnwrap(ScheduleEngine.nearestScheduledDose(to: eight, schedules: schedules, medicationID: medicationID, calendar: calendar))
+        XCTAssertEqual(claimed.scheduleID, schedules[0].id)
+
+        let two = try XCTUnwrap(calendar.date(byAdding: .hour, value: 14, to: day))
+        XCTAssertNil(ScheduleEngine.nearestScheduledDose(to: two, schedules: schedules, medicationID: medicationID, calendar: calendar))
+        XCTAssertNotNil(ScheduleEngine.nearestScheduledDose(to: two, schedules: schedules, medicationID: medicationID, tolerance: 6 * 60 * 60, calendar: calendar))
+        XCTAssertNil(ScheduleEngine.nearestScheduledDose(to: eight, schedules: schedules, medicationID: UUID(), calendar: calendar))
+    }
+
     func testNonexistentSpringForwardTimeMovesToNextValidTime() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "America/New_York"))

@@ -19,6 +19,9 @@ struct MedicationEditorView: View {
     private let draftSource: MedicationSource
     private let draftIdentification: NDCIdentificationOutcome?
     private let draftImportedDoses: [ImportedDose]
+    private let draftPharmacyName: String
+    private let draftPharmacyPhone: String
+    private let draftRxNumber: String
     private let draftCaptureNote: String
     private let onSaved: (() -> Void)?
 
@@ -46,6 +49,7 @@ struct MedicationEditorView: View {
     @State private var productIdentifierType: String
     @State private var nameProvenance: MedicationNameProvenance
     @State private var ndcEntry: String
+    @State private var rxNormCode: String
     @State private var isAsNeeded: Bool
     @State private var remindersEnabled: Bool
     @State private var refillRemindersEnabled: Bool
@@ -64,6 +68,9 @@ struct MedicationEditorView: View {
         self.draftSource = medication?.source ?? draft.source
         self.draftIdentification = draft.identification
         self.draftImportedDoses = draft.importedDoses
+        self.draftPharmacyName = draft.pharmacyName
+        self.draftPharmacyPhone = draft.pharmacyPhone
+        self.draftRxNumber = draft.rxNumber
         self.draftCaptureNote = draft.captureNote
         self.onSaved = onSaved
         let resolvedForm = medication?.form ?? draft.form
@@ -85,6 +92,7 @@ struct MedicationEditorView: View {
         _productIdentifier = State(initialValue: medication?.productIdentifier ?? draft.productIdentifier)
         _productIdentifierType = State(initialValue: medication?.productIdentifierType ?? draft.productIdentifierType)
         _nameProvenance = State(initialValue: medication == nil ? draft.nameProvenance : .none)
+        _rxNormCode = State(initialValue: medication?.rxNormCode ?? draft.rxNormCode)
         // A code that was read but filled nothing is offered back for checking,
         // digit by digit against the bottle, rather than left in the evidence list.
         _ndcEntry = State(initialValue: draft.identification?.codeToCheck ?? "")
@@ -543,6 +551,7 @@ struct MedicationEditorView: View {
             form = product.form
             productIdentifier = code.hyphenated
             productIdentifierType = "NDC"
+            rxNormCode = RxNormTable.shared.product(for: code)?.rxcui ?? ""
             nameProvenance = .ndc
         }
         UINotificationFeedbackGenerator().notificationOccurred(.success)
@@ -652,10 +661,16 @@ struct MedicationEditorView: View {
                         doseQuantity: dose.quantity,
                         status: .taken,
                         note: DoseEvent.appleHealthNote,
-                        countsTowardSupply: false
+                        countsTowardSupply: false,
+                        healthSampleID: dose.sampleID
                     ))
                 }
             }
+            // Facts the review screen does not edit but the draft read off the
+            // label or Health: the pharmacy.
+            newMedication.pharmacyName = draftPharmacyName
+            newMedication.pharmacyPhone = draftPharmacyPhone
+            newMedication.rxNumber = draftRxNumber
         }
 
         target.refillsRemaining = Int(refillsText.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -664,6 +679,7 @@ struct MedicationEditorView: View {
         target.lotNumber = lotNumber.trimmingCharacters(in: .whitespacesAndNewlines)
         target.productIdentifier = productIdentifier
         target.productIdentifierType = productIdentifierType
+        target.rxNormCode = rxNormCode
         target.isAsNeeded = isAsNeeded
         target.remindersEnabled = remindersEnabled && !isAsNeeded
         target.refillRemindersEnabled = refillRemindersEnabled

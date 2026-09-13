@@ -224,6 +224,55 @@ as-needed medication a usage rate on the day it is imported instead of after its
 third logged dose. Skipped, snoozed and untouched reminders are Health's
 business and are not imported.
 
+## Apple Health dose sync
+
+Once a medication exists here, the doses a person logs for it in Health keep
+arriving. `HealthDoseSync` runs on launch and on returning to the foreground,
+just ahead of notification replanning, so the forecast that depends on the
+doses is replanned with them. Only a medication with an exact identity Health
+shares takes part — an RxNorm code, either Health's own coding on an imported
+medication or the bundled RxNorm table's answer for a scanned NDC — and nothing
+is ever matched by name, because a wrong match here changes a supply count.
+The medications come from the per-object grant the import already holds, so
+no picker and no new permission appears, and the dose events come under that
+same grant; the dose-event type is never requested on its own, which HealthKit
+refuses with an exception. The check covers the same thirty days the as-needed
+forecast measures over, on every pass, so an undo in Health is caught for as
+long as the dose still matters.
+
+`HealthDoseReconciler` decides, over plain values, what the ledger should do:
+never twice, never double. A sample already stored (`DoseEvent.healthSampleID`)
+is skipped, and a status Health changed is restated. A dose the 1.1 import
+stored before samples carried identifiers is recognised by its time and adopted
+rather than stored again. A Health dose logged against a reminder is mapped to
+this app's slot through `ScheduleEngine` — the nearest scheduled dose that day
+within two hours, because Health keeps its own times — and skipped when the
+person already logged that slot here; any Health dose within thirty minutes of
+a dose logged here is the same dose. Skipped in Health becomes skipped here. A
+sample Health no longer reports inside the window was undone there, and its
+copy is removed: the one place the ledger is not append-only, because the copy
+was never the person's entry in this app. A dose brought over this way counts
+toward supply — it was taken from the count this app is keeping — unlike the
+pre-count history that arrives with an import. Settings carries the last check
+and a Check Now, and nothing is ever written to Health.
+
+## RxNorm
+
+`RxNormTable` bundles a slice of NLM's "current prescribable content", the
+subset of RxNorm distributed without a UMLS licence, produced by
+`Tools/build_rxnorm_table.py` and read the way the FDA snapshot is read: sorted
+by a fixed-width numeric key and binary-searched in the file's own bytes. One
+file maps each FDA product in the app's own directory that RxNorm lists an NDC
+for to its concept and to the clinical drug a branded concept is a tradename of;
+the other holds the prescribable names of the concepts mentioned. It is a
+couple of megabytes. An accepted NDC, whether read or typed, carries its RxNorm
+concept into `Medication.rxNormCode`, which is what lets the dose sync recognise
+a scanned bottle in Health, and both sides of that match are widened to the
+clinical drug so a generic bottle scanned here and the brand chosen in Health
+read as one medication. The Health import's duplicate check uses the same
+widening. The shared list prints the code beside the NDC, since a clinic's
+system speaks RxNorm where a pharmacy's speaks NDC.
+
 ## Rating request
 
 The native review request is made from Today, only after a dose has just been

@@ -84,6 +84,7 @@ struct RootView: View {
                 )
             }
 #endif
+            await syncHealthDoses()
             await replanNotifications()
         }
         // `task` runs once for the life of this view, which is not the same thing as
@@ -93,7 +94,22 @@ struct RootView: View {
         // lead time quietly stopped arriving for anyone who left the app closed.
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
-            Task { await replanNotifications() }
+            Task {
+                await syncHealthDoses()
+                await replanNotifications()
+            }
+        }
+    }
+
+    /// Doses logged in Health since the last look, before the forecast that
+    /// depends on them is replanned. Nothing happens on a device without Health,
+    /// with no linked medication, or in a UI test.
+    private func syncHealthDoses() async {
+#if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-ui-testing") { return }
+#endif
+        if #available(iOS 26.0, *) {
+            _ = await HealthDoseSync.run(in: modelContext)
         }
     }
 
