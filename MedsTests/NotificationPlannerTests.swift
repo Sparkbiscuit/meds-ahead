@@ -202,6 +202,62 @@ final class NotificationPlannerTests: XCTestCase {
         XCTAssertEqual(first.identifier, second.identifier)
     }
 
+    /// A refill already requested or ready is the answer to the warning, so the
+    /// warning stops; the forecast itself does not change.
+    func testARefillInProgressSilencesTheLowSupplyWarning() throws {
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 1, hour: 12)))
+        let depletion = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 20, hour: 8)))
+        let warned = makePlan(doseRemindersEnabled: false, refillLeadDays: 7, depletionDate: depletion)
+        XCTAssertEqual(NotificationPlanner.notifications(for: warned, now: now, calendar: calendar).count, 1)
+
+        let requested = makePlan(doseRemindersEnabled: false, refillLeadDays: 7, depletionDate: depletion, refillInProgress: true)
+        XCTAssertTrue(NotificationPlanner.notifications(for: requested, now: now, calendar: calendar).isEmpty)
+    }
+
+    func testAPackageExpirationIsAnnouncedAWeekAhead() throws {
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 1, hour: 12)))
+        let expiration = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 30)))
+        let plan = makePlan(doseRemindersEnabled: false, expirationDate: expiration)
+        let reminder = try XCTUnwrap(NotificationPlanner.notifications(for: plan, now: now, calendar: calendar).first)
+
+        XCTAssertEqual(reminder.kind, .expiration)
+        guard case let .date(date) = reminder.trigger else { return XCTFail("Expected a date trigger") }
+        XCTAssertEqual(calendar.component(.day, from: date), 23)
+        XCTAssertEqual(calendar.component(.hour, from: date), 9)
+        XCTAssertEqual(reminder.title, "Package expiring soon")
+        XCTAssertFalse(reminder.body.contains("Example"), "private copy names nothing")
+
+        let detailed = makePlan(displayName: "Tacrolimus", doseRemindersEnabled: false, detailedNotifications: true, expirationDate: expiration)
+        let named = try XCTUnwrap(NotificationPlanner.notifications(for: detailed, now: now, calendar: calendar).first)
+        XCTAssertEqual(named.title, "Tacrolimus expires soon")
+        XCTAssertTrue(named.body.contains("Aug 30"), named.body)
+
+        let soon = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 5)))
+        XCTAssertTrue(NotificationPlanner.notifications(for: makePlan(doseRemindersEnabled: false, expirationDate: soon), now: now, calendar: calendar).isEmpty,
+                      "the lead moment has passed; the detail screen already says expired or expiring")
+        XCTAssertTrue(NotificationPlanner.notifications(for: makePlan(doseRemindersEnabled: false, refillRemindersEnabled: false, expirationDate: expiration), now: now, calendar: calendar).isEmpty,
+                      "under the refill toggle")
+    }
+
+    func testTheRefillBodyNamesThePharmacyAndTheRxNumber() throws {
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 1, hour: 12)))
+        let depletion = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 20, hour: 8)))
+        let detailed = makePlan(doseRemindersEnabled: false, detailedNotifications: true, depletionDate: depletion,
+                                pharmacyName: "Walgreens #04821", rxNumber: "8842197")
+        let refill = try XCTUnwrap(NotificationPlanner.notifications(for: detailed, now: now, calendar: calendar).first)
+        XCTAssertTrue(refill.body.contains("Call Walgreens #04821 with Rx 8842197."), refill.body)
+
+        let renewal = makePlan(doseRemindersEnabled: false, detailedNotifications: true, refillsRemaining: 0, depletionDate: depletion,
+                               pharmacyName: "Walgreens #04821", rxNumber: "8842197")
+        let renew = try XCTUnwrap(NotificationPlanner.notifications(for: renewal, now: now, calendar: calendar).first)
+        XCTAssertFalse(renew.body.contains("Call Walgreens"), "no refills left means the prescriber, not the pharmacy")
+
+        let quiet = makePlan(doseRemindersEnabled: false, depletionDate: depletion, pharmacyName: "Walgreens #04821", rxNumber: "8842197")
+        let private_ = try XCTUnwrap(NotificationPlanner.notifications(for: quiet, now: now, calendar: calendar).first)
+        XCTAssertFalse(private_.body.contains("Walgreens"))
+        XCTAssertFalse(private_.body.contains("8842197"))
+    }
+
     func testUnknownForecastDoesNotCreateRefillNotification() {
         let plan = makePlan(doseRemindersEnabled: false, depletionDate: nil)
         XCTAssertTrue(NotificationPlanner.notifications(for: plan, calendar: calendar).isEmpty)
@@ -272,7 +328,11 @@ final class NotificationPlannerTests: XCTestCase {
         refillsRemaining: Int? = nil,
         depletionDate: Date? = nil,
         weekdayMask: Int = 0b1111111,
-        minutesAfterMidnight: Int = 8 * 60 + 30
+        minutesAfterMidnight: Int = 8 * 60 + 30,
+        refillInProgress: Bool = false,
+        expirationDate: Date? = nil,
+        pharmacyName: String = "",
+        rxNumber: String = ""
     ) -> MedicationNotificationPlan {
         MedicationNotificationPlan(
             medicationID: medicationID,
@@ -293,7 +353,11 @@ final class NotificationPlannerTests: XCTestCase {
                     doseQuantity: 1,
                     weekdayMask: weekdayMask
                 )
-            ]
+            ],
+            refillInProgress: refillInProgress,
+            expirationDate: expirationDate,
+            pharmacyName: pharmacyName,
+            rxNumber: rxNumber
         )
     }
 }

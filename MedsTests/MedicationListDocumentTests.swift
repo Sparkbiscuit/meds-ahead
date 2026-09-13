@@ -63,6 +63,37 @@ final class MedicationListDocumentTests: XCTestCase {
         XCTAssertFalse(entries[0].detailLine.contains("323615013"), entries[0].detailLine)
     }
 
+    /// A household with two people on the list reads it by person; a
+    /// medication nobody is named for sorts last. And a clinician reads what was
+    /// actually logged.
+    func testEntriesGroupByPersonAndSayWhatWasLogged() throws {
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 9, day: 12, hour: 12)))
+        let tacrolimus = Medication(name: "Tacrolimus", createdAt: now.addingTimeInterval(-40 * 86_400), personName: "Ellis")
+        let aspirin = Medication(name: "Aspirin", createdAt: now.addingTimeInterval(-2 * 86_400), personName: "Mom")
+        let melatonin = Medication(name: "Melatonin", createdAt: now.addingTimeInterval(-40 * 86_400))
+        let doses = [
+            DoseEvent(medicationID: tacrolimus.id, recordedAt: now.addingTimeInterval(-86_400), doseQuantity: 1, status: .taken),
+            DoseEvent(medicationID: tacrolimus.id, recordedAt: now.addingTimeInterval(-2 * 86_400), doseQuantity: 1, status: .skipped),
+            DoseEvent(medicationID: tacrolimus.id, recordedAt: now.addingTimeInterval(-40 * 86_400), doseQuantity: 1, status: .taken),
+            DoseEvent(medicationID: aspirin.id, recordedAt: now.addingTimeInterval(-3_600), doseQuantity: 1, status: .taken)
+        ]
+
+        let entries = MedicationListDocument.entries(
+            medications: [melatonin, aspirin, tacrolimus],
+            schedules: [],
+            inventoryEvents: [],
+            doseEvents: doses,
+            now: now,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(entries.map(\.title), ["Tacrolimus", "Aspirin", "Melatonin"])
+        XCTAssertEqual(entries.map(\.personName), ["Ellis", "Mom", ""])
+        XCTAssertEqual(entries[0].adherenceLine, "1 dose logged in the last 30 days, 1 skipped")
+        XCTAssertTrue(entries[1].adherenceLine.hasPrefix("1 dose logged in the last 30 days (added "), entries[1].adherenceLine)
+        XCTAssertEqual(entries[2].adherenceLine, "No doses logged in the last 30 days")
+    }
+
     func testArchivedMedicationsAreExcludedAndEntriesSortByDisplayName() {
         let zebra = Medication(name: "Zolpidem")
         let apple = Medication(name: "Amlodipine", nickname: "Blood pressure")

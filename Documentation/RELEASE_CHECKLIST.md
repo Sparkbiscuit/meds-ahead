@@ -4,7 +4,7 @@
 
 - [x] Debug build passes for iOS Simulator
 - [x] Release build passes for iOS Simulator and generic iOS device
-- [x] Two hundred and eighty-five unit tests pass, including multi-salt listings collapsing to the name people use, NDC rendering and barcode decoding, the bundled FDA snapshot's real products, the NDC corroboration gate and strength equivalence, a rendered label with its NDC printed at one percent of the frame, Apple Health name mapping, duplicate detection and imported dose history, the exact product code on the shared list, the rating-request policy, clipped-name rejection, sig-versus-product-line separation, combination and canonical strengths, wrapped-sig assembly across real capture shapes, brand/generic resolution, Latin-only stable multi-side evidence, ROI crop mapping, RxNorm-backed compound-fragment repair, low-confidence live-camera, noisy-label and printed-NDC parsing, scheduling, supply, grouped notifications, time-of-day greetings, Take Now dose reconciliation, as-needed rate windows, unit-denominated strengths, expiration plausibility, last-refill alerts, and medication-list pagination
+- [x] Three hundred and forty unit tests pass (1.1.1), including the NDC second look, confusable and split-line readings, the identification outcomes, the Health dose reconciler, the RxNorm slice, the pharmacy card, refill-in-progress and expiration reminders, the trip check, the adherence month and the person-grouped list, on top of the 1.1 set:  multi-salt listings collapsing to the name people use, NDC rendering and barcode decoding, the bundled FDA snapshot's real products, the NDC corroboration gate and strength equivalence, a rendered label with its NDC printed at one percent of the frame, Apple Health name mapping, duplicate detection and imported dose history, the exact product code on the shared list, the rating-request policy, clipped-name rejection, sig-versus-product-line separation, combination and canonical strengths, wrapped-sig assembly across real capture shapes, brand/generic resolution, Latin-only stable multi-side evidence, ROI crop mapping, RxNorm-backed compound-fragment repair, low-confidence live-camera, noisy-label and printed-NDC parsing, scheduling, supply, grouped notifications, time-of-day greetings, Take Now dose reconciliation, as-needed rate windows, unit-denominated strengths, expiration plausibility, last-refill alerts, and medication-list pagination
 - [x] Nine UI tests pass, including Today and medication-editor accessibility audits, largest accessibility text in the editor, and overdue-state coverage, with the Import from Apple Health card present
 - [x] Static analysis passes for the Release app target
 - [x] No source/compiler warnings; Xcode 26 emits only its no-AppIntents metadata-skip message
@@ -68,6 +68,15 @@
 - [ ] Publish verified accessibility declarations
 - [ ] Accept the Paid Apps Agreement and complete tax/banking setup
 - [ ] Create the three consumable tip products with the exact IDs in `AppStore/CONNECT_ANSWERS.md`, add them to the version 1.0 submission, and upload their review metadata/screenshots
+
+## 1.1.1 gates
+
+- [x] SwiftData migration for the batched 1.1.1 properties verified against stores the 1.0 build 3 and the 1.1 build created
+- [x] Apple Health dose sync by hand in the simulator: a dose logged in Health arrives on the foreground sync and counts toward supply; an undo in Health removes it
+- [ ] Real bottles on a physical iPhone: the two bottles from September 12 through live scanning and the Review capture, reading the capture note first
+- [ ] Apple Health dose sync on a physical iPhone on iOS 26, including a medication scanned from a bottle and matched to Health by RxNorm
+- [ ] VoiceOver pass on the NDC field, the identification notes, the pharmacy card, the calendar and the trip check
+- [ ] Enter the 1.1.1 What's New from `AppStore/SUBMISSION.md`
 
 ## 1.1 submission gates
 

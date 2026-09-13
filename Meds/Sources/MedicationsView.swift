@@ -10,7 +10,10 @@ struct MedicationsView: View {
     private var filtered: [Medication] {
         medications.filter { medication in
             medication.isArchived == showsArchived &&
-            (searchText.isEmpty || medication.name.localizedCaseInsensitiveContains(searchText) || medication.nickname.localizedCaseInsensitiveContains(searchText))
+            (searchText.isEmpty
+                || medication.name.localizedCaseInsensitiveContains(searchText)
+                || medication.nickname.localizedCaseInsensitiveContains(searchText)
+                || medication.personName.localizedCaseInsensitiveContains(searchText))
         }
     }
 
@@ -54,6 +57,11 @@ struct MedicationsView: View {
                                         .font(.subheadline)
                                         .foregroundStyle(.secondary)
                                         .lineLimit(1)
+                                    if !medication.personName.isEmpty {
+                                        Text("For \(medication.personName)")
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(AppTheme.color(for: medication))
+                                    }
                                 }
                             }
                             .padding(.vertical, 4)

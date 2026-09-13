@@ -273,6 +273,48 @@ read as one medication. The Health import's duplicate check uses the same
 widening. The shared list prints the code beside the NDC, since a clinic's
 system speaks RxNorm where a pharmacy's speaks NDC.
 
+## The pharmacy card, refills under way, trips, people, expirations, and days
+
+Six small things a caregiver does around the count, each built on facts the
+model already had or gained in 1.1.1's one migration.
+
+- **The pharmacy card.** The label prints the pharmacy, its phone and the Rx
+  number, and `ScanParser` reads all three: the pharmacy is the first short
+  line naming one (a chain, or a word like "pharmacy"), its phone is the first
+  number on or beside that line — never a fax, never a ten-digit NPI — and the
+  Rx number follows its own caption, fill suffix included. The detail screen
+  shows the Rx number large enough to read aloud and a Call button that dials
+  the pharmacy, and a detailed low-supply reminder says which pharmacy to call
+  with which number. A renewal reminder does not, because the call it asks
+  for is to the prescriber.
+- **A refill under way.** `RefillStatus` — requested, or ready for pickup —
+  with a date. The forecast is unchanged, because the count is the count, but
+  the low-supply reminder stops while the status stands, Supply shows the
+  status instead of "Act soon", Today lists what to pick up and when, and
+  adding the refill clears it. Never inferred: the person sets it.
+- **Trip check.** `TripCheck` is pure arithmetic over the forecasts Supply
+  already has: a supply that runs out on or before the return day needs a
+  refill before leaving, one with no forecast cannot be vouched for, the rest
+  are fine.
+- **Who it's for.** A person's name on the medication. When the household
+  names more than one, Today, Supply and the shared list group under the
+  names, with the unassigned last; one name or none, and nothing changes.
+- **Expiration reminders.** A package expiration on file earns one reminder,
+  a week ahead at nine, planned with the refill alerts under the same toggle
+  and the same cap, and never re-announced once its moment has passed.
+- **Doses by day.** `AdherenceSummary` reads a month of one medication's
+  doses onto its days: a slot's dose by slot identity, a dose logged outside
+  any slot by the day it was logged, and each day's state from the two — taken,
+  partly, skipped, nothing logged, or not yet — so the calendar on the detail
+  screen answers "which days" without inventing a miss for a day that has not
+  come or a schedule that had not started. The shared list carries the same
+  fact as a sentence: how many doses were logged in the last thirty days,
+  with the day the medication was added when that is less than a month ago.
+
+Widgets and App Intents are not in 1.1.1. They need a widget extension target
+and the store moved into an app group, which is a data migration of a
+different kind, and they wait for a session of their own.
+
 ## Rating request
 
 The native review request is made from Today, only after a dose has just been

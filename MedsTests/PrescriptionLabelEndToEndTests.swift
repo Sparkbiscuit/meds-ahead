@@ -333,6 +333,39 @@ final class PrescriptionLabelEndToEndTests: XCTestCase {
         XCTAssertFalse(ScanParser.isSigLike("DAILY MULTIVITAMIN 1000 IU"), "a product called Daily is a product")
     }
 
+    // MARK: - The pharmacy card
+
+    /// The label prints the pharmacy, its phone and the Rx number; the call a
+    /// low-supply warning leads to needs all three.
+    func testThePharmacyCardIsReadOffTheLabel() {
+        let draft = ScanParser.parse(evidence([
+            "WALGREENS #04821", "1200 MAIN ST, SPRINGFIELD MA 01103", "(413) 555-0123",
+            "RX# 8842197", "DOE, JOHN",
+            "SERTRALINE HCL 50 MG TABLET", "TAKE 1 TABLET BY MOUTH DAILY", "QTY: 30",
+            "DR. A. GREENE 413-555-0199", "NPI 1234567890"
+        ]))
+
+        XCTAssertEqual(draft.pharmacyName, "Walgreens #04821")
+        XCTAssertEqual(draft.pharmacyPhone, "(413) 555-0123", "the pharmacy's number, not the prescriber's")
+        XCTAssertEqual(draft.rxNumber, "8842197")
+    }
+
+    func testAPharmacyIsNotInventedAndAFaxOrNPIIsNotItsPhone() {
+        let draft = ScanParser.parse(evidence([
+            "SERTRALINE HCL 50 MG TABLET", "TAKE 1 TABLET BY MOUTH DAILY",
+            "FAX 413-555-0100", "NPI 1234567890", "RX 1234567-01"
+        ]))
+        XCTAssertEqual(draft.pharmacyName, "")
+        XCTAssertEqual(draft.pharmacyPhone, "")
+        XCTAssertEqual(draft.rxNumber, "1234567-01", "the fill suffix comes along")
+
+        let hospital = ScanParser.parse(evidence(["RIVERSIDE CHILDREN'S HOSPITAL PHARMACY", "413-555-0147", "TACROLIMUS 1 MG CAPSULE"]))
+        XCTAssertEqual(hospital.pharmacyName, "Riverside Children's Hospital Pharmacy")
+        XCTAssertEqual(hospital.pharmacyPhone, "(413) 555-0147")
+        XCTAssertFalse(ScanParser.isPharmacyLine("TAKE 1 TABLET BY MOUTH DAILY"))
+        XCTAssertTrue(ScanParser.isPharmacyLine("Rite Aid #1234"))
+    }
+
     /// The shape rule that separates a pharmacy's own wording from a clipped sig.
     func testUnconfirmedNamesMustLookLikeAName() {
         XCTAssertTrue(ScanParser.looksLikeMedicationName("Amphetamine Salt Combo"))

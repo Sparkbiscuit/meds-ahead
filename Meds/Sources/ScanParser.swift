@@ -221,6 +221,9 @@ enum ScanParser {
         draft.lotNumber = capture(in: combined, pattern: lotPattern, group: 1) ?? ""
         draft.expirationDate = capturedExpiration(in: combined, now: now)
         draft.directions = capturedDirections(from: lines)
+        draft.rxNumber = capturedRxNumber(in: combined) ?? ""
+        draft.pharmacyName = capturedPharmacyName(from: lines) ?? ""
+        draft.pharmacyPhone = capturedPharmacyPhone(from: lines) ?? ""
 
         // A printed NDC names the product; a pharmacy's barcode is usually its own
         // Rx number. When both are in frame, the code that identifies the drug is
@@ -978,6 +981,67 @@ enum ScanParser {
         if value.firstMatch(of: packageQuantityPattern) != nil { return false }
         if opensLikeDirections(value) { return true }
         return lower.hasPrefix("for ") && lower.rangeOfCharacter(from: .decimalDigits) == nil
+    }
+
+    // MARK: - The pharmacy card
+
+    /// "RX# 4402917", "Rx: 1234567-01", "Rx No. 8842197". The number the pharmacy
+    /// asks for on the phone; a suffix after a hyphen is the fill number and
+    /// comes along.
+    private static let rxNumberPattern = /(?i)\bRx\s*(?:#|no\.?|number)?\s*[:.]?\s*(\d{5,12}(?:-\d{1,3})?)(?![0-9])/
+    private static let phonePattern = /(?:\+?1[-.\s]?)?\(?(\d{3})\)?[-.\s]?(\d{3})[-.\s]?(\d{4})(?![0-9])/
+    /// Words a pharmacy's own line carries, and the chains that print only
+    /// their name. Matched as whole words, lowercased.
+    private static let pharmacyWords: Set<String> = [
+        "pharmacy", "pharmacies", "drug", "drugs", "apothecary", "pharmacie", "farmacia", "dispensary",
+        "walgreens", "cvs", "walmart", "costco", "kroger", "publix", "safeway", "wegmans", "meijer",
+        "albertsons", "shoprite", "kinney", "bartell", "optum", "caremark", "capsule", "alto"
+    ]
+    private static let pharmacyPhrases = ["rite aid", "duane reade", "fred meyer", "harris teeter", "stop & shop", "express scripts", "amazon pharmacy", "hy-vee", "h-e-b", "giant eagle"]
+
+    static func capturedRxNumber(in value: String) -> String? {
+        capture(in: value, pattern: rxNumberPattern, group: 1)
+    }
+
+    /// The pharmacy's own line: the first line naming one, kept short and free of
+    /// a sig. A store number stays — "Walgreens #04821" is which Walgreens.
+    private static func capturedPharmacyName(from lines: [TextLine]) -> String? {
+        for line in lines.prefix(12) {
+            let value = line.value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard (3...44).contains(value.count), !isSigLike(value), !value.contains(":"),
+                  value.rangeOfCharacter(from: .letters) != nil, isPharmacyLine(value) else { continue }
+            let tidy = value.split(whereSeparator: \Character.isWhitespace).joined(separator: " ")
+            return tidy == tidy.uppercased() ? tidy.capitalized : tidy
+        }
+        return nil
+    }
+
+    static func isPharmacyLine(_ value: String) -> Bool {
+        let lower = value.lowercased()
+        if pharmacyPhrases.contains(where: lower.contains) { return true }
+        let words = lower.split(whereSeparator: { !$0.isLetter }).map(String.init)
+        return words.contains(where: pharmacyWords.contains)
+    }
+
+    /// The pharmacy's phone: the first phone number on the pharmacy's own line or
+    /// the lines beside it, else the first on the label, which pharmacies print at
+    /// the top; a prescriber's number sits lower, beside the prescriber's name.
+    private static func capturedPharmacyPhone(from lines: [TextLine]) -> String? {
+        func phone(in value: String) -> String? {
+            guard let match = value.firstMatch(of: phonePattern) else { return nil }
+            return "(\(match.1)) \(match.2)-\(match.3)"
+        }
+        if let index = lines.firstIndex(where: { isPharmacyLine($0.value) }) {
+            for offset in [0, 1, -1, 2] where lines.indices.contains(index + offset) {
+                if let found = phone(in: lines[index + offset].value) { return found }
+            }
+        }
+        // A fax line is not the phone, and a prescriber's ten-digit NPI has the
+        // shape of one.
+        for line in lines where !line.value.lowercased().contains("fax") && !line.value.lowercased().contains("npi") {
+            if let found = phone(in: line.value) { return found }
+        }
+        return nil
     }
 
     private static func preferredBarcode(in evidence: [ScanEvidence]) -> ScanEvidence? {

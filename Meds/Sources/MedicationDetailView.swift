@@ -9,9 +9,11 @@ struct MedicationDetailView: View {
     @Query private var allInventoryEvents: [InventoryEvent]
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     @State private var showingEditor = false
     @State private var showingRefill = false
     @State private var showingCountCorrection = false
+    @State private var refillStatusToSet: RefillStatus?
     @State private var showingDeleteConfirmation = false
     @State private var showingSaveError = false
     @State private var saveErrorMessage = ""
@@ -64,7 +66,9 @@ struct MedicationDetailView: View {
                     identityHeader
                     forecastCard(forecast: forecast)
                     quickActions
+                    pharmacyCard
                     scheduleCard
+                    AdherenceCalendarCard(medication: medication, schedules: allSchedules, doseEvents: allDoseEvents)
                     detailsCard
                     historyCard
                     safetyNote
@@ -114,6 +118,9 @@ struct MedicationDetailView: View {
                 if let remaining = medication.refillsRemaining, remaining > 0 {
                     medication.refillsRemaining = remaining - 1
                 }
+                // The refill has arrived; whatever was in progress is done.
+                medication.refillStatus = .none
+                medication.refillStatusDate = nil
                 medication.updatedAt = .now
                 if saveChanges() {
                     refreshNotifications(inventoryEvents: allInventoryEvents.filter { $0.id != event.id } + [event])
@@ -141,6 +148,14 @@ struct MedicationDetailView: View {
                 if saveChanges() {
                     refreshNotifications(inventoryEvents: allInventoryEvents.filter { $0.id != event.id } + [event])
                 }
+            }
+        }
+        .sheet(item: $refillStatusToSet) { status in
+            RefillStatusSheet(status: status, initialDate: medication.refillStatusDate ?? .now) { date in
+                medication.refillStatus = status
+                medication.refillStatusDate = date
+                medication.updatedAt = .now
+                if saveChanges() { refreshNotifications() }
             }
         }
         .confirmationDialog(
@@ -198,6 +213,12 @@ struct MedicationDetailView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if let status = refillStatusText {
+                Label(status, systemImage: medication.refillStatus == .ready ? "bag.fill" : "phone.arrow.up.right")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppTheme.accent)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             HStack {
                 ConfidenceBadge(confidence: forecast.confidence)
                 Spacer()
@@ -207,6 +228,11 @@ struct MedicationDetailView: View {
         }
         .padding(19)
         .cardSurface()
+    }
+
+    /// Where the refill stands, in the words Today and Supply use too.
+    private var refillStatusText: String? {
+        RefillStatusText.line(for: medication)
     }
 
     private func forecastTitle(forecast: SupplyForecast) -> String {
@@ -231,6 +257,17 @@ struct MedicationDetailView: View {
             Menu {
                 Button("Add Refill", systemImage: "plus.circle") { showingRefill = true }
                 Button("Correct Count", systemImage: "number") { showingCountCorrection = true }
+                Divider()
+                Button("Refill Requested…", systemImage: "phone.arrow.up.right") { refillStatusToSet = .requested }
+                Button("Ready for Pickup…", systemImage: "bag") { refillStatusToSet = .ready }
+                if medication.refillStatus != .none {
+                    Button("Clear Refill Status", systemImage: "xmark.circle") {
+                        medication.refillStatus = .none
+                        medication.refillStatusDate = nil
+                        medication.updatedAt = .now
+                        if saveChanges() { refreshNotifications() }
+                    }
+                }
             } label: {
                 Label("Supply", systemImage: "shippingbox")
                     .frame(maxWidth: .infinity)
@@ -238,6 +275,57 @@ struct MedicationDetailView: View {
             .buttonStyle(.bordered)
             .controlSize(.large)
         }
+    }
+
+    /// The call a low-supply warning leads to, with the number the pharmacy asks
+    /// for large enough to read aloud.
+    @ViewBuilder
+    private var pharmacyCard: some View {
+        if !medication.pharmacyName.isEmpty || !medication.pharmacyPhone.isEmpty || !medication.rxNumber.isEmpty {
+            VStack(alignment: .leading, spacing: 13) {
+                Label("Pharmacy", systemImage: "cross.case.fill")
+                    .font(.headline)
+                if !medication.pharmacyName.isEmpty {
+                    Text(medication.pharmacyName)
+                        .font(.subheadline.weight(.semibold))
+                }
+                if !medication.rxNumber.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Rx number")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(medication.rxNumber)
+                            .font(.system(.title2, design: .rounded, weight: .bold))
+                            .monospacedDigit()
+                            .textSelection(.enabled)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+                if let url = pharmacyCallURL {
+                    Button {
+                        openURL(url)
+                    } label: {
+                        Label(medication.pharmacyName.isEmpty ? "Call \(medication.pharmacyPhone)" : "Call \(medication.pharmacyName)", systemImage: "phone.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .accessibilityHint(medication.pharmacyPhone)
+                } else if !medication.pharmacyPhone.isEmpty {
+                    Text(medication.pharmacyPhone)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(18)
+            .cardSurface()
+        }
+    }
+
+    private var pharmacyCallURL: URL? {
+        let digits = medication.pharmacyPhone.filter { $0.isNumber || $0 == "+" }
+        guard digits.filter(\.isNumber).count >= 7 else { return nil }
+        return URL(string: "tel:\(digits)")
     }
 
     private var scheduleCard: some View {
@@ -479,6 +567,76 @@ struct MedicationDetailView: View {
     private func timeText(minutes: Int) -> String {
         let date = Calendar.autoupdatingCurrent.date(bySettingHour: minutes / 60, minute: minutes % 60, second: 0, of: .now) ?? .now
         return date.formatted(date: .omitted, time: .shortened)
+    }
+}
+
+/// The one sentence Today, Supply and the detail screen all use for a refill
+/// under way.
+enum RefillStatusText {
+    static func line(for medication: Medication, now: Date = .now, calendar: Calendar = .autoupdatingCurrent) -> String? {
+        let date = medication.refillStatusDate
+        func day(_ date: Date) -> String {
+            if calendar.isDateInToday(date) { return "today" }
+            if calendar.isDateInTomorrow(date) { return "tomorrow" }
+            if let week = calendar.date(byAdding: .day, value: 6, to: calendar.startOfDay(for: now)), date <= week, date > now {
+                return date.formatted(.dateTime.weekday(.wide))
+            }
+            return date.formatted(.dateTime.month(.abbreviated).day())
+        }
+        switch medication.refillStatus {
+        case .none:
+            return nil
+        case .requested:
+            return date.map { "Refill requested · expected \(day($0))" } ?? "Refill requested"
+        case .ready:
+            guard let date else { return "Ready for pickup" }
+            return date <= now ? "Ready for pickup" : "Pick up \(day(date))"
+        }
+    }
+}
+
+extension RefillStatus: Identifiable {
+    var id: String { rawValue }
+}
+
+private struct RefillStatusSheet: View {
+    let status: RefillStatus
+    let initialDate: Date
+    let onSave: (Date) -> Void
+    @State private var date: Date
+    @Environment(\.dismiss) private var dismiss
+
+    init(status: RefillStatus, initialDate: Date, onSave: @escaping (Date) -> Void) {
+        self.status = status
+        self.initialDate = initialDate
+        self.onSave = onSave
+        _date = State(initialValue: initialDate)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    DatePicker(status == .ready ? "Ready on" : "Expected", selection: $date, displayedComponents: .date)
+                } footer: {
+                    Text(status == .ready
+                         ? "Today says to pick it up, and the low-supply reminder pauses until the refill is added."
+                         : "The low-supply reminder pauses while the refill is on its way. Add the refill when it arrives.")
+                }
+            }
+            .navigationTitle(status.displayName)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        onSave(date)
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium])
     }
 }
 
