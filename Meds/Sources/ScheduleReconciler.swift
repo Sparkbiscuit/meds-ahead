@@ -31,8 +31,9 @@ enum ScheduleReconciler {
         }
 
         // Reuse remaining schedules for changed times. Dose history references the
-        // stable schedule identifier, so a simple edit does not make a logged dose
-        // look pending again.
+        // stable schedule identifier, and `ScheduleEngine.loggedEvent` matches a
+        // log to its slot by day rather than by minute, so a simple edit does not
+        // make a logged dose look pending again.
         for index in definitions.indices where assignments[index] == nil {
             if available.isEmpty {
                 let definition = definitions[index]

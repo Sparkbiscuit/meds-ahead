@@ -74,6 +74,7 @@ enum HealthDoseReconciler {
         existing: [DoseEvent],
         schedules: [DoseSchedule],
         medicationID: UUID,
+        createdAt: Date = .distantPast,
         windowStart: Date,
         now: Date = .now,
         calendar: Calendar = .autoupdatingCurrent
@@ -112,6 +113,13 @@ enum HealthDoseReconciler {
                 continue
             }
 
+            // A dose from before the medication existed here was not taken from
+            // the count this app keeps. The import that comes with a medication
+            // stores that history as non-counting; with the import declined, or
+            // a bottle scanned and linked to Health afterwards, there is nothing
+            // to adopt, and storing the dose now would charge it to the count.
+            guard record.date >= createdAt else { continue }
+
             var slot: ScheduledDose?
             if let scheduledDate = record.scheduledDate {
                 slot = ScheduleEngine.nearestScheduledDose(
@@ -121,7 +129,7 @@ enum HealthDoseReconciler {
                     tolerance: slotTolerance,
                     calendar: calendar
                 )
-                if let slot, ScheduleEngine.loggedStatus(for: slot, in: events) != nil {
+                if let slot, ScheduleEngine.loggedStatus(for: slot, in: events, now: now, calendar: calendar) != nil {
                     // The person logged this slot here already; Health's copy is
                     // the same dose.
                     continue

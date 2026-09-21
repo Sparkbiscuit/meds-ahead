@@ -1,5 +1,96 @@
 # Verification record
 
+## September 21, 2026 — 1.1.1: the supply-accuracy fixes from the post-1.1 brief
+
+An unattended session on the branch `fix/1.1.1-supply-accuracy`, working
+through section 1 of `handoff/POST-1.1-BRIEF.md`: every item that could be
+fixed and proven without a physical iPhone. Nothing is pushed; the branch is
+local. Xcode 27.0 with the iOS 26.5 simulator runs the test command in
+`AGENTS.md` unchanged.
+
+### Fixed, with a test each
+
+- **1a. Health doses from before a medication existed.**
+  `HealthDoseReconciler.plan` takes the medication's `createdAt` and skips any
+  Health record dated before it, after the stored-sample and adoption checks
+  so history the import stored as non-counting is adopted (and so reachable by
+  an undo in Health) but never stored again as counting. `HealthDoseSync`
+  passes `medication.createdAt`. Two reconciler tests, and a sync test against
+  an in-memory store.
+- **1c. Slot identity after a time edit or a time-zone change.**
+  `ScheduleEngine.loggedEvent` / `loggedStatus` match a log to a slot by
+  schedule and calendar day, not by minute. For a past slot only, a log within
+  twelve hours also counts, which is what a time-zone change does to an
+  absolute time; today's slot never takes that fallback, because the same
+  distance describes yesterday's dose after a time edit of more than twelve
+  hours, and today's dose must never read as taken when it was not. The price,
+  recorded in the engine's comment and the test: after such an edit, an
+  unlogged day next to a logged one can read as logged on the missed-doses
+  card and the calendar. `NotificationDoseRecorder` and `AdherenceSummary` now
+  ask the engine instead of keeping their own 60-second copies. Tests in
+  `ScheduleEngineTests` (edit, eastward and westward zone changes, and the
+  today guard), `ScheduleReconcilerTests` (through `reconcile`) and
+  `NotificationActionsTests` (a reminder for the edited time does not log the
+  dose again).
+- **1d. A failed Health query, and deleting a mirrored dose.** A dose query
+  that throws now skips that medication for the pass instead of reading as
+  "no doses". The activity row's menu no longer offers Delete on a
+  Health-mirrored dose; it says to undo it in Health, which the next sync
+  mirrors. Sync test: a failed query leaves the ledger untouched.
+- **1e. Two Health entries for one medication.** `HealthDoseSync.groups`
+  gathers the shared Health entries by the medication they describe here and
+  plans once per medication over the union of their records; an entry that
+  describes two medications here still touches neither. Sync test: two
+  entries, one archived, are stable across two passes.
+- **1f. The store move is atomic.** `StoreLocation.migrate` copies all three
+  files under a `.moving` name, checks the main file's and the log's sizes
+  against the originals, renames the sidecars into place and the main file
+  last, and discards whatever an interrupted attempt left before starting.
+  Tests: an interrupted attempt is retried from the intact legacy store, and
+  an empty (checkpointed) write-ahead log still travels.
+- **1g. Overlapping syncs.** `HealthDoseSync.run` is single-flight: a caller
+  that arrives while a pass is under way awaits that pass's outcome. `apply`
+  also skips any sample identifier already stored. Sync test: two overlapping
+  runs insert once.
+- **1i. Dose reminders past the cap.** `NotificationPlanner.plan` returns the
+  kept requests and the number of dose reminders that did not fit;
+  `NotificationService` reports that number to `NotificationHealth` with the
+  refused requests, so Today's banner says some reminders were not set.
+  Planner test: 66 weekly dose requests report 6 dropped; 48 report none.
+- **1j. A huge as-needed count.** The as-needed forecast returns the existing
+  "extends beyond the forecast window" result when the estimate passes the
+  three-year horizon, before `Int(_:)` could trap. Forecast test with a supply
+  of 1e20.
+
+### The Health sync is now testable
+
+`HealthDoseSync.run` takes a `Source` of three closures (availability, the
+shared medications as `HealthSharedMedication` values, and dose records by
+entry), with `.health` the live one; `LiveHealthSource` keeps the HealthKit
+types inside `HealthMedicationImport.swift`. `MedsTests/HealthDoseSyncTests`
+runs the pass against an in-memory `ModelContainer` for 1a, 1d, 1e and 1g.
+
+### 1b, checked in the simulator: it does not reproduce there
+
+The UI test the brief asked for, `testRefillAndCountSheetsRecordTheTypedNumber`
+(seeded Furosemide, 28 on hand; Add Refill typed 90 with the keyboard still
+up, then Correct Count typed 100), passes on the iOS 26.5 simulator: 118 on
+hand, then 100. So `TextField(value:format:)` commits as typed there. The
+sheet's code is unchanged; the test stays as the guard. The brief's device
+repro is still the deciding check, since the August 30 failure was on a phone.
+Identifiers `supply-actions` and `supply-quantity` were added for the test.
+
+### Not done
+
+- 1b's fix (a text-backed field), pending the device repro above.
+- 1h (the widget's Taken reaching Today) needs the device check first.
+- Sections 2 to 6 of the brief.
+
+### Results
+
+- Unit tests 370/370 on the iPhone 17 Pro simulator (354 before the session;
+  16 added). UI tests 9/9 before the new one, then the new one 1/1.
+
 ## September 13, 2026 — the cleanup pass before the 1.1 archive
 
 Nick asked for a pass over the codebase before uploading everything built so

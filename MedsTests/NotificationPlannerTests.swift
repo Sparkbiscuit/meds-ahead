@@ -298,6 +298,30 @@ final class NotificationPlannerTests: XCTestCase {
         XCTAssertEqual(Set(keptRefills.compactMap(\.medicationID)), Set(nearestRefillIDs))
     }
 
+    func testDoseRemindersPastTheCapAreReportedNotDroppedQuietly() throws {
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 1, hour: 12)))
+        // Eleven times, each Monday to Saturday: no time is the same on all seven
+        // weekdays, so none collapses into a daily request, and 66 weekly
+        // requests are wanted against a cap of 60.
+        let plans = (0..<11).map { index in
+            makePlan(
+                medicationID: UUID(),
+                scheduleID: UUID(),
+                refillRemindersEnabled: false,
+                depletionDate: nil,
+                weekdayMask: 0b1111110,
+                minutesAfterMidnight: 6 * 60 + index * 30
+            )
+        }
+
+        let outcome = NotificationPlanner.plan(for: plans, now: now, calendar: calendar)
+
+        XCTAssertEqual(outcome.notifications.count, NotificationPlanner.maximumScheduledRequests)
+        XCTAssertTrue(outcome.notifications.allSatisfy { $0.kind == .dose })
+        XCTAssertEqual(outcome.droppedDoseReminders, 6)
+        XCTAssertEqual(NotificationPlanner.plan(for: Array(plans.prefix(8)), now: now, calendar: calendar).droppedDoseReminders, 0)
+    }
+
     func testTypicalRegimenIsNotTrimmedByTheCap() throws {
         let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 1, hour: 12)))
         let depletion = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 9, day: 20)))

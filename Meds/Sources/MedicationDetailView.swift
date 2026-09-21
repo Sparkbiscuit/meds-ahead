@@ -274,6 +274,7 @@ struct MedicationDetailView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.large)
+            .accessibilityIdentifier("supply-actions")
         }
     }
 
@@ -419,8 +420,15 @@ struct MedicationDetailView: View {
                         Spacer()
                         if item.source == .dose {
                             Menu {
-                                Button("Delete Dose Log", systemImage: "trash", role: .destructive) {
-                                    deleteDoseActivity(item)
+                                if item.isHealthMirrored {
+                                    // A copy of Health's sample deleted here came back on
+                                    // the next sync as a new, supply-charging dose. Health
+                                    // owns it; an undo there is mirrored here.
+                                    Text("Logged in Apple Health. Undo it there and it will be removed here.")
+                                } else {
+                                    Button("Delete Dose Log", systemImage: "trash", role: .destructive) {
+                                        deleteDoseActivity(item)
+                                    }
                                 }
                             } label: {
                                 Image(systemName: "ellipsis")
@@ -455,7 +463,8 @@ struct MedicationDetailView: View {
                     + (event.note.isEmpty ? "" : " · \(event.note)"),
                 symbol: event.status == .taken ? "checkmark.circle.fill" : "forward.end.circle.fill",
                 color: event.status == .taken ? AppTheme.accent : .secondary,
-                source: .dose
+                source: .dose,
+                isHealthMirrored: event.healthSampleID != nil
             )
         }
         let inventory = inventoryEvents.map { event in
@@ -465,7 +474,8 @@ struct MedicationDetailView: View {
                 title: "\(event.reason.displayName): \(event.delta >= 0 ? "+" : "")\(event.delta.medicationQuantityText)",
                 symbol: event.delta >= 0 ? "plus.circle.fill" : "minus.circle.fill",
                 color: event.delta >= 0 ? AppTheme.accent : .orange,
-                source: .inventory
+                source: .inventory,
+                isHealthMirrored: false
             )
         }
         return (doses + inventory).sorted { $0.date > $1.date }
@@ -529,7 +539,7 @@ struct MedicationDetailView: View {
     }
 
     private func deleteDoseActivity(_ item: ActivityItem) {
-        guard item.source == .dose,
+        guard item.source == .dose, !item.isHealthMirrored,
               let event = allDoseEvents.first(where: { $0.id == item.id }) else { return }
         modelContext.delete(event)
         medication.updatedAt = .now
@@ -637,6 +647,8 @@ private struct ActivityItem: Identifiable {
     let symbol: String
     let color: Color
     let source: Source
+    /// Health's copy, which Health takes back, not this app.
+    let isHealthMirrored: Bool
 }
 
 private struct SupplyChangeSheet: View {
@@ -677,6 +689,7 @@ private struct SupplyChangeSheet: View {
                         TextField("Quantity", value: $quantity, format: .number.precision(.fractionLength(0...2)))
                             .keyboardType(.decimalPad)
                             .font(.title2.weight(.semibold))
+                            .accessibilityIdentifier("supply-quantity")
                         Text(unit + (quantity == 1 ? "" : "s"))
                             .foregroundStyle(.secondary)
                     }

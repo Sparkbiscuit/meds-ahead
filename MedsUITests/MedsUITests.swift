@@ -206,6 +206,51 @@ final class MedsUITests: XCTestCase {
         XCTAssertFalse(logAll.exists, "the shortcut should disappear once nothing is due")
     }
 
+    /// The number typed into a supply sheet is the number recorded, even when
+    /// the sheet's button is tapped with the keyboard still up. The decimal pad
+    /// has no Return key, so nothing but the button ever commits the field.
+    func testRefillAndCountSheetsRecordTheTypedNumber() {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-ui-testing",
+            "-skip-onboarding",
+            "-seed-demo-data",
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryL"
+        ]
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["Supply"].tap()
+        let row = app.staticTexts["Furosemide"]
+        XCTAssertTrue(row.waitForExistence(timeout: 3))
+        row.tap()
+        XCTAssertTrue(app.staticTexts["28 on hand"].waitForExistence(timeout: 3))
+
+        let quantity = app.textFields["supply-quantity"]
+        func replaceQuantity(with text: String) {
+            XCTAssertTrue(quantity.waitForExistence(timeout: 3))
+            quantity.tap()
+            let existing = (quantity.value as? String) ?? ""
+            quantity.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: existing.count + 2))
+            quantity.typeText(text)
+        }
+
+        app.buttons["supply-actions"].tap()
+        XCTAssertTrue(app.buttons["Add Refill"].waitForExistence(timeout: 3))
+        app.buttons["Add Refill"].tap()
+        replaceQuantity(with: "90")
+        app.buttons["Add Refill"].tap()
+        XCTAssertTrue(app.staticTexts["118 on hand"].waitForExistence(timeout: 3), "the typed refill, not the suggested one")
+
+        app.buttons["supply-actions"].tap()
+        XCTAssertTrue(app.buttons["Correct Count"].waitForExistence(timeout: 3))
+        app.buttons["Correct Count"].tap()
+        replaceQuantity(with: "100")
+        app.buttons["Save Count"].tap()
+        XCTAssertTrue(app.staticTexts["100 on hand"].waitForExistence(timeout: 3), "the typed count, not the one the sheet opened with")
+    }
+
     func testOverdueDoseStateIsVisibleAndAccessible() {
         let app = XCUIApplication()
         app.launchArguments = [

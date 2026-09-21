@@ -2,6 +2,82 @@ import XCTest
 @testable import Meds
 
 final class ScheduleEngineTests: XCTestCase {
+    // MARK: - Slot identity
+
+    private func calendar(_ zone: String) -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: zone)!
+        return calendar
+    }
+
+    private func slot(_ schedule: DoseSchedule, day: Int, calendar: Calendar) throws -> ScheduledDose {
+        let noon = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 9, day: day, hour: 12)))
+        return try XCTUnwrap(ScheduleEngine.doses(schedules: [schedule], medicationID: schedule.medicationID, onDayOf: noon, calendar: calendar).first)
+    }
+
+    func testALoggedDoseStaysLoggedAfterItsTimeIsEdited() throws {
+        let calendar = calendar("GMT")
+        let schedule = DoseSchedule(medicationID: UUID(), minutesAfterMidnight: 8 * 60, doseQuantity: 1,
+                                    startDate: try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 9, day: 1))))
+        let taken = try slot(schedule, day: 10, calendar: calendar)
+        let logged = DoseEvent(medicationID: schedule.medicationID, scheduleID: schedule.id, scheduledAt: taken.date,
+                               recordedAt: taken.date.addingTimeInterval(5 * 60), doseQuantity: 1, status: .taken)
+        let now = taken.date.addingTimeInterval(4 * 60 * 60)
+
+        // Morning to evening. (Past twelve hours, yesterday's slot would also
+        // read as logged when it sits within half a day of today's dose: the
+        // same distance a time-zone change produces, which the rule accepts
+        // for past slots on purpose.)
+        schedule.minutesAfterMidnight = 19 * 60
+        XCTAssertEqual(ScheduleEngine.loggedStatus(for: try slot(schedule, day: 10, calendar: calendar), in: [logged], now: now, calendar: calendar), .taken,
+                       "today's dose was taken, at the old time")
+        XCTAssertNil(ScheduleEngine.loggedStatus(for: try slot(schedule, day: 9, calendar: calendar), in: [logged], now: now, calendar: calendar),
+                     "yesterday's slot is not claimed by today's dose")
+        XCTAssertNil(ScheduleEngine.loggedStatus(for: try slot(schedule, day: 11, calendar: calendar), in: [logged], now: now, calendar: calendar))
+    }
+
+    func testALoggedDoseStaysLoggedAfterATimeZoneChange() throws {
+        let newYork = calendar("America/New_York")
+        let london = calendar("Europe/London")
+        let losAngeles = calendar("America/Los_Angeles")
+        let schedule = DoseSchedule(medicationID: UUID(), minutesAfterMidnight: 20 * 60, doseQuantity: 1,
+                                    startDate: try XCTUnwrap(newYork.date(from: DateComponents(year: 2026, month: 9, day: 1))))
+        let taken = try slot(schedule, day: 10, calendar: newYork)
+        let logged = DoseEvent(medicationID: schedule.medicationID, scheduleID: schedule.id, scheduledAt: taken.date,
+                               recordedAt: taken.date, doseQuantity: 1, status: .taken)
+
+        // Flying east: 20:00 in New York is 01:00 the next day in London, and the
+        // phone now reads the 10th as a past day.
+        let londonMorning = try XCTUnwrap(london.date(from: DateComponents(year: 2026, month: 9, day: 11, hour: 9)))
+        let londonSlot = try slot(schedule, day: 10, calendar: london)
+        XCTAssertFalse(london.isDate(taken.date, inSameDayAs: londonSlot.date), "the logged time crossed midnight")
+        XCTAssertEqual(ScheduleEngine.loggedStatus(for: londonSlot, in: [logged], now: londonMorning, calendar: london), .taken)
+
+        // Flying west the same evening: 20:00 in New York is 17:00 in Los Angeles,
+        // still the 10th, and still today.
+        let losAngelesEvening = try XCTUnwrap(losAngeles.date(from: DateComponents(year: 2026, month: 9, day: 10, hour: 21)))
+        XCTAssertEqual(ScheduleEngine.loggedStatus(for: try slot(schedule, day: 10, calendar: losAngeles), in: [logged], now: losAngelesEvening, calendar: losAngeles), .taken)
+        XCTAssertNil(ScheduleEngine.loggedStatus(for: try slot(schedule, day: 11, calendar: losAngeles), in: [logged], now: losAngelesEvening, calendar: losAngeles))
+    }
+
+    /// The fallback that absorbs a time-zone change is not applied to today's
+    /// slot: the same distance also describes yesterday's dose after the time
+    /// was moved by more than twelve hours, and a dose must never read as taken
+    /// today when it was not.
+    func testYesterdaysDoseNeverStandsInForTodays() throws {
+        let calendar = calendar("GMT")
+        let schedule = DoseSchedule(medicationID: UUID(), minutesAfterMidnight: 22 * 60, doseQuantity: 1,
+                                    startDate: try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 9, day: 1))))
+        let yesterday = try slot(schedule, day: 9, calendar: calendar)
+        let logged = DoseEvent(medicationID: schedule.medicationID, scheduleID: schedule.id, scheduledAt: yesterday.date,
+                               recordedAt: yesterday.date, doseQuantity: 1, status: .taken)
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 9, day: 10, hour: 8)))
+
+        schedule.minutesAfterMidnight = 9 * 60
+        XCTAssertNil(ScheduleEngine.loggedStatus(for: try slot(schedule, day: 10, calendar: calendar), in: [logged], now: now, calendar: calendar))
+        XCTAssertEqual(ScheduleEngine.loggedStatus(for: try slot(schedule, day: 9, calendar: calendar), in: [logged], now: now, calendar: calendar), .taken)
+    }
+
     func testDoseTimingStateBoundaries() {
         let now = Date(timeIntervalSince1970: 1_000_000)
 

@@ -57,11 +57,21 @@ struct PlannedNotification: Equatable, Sendable {
     }
 }
 
+/// What a planning pass asks iOS for, and what it could not ask for.
+struct NotificationPlanOutcome: Equatable, Sendable {
+    let notifications: [PlannedNotification]
+    /// Dose reminders that did not fit under the pending-request cap. They are
+    /// reported rather than dropped quietly, so Today can say so.
+    let droppedDoseReminders: Int
+}
+
 enum NotificationPlanner {
     /// iOS silently keeps only the ~64 soonest pending requests per app and drops
     /// the rest without error. Staying under that with room to spare, and putting
     /// repeating dose reminders ahead of one-shot refill alerts, means a heavy
-    /// regimen degrades by dropping the farthest-out refill alert — never a dose.
+    /// regimen degrades by dropping the farthest-out refill alert first. Dose
+    /// reminders alone can pass the cap when many times differ across weekdays;
+    /// the ones that do not fit are counted in `NotificationPlanOutcome`.
     static let maximumScheduledRequests = 60
 
     /// The least warning worth giving when a prescription has to be renewed before it
@@ -85,6 +95,14 @@ enum NotificationPlanner {
         now: Date = .now,
         calendar: Calendar = .autoupdatingCurrent
     ) -> [PlannedNotification] {
+        plan(for: plans, now: now, calendar: calendar).notifications
+    }
+
+    static func plan(
+        for plans: [MedicationNotificationPlan],
+        now: Date = .now,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> NotificationPlanOutcome {
         var notifications: [PlannedNotification] = []
         var doseSlots: [DoseSlot: Set<DoseMember>] = [:]
 
@@ -223,7 +241,10 @@ enum NotificationPlanner {
             guard case let .date(left) = lhs.trigger, case let .date(right) = rhs.trigger else { return false }
             return left < right
         }
-        return Array((notifications + refillNotifications).prefix(maximumScheduledRequests))
+        return NotificationPlanOutcome(
+            notifications: Array((notifications + refillNotifications).prefix(maximumScheduledRequests)),
+            droppedDoseReminders: max(0, notifications.count - maximumScheduledRequests)
+        )
     }
 
     private static func refillTitle(for plan: MedicationNotificationPlan, needsPrescriber: Bool) -> String {

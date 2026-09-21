@@ -51,6 +51,35 @@ final class NotificationActionsTests: XCTestCase {
         XCTAssertEqual(try fixture.context.fetchCount(FetchDescriptor<DoseEvent>()), 1)
     }
 
+    /// A reminder for the edited time refers to the same dose as the one that
+    /// was already logged against the old time that day.
+    @MainActor
+    func testReminderActionAfterATimeEditDoesNotLogTheDoseAgain() throws {
+        let fixture = try makeFixture()
+        _ = try NotificationDoseRecorder.record(
+            status: .taken,
+            medicationID: fixture.medication.id,
+            scheduleID: fixture.schedule.id,
+            notificationDate: fixture.notificationDate,
+            in: fixture.context,
+            calendar: fixture.calendar
+        )
+
+        fixture.schedule.minutesAfterMidnight = 20 * 60
+        try fixture.context.save()
+        let result = try NotificationDoseRecorder.record(
+            status: .taken,
+            medicationID: fixture.medication.id,
+            scheduleID: fixture.schedule.id,
+            notificationDate: fixture.notificationDate.addingTimeInterval(11.5 * 60 * 60),
+            in: fixture.context,
+            calendar: fixture.calendar
+        )
+
+        XCTAssertEqual(result, .alreadyRecorded)
+        XCTAssertEqual(try fixture.context.fetchCount(FetchDescriptor<DoseEvent>()), 1)
+    }
+
     func testOnlyMedicationQuickActionsMapToDoseStatuses() {
         XCTAssertEqual(
             MedicationNotificationAction.status(for: MedicationNotificationAction.markTakenIdentifier),

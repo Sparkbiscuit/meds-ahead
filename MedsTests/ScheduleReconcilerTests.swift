@@ -40,6 +40,35 @@ final class ScheduleReconcilerTests: XCTestCase {
         XCTAssertEqual(reconciled[1].minutesAfterMidnight, 20 * 60)
     }
 
+    /// The reason a changed time reuses the schedule: the dose logged against
+    /// the old time is still today's dose, and Today must not offer it again.
+    @MainActor
+    func testALoggedDoseStaysLoggedAfterItsTimeIsEdited() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 9, day: 10, hour: 12)))
+        let fixture = try makeFixture(minutes: [8 * 60], startDate: try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 9, day: 1))))
+        let slot = try XCTUnwrap(ScheduleEngine.doses(schedules: fixture.schedules, medicationID: fixture.medicationID, onDayOf: now, calendar: calendar).first)
+        fixture.context.insert(
+            DoseEvent(medicationID: fixture.medicationID, scheduleID: slot.scheduleID, scheduledAt: slot.date,
+                      recordedAt: slot.date.addingTimeInterval(120), doseQuantity: 1, status: .taken)
+        )
+        try fixture.context.save()
+
+        let reconciled = ScheduleReconciler.reconcile(
+            medicationID: fixture.medicationID,
+            definitions: definitions(minutes: [21 * 60]),
+            existing: fixture.schedules,
+            in: fixture.context
+        )
+        try fixture.context.save()
+
+        let moved = try XCTUnwrap(ScheduleEngine.doses(schedules: reconciled, medicationID: fixture.medicationID, onDayOf: now, calendar: calendar).first)
+        XCTAssertEqual(moved.date, slot.date.addingTimeInterval(13 * 60 * 60))
+        let events = try fixture.context.fetch(FetchDescriptor<DoseEvent>())
+        XCTAssertEqual(ScheduleEngine.loggedStatus(for: moved, in: events, now: now, calendar: calendar), .taken)
+    }
+
     @MainActor
     func testRemovingScheduleKeepsItsDoseHistory() throws {
         let fixture = try makeFixture(minutes: [8 * 60, 20 * 60])
@@ -102,7 +131,7 @@ final class ScheduleReconcilerTests: XCTestCase {
     }
 
     @MainActor
-    private func makeFixture(minutes: [Int]) throws -> ReconcilerFixture {
+    private func makeFixture(minutes: [Int], startDate: Date = .now) throws -> ReconcilerFixture {
         let schema = Schema([Medication.self, DoseSchedule.self, DoseEvent.self, InventoryEvent.self])
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         let container = try ModelContainer(for: schema, configurations: [configuration])
@@ -112,7 +141,8 @@ final class ScheduleReconcilerTests: XCTestCase {
         let schedules = minutes.map { minute in
             let schedule = DoseSchedule(
                 medicationID: medication.id,
-                minutesAfterMidnight: minute
+                minutesAfterMidnight: minute,
+                startDate: startDate
             )
             context.insert(schedule)
             return schedule

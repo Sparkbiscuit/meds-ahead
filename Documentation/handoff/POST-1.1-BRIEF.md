@@ -1,5 +1,11 @@
 # Post-1.1 brief
 
+> Status, September 21, 2026: 1a, 1c, 1d, 1e, 1f, 1g, 1i and 1j are fixed
+> with tests on the local branch `fix/1.1.1-supply-accuracy` (unpushed); see
+> `VERIFICATION.md`. 1b's UI test passes in the simulator, so it still needs
+> the device repro before any fix; 1h still needs its device check. Sections
+> 2 to 6 are untouched.
+>
 > Status, September 16, 2026: 1.1 is live (released September 14) and being
 > shared with caregivers. Everything below was found in a read-only review of
 > the code on September 16, 2026; nothing below is fixed yet.

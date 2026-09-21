@@ -92,19 +92,48 @@ enum ScheduleEngine {
         )
     }
 
-    /// The log that accounts for a scheduled dose, if one exists. A dose is matched
-    /// to its slot by schedule and scheduled time; the minute of tolerance absorbs
-    /// the gap between the moment a plan was built and the moment a reminder action
-    /// fired. Every surface that asks "is this dose already logged" must ask here,
-    /// or two of them will answer differently and log the same dose twice.
+    /// How far a past slot may sit from the time a dose was logged against and
+    /// still be that dose. A time-zone change moves every slot by the zone's
+    /// offset while the logged time stays where it was, so a dose logged at
+    /// 20:00 in New York reads as 01:00 the next day once the phone is in London.
+    static let pastSlotTolerance: TimeInterval = 12 * 60 * 60
+
+    /// The log that accounts for a scheduled dose, if one exists. A schedule
+    /// yields at most one dose a day, so a log belongs to a slot when it names
+    /// the same schedule on the same calendar day: the day, not the minute,
+    /// because editing a time moves the slot and the logged dose must move with
+    /// it, or Today offers it again and the supply is charged twice. A log that
+    /// a time-zone change has carried onto the neighbouring day is still the
+    /// same dose when it lies within half a day of the slot; that fallback is
+    /// kept to past slots, because for today's slot the same geometry also
+    /// describes yesterday's dose after a time edit of more than twelve hours,
+    /// and today's dose must never read as taken when it was not. Every
+    /// surface that asks "is this dose already logged" must ask here, or two of
+    /// them will answer differently and log the same dose twice.
+    static func loggedEvent(
+        for dose: ScheduledDose,
+        in doseEvents: [DoseEvent],
+        now: Date = .now,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> DoseEvent? {
+        let candidates = doseEvents.compactMap { event -> (DoseEvent, Date)? in
+            guard event.scheduleID == dose.scheduleID, let scheduledAt = event.scheduledAt else { return nil }
+            return (event, scheduledAt)
+        }
+        if let sameDay = candidates.first(where: { calendar.isDate($0.1, inSameDayAs: dose.date) }) {
+            return sameDay.0
+        }
+        guard dose.date < calendar.startOfDay(for: now) else { return nil }
+        return candidates.first { abs($0.1.timeIntervalSince(dose.date)) < pastSlotTolerance }?.0
+    }
+
     static func loggedStatus(
         for dose: ScheduledDose,
-        in doseEvents: [DoseEvent]
+        in doseEvents: [DoseEvent],
+        now: Date = .now,
+        calendar: Calendar = .autoupdatingCurrent
     ) -> DoseEventStatus? {
-        doseEvents.first {
-            $0.scheduleID == dose.scheduleID &&
-            $0.scheduledAt.map { abs($0.timeIntervalSince(dose.date)) < 60 } == true
-        }?.status
+        loggedEvent(for: dose, in: doseEvents, now: now, calendar: calendar)?.status
     }
 
     /// The dose a "take it now" tap belongs to: the first dose of today that is

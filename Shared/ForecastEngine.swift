@@ -218,6 +218,21 @@ enum ForecastEngine {
         let window = min(30, max(1, observed + 1))
         let dailyAverage = quantity / Double(window)
         let rawDays = supply / dailyAverage
+        // The scheduled path stops looking three years out, and so does this one.
+        // A count that lasts longer than that is a mistyped one, and `Int(_:)`
+        // traps on a value it cannot hold: at launch, in the forecast, and again
+        // in the widget, with no way in to correct the number.
+        let horizon = calendar.date(byAdding: .year, value: 3, to: now) ?? now
+        let horizonDays = Double(calendar.dateComponents([.day], from: now, to: horizon).day ?? 0)
+        guard rawDays.isFinite, rawDays <= horizonDays else {
+            return SupplyForecast(
+                currentSupply: supply,
+                depletionDate: nil,
+                daysRemaining: nil,
+                confidence: .unknown,
+                explanation: "The confirmed supply extends beyond the forecast window."
+            )
+        }
         let days = max(1, Int(rawDays.rounded(.down)))
         let date = calendar.date(byAdding: .day, value: days, to: now)
         return SupplyForecast(

@@ -50,6 +50,31 @@ final class ForecastEngineTests: XCTestCase {
         )
     }
 
+    /// A count long enough to outlast the forecast window is a mistyped one;
+    /// it must not take the app down at launch on the way to being corrected.
+    func testAHugeAsNeededCountForecastsWithoutTrapping() throws {
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 1, day: 30, hour: 12)))
+        let medication = Medication(name: "Example", isAsNeeded: true)
+        let opening = InventoryEvent(medicationID: medication.id, date: now, delta: 1e20, reason: .openingCount)
+        let doses = (1...3).map { daysAgo in
+            DoseEvent(medicationID: medication.id, recordedAt: now.addingTimeInterval(-Double(daysAgo) * 86_400), doseQuantity: 1, status: .taken)
+        }
+
+        let result = ForecastEngine.forecast(
+            medication: medication,
+            schedules: [],
+            inventoryEvents: [opening],
+            doseEvents: doses,
+            now: now,
+            calendar: calendar
+        )
+
+        XCTAssertNil(result.depletionDate)
+        XCTAssertNil(result.daysRemaining)
+        XCTAssertEqual(result.confidence, .unknown)
+        XCTAssertTrue(result.explanation.contains("beyond the forecast window"), result.explanation)
+    }
+
     func testAsNeededMedicationRequiresHistory() {
         let medication = Medication(name: "Example", isAsNeeded: true)
         let opening = InventoryEvent(medicationID: medication.id, delta: 12, reason: .openingCount)

@@ -10,7 +10,8 @@ actor NotificationService {
         requestAuthorization: Bool = false
     ) async {
         let center = UNUserNotificationCenter.current()
-        let planned = NotificationPlanner.notifications(for: plans)
+        let outcome = NotificationPlanner.plan(for: plans)
+        let planned = outcome.notifications
         let plannedIdentifiers = Set(planned.map(\.identifier))
         let pending = await center.pendingNotificationRequests()
         let delivered = await center.deliveredNotifications()
@@ -108,10 +109,12 @@ actor NotificationService {
             }
         }
 
+        // A dose reminder that did not fit under the cap is as absent as one
+        // iOS refused, and is reported the same way.
         await NotificationHealth.shared.record(
             authorization: status,
             planned: planned.count,
-            failed: failed
+            failed: failed + outcome.droppedDoseReminders
         )
         // Every change to the ledger ends here, so this is where the widgets
         // learn about it.

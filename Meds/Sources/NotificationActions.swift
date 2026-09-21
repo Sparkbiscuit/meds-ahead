@@ -97,12 +97,16 @@ enum NotificationDoseRecorder {
             return .missingContext
         }
 
-        let isAlreadyRecorded = try context.fetch(FetchDescriptor<DoseEvent>()).contains { event in
-            event.scheduleID == scheduleID &&
-            event.medicationID == medicationID &&
-            event.scheduledAt.map { abs($0.timeIntervalSince(scheduledAt)) < 60 } == true
+        let dose = ScheduledDose(
+            medicationID: medicationID,
+            scheduleID: scheduleID,
+            date: scheduledAt,
+            quantity: schedule.doseQuantity
+        )
+        let events = try context.fetch(FetchDescriptor<DoseEvent>()).filter { $0.medicationID == medicationID }
+        guard ScheduleEngine.loggedStatus(for: dose, in: events, calendar: calendar) == nil else {
+            return .alreadyRecorded
         }
-        guard !isAlreadyRecorded else { return .alreadyRecorded }
 
         context.insert(
             DoseEvent(
