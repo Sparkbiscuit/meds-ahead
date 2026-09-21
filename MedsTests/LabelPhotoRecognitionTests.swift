@@ -1,3 +1,4 @@
+import CoreImage.CIFilterBuiltins
 import UIKit
 import XCTest
 @testable import Meds
@@ -139,6 +140,76 @@ final class LabelPhotoRecognitionTests: XCTestCase {
         XCTAssertEqual(draft.productIdentifier, "64406-0006-02")
     }
 
+    /// A code line the camera shook over: the first pass reads a well-formed
+    /// code with the wrong digits, which names nothing (or another product),
+    /// and that must not count as "the code was read". The second look, on
+    /// the full-resolution line with language correction off, reads it right.
+    func testAMotionBlurredCodeLineIsReadOnTheSecondLook() async throws {
+        let sharp = renderedLabel(canvas: CGSize(width: 3024, height: 4032), pixelScale: 1, lines: [
+            Line("SPRINGFIELD PHARMACY #2214", size: 112, bold: true),
+            Line("RX# 4402917", size: 100, bold: true),
+            Line("DIMETHYL FUMARATE 240 MG DR CAPSULE", size: 120, bold: true),
+            Line("MFR: BIOGEN   NDC 64406-006-02", size: 40),
+            Line("TAKE 1 CAPSULE BY MOUTH TWICE DAILY", size: 106),
+            Line("QTY: 60", size: 112, bold: true)
+        ])
+        let image = try XCTUnwrap(blurred(sharp, motionRadius: 7))
+        let result = try await StillImageRecognizer.recognizeWithReport(image: image, origin: .cameraCapture)
+        let draft = MedicationLabelInterpreter.offlineDraft(result.evidence)
+        print("Motion-blurred code line: \(result.report)")
+
+        XCTAssertEqual(draft.nameProvenance, .ndc, "\(result.report); evidence: \(draft.evidence.map(\.value))")
+        XCTAssertEqual(draft.productIdentifier, "64406-0006-02")
+        XCTAssertEqual(draft.brandName, "Tecfidera")
+        let codes = NDCIdentification.readings(in: result.evidence).map(\.raw)
+        XCTAssertTrue(codes.contains("64406-006-02"), "\(codes)")
+        XCTAssertGreaterThan(codes.count, 1, "the first pass's misreading goes forward too; the gate chose between them: \(codes)")
+    }
+
+    /// Soft focus on faint print: the first pass does not see the line at all,
+    /// and the full-resolution tiles find it.
+    func testASoftFocusedFaintCodeLineIsFoundByTheTiledPass() async throws {
+        let soft = renderedLabel(canvas: CGSize(width: 3024, height: 4032), pixelScale: 1, lines: [
+            Line("SPRINGFIELD PHARMACY #2214", size: 112, bold: true),
+            Line("RX# 4402917", size: 100, bold: true),
+            Line("DIMETHYL FUMARATE 240 MG DR CAPSULE", size: 120, bold: true),
+            Line("MFR: BIOGEN   NDC 64406-006-02", size: 40, weight: .light, ink: UIColor(white: 0.45, alpha: 1)),
+            Line("TAKE 1 CAPSULE BY MOUTH TWICE DAILY", size: 106),
+            Line("QTY: 60", size: 112, bold: true)
+        ])
+        let image = try XCTUnwrap(blurred(soft, gaussianRadius: 5))
+        let result = try await StillImageRecognizer.recognizeWithReport(image: image, origin: .cameraCapture)
+        let draft = MedicationLabelInterpreter.offlineDraft(result.evidence)
+        print("Soft-focused code line: \(result.report)")
+
+        XCTAssertTrue(result.report.contains("tiling found"), result.report)
+        XCTAssertEqual(draft.nameProvenance, .ndc, "\(result.report); evidence: \(draft.evidence.map(\.value))")
+        XCTAssertEqual(draft.productIdentifier, "64406-0006-02")
+    }
+
+    private func blurred(_ image: UIImage, motionRadius: Double = 0, gaussianRadius: Double = 0) -> UIImage? {
+        guard let cgImage = image.cgImage else { return nil }
+        var ci = CIImage(cgImage: cgImage)
+        if motionRadius > 0 {
+            let filter = CIFilter.motionBlur()
+            filter.inputImage = ci
+            filter.radius = Float(motionRadius)
+            filter.angle = 0.3
+            guard let output = filter.outputImage else { return nil }
+            ci = output
+        }
+        if gaussianRadius > 0 {
+            let filter = CIFilter.gaussianBlur()
+            filter.inputImage = ci
+            filter.radius = Float(gaussianRadius)
+            guard let output = filter.outputImage else { return nil }
+            ci = output
+        }
+        let output = ci.cropped(to: CGRect(origin: .zero, size: image.size))
+        guard let rendered = CIContext().createCGImage(output, from: output.extent) else { return nil }
+        return UIImage(cgImage: rendered)
+    }
+
     /// The zoomed second pass on its own: a code line in the smallest print, cut
     /// out around a box the first pass might have drawn, scaled up and read
     /// without language correction, with its box mapped back onto the frame.
@@ -234,11 +305,15 @@ final class LabelPhotoRecognitionTests: XCTestCase {
         let text: String
         let size: CGFloat
         let bold: Bool
+        let weight: UIFont.Weight
+        let ink: UIColor
 
-        init(_ text: String, size: CGFloat, bold: Bool = false) {
+        init(_ text: String, size: CGFloat, bold: Bool = false, weight: UIFont.Weight = .regular, ink: UIColor = .black) {
             self.text = text
             self.size = size
             self.bold = bold
+            self.weight = weight
+            self.ink = ink
         }
     }
 
@@ -254,10 +329,10 @@ final class LabelPhotoRecognitionTests: XCTestCase {
             for line in lines {
                 let font = line.bold
                     ? UIFont.boldSystemFont(ofSize: line.size)
-                    : UIFont.systemFont(ofSize: line.size)
+                    : UIFont.systemFont(ofSize: line.size, weight: line.weight)
                 NSString(string: line.text).draw(
                     at: CGPoint(x: canvas.width * 0.058, y: y),
-                    withAttributes: [.font: font, .foregroundColor: UIColor.black]
+                    withAttributes: [.font: font, .foregroundColor: line.ink]
                 )
                 y += line.size + canvas.height * 0.028
             }

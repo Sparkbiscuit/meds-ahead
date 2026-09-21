@@ -111,6 +111,61 @@ Identifiers `supply-actions` and `supply-quantity` were added for the test.
   The App Store "Sufficient Contrast" declaration should rest on a hands-on
   Accessibility Inspector pass on a phone, not on this audit.
 
+### Why the NDC is not read every time: measured
+
+Nick's question was whether the small NDC print is scanned at too little
+detail. The still pipeline was pushed through rendered labels at camera size
+(3,024 by 4,032, the code line at 28 to 80 pixels of font size, black and
+grey, regular and light, dot-matrix at 2 to 4 pixel dots) and at
+video-frame size (1,080 by 1,440, the code line at 10 to 24 pixels), with
+Gaussian blur, noise and motion blur laid over them, all through the real
+Vision requests in the simulator. What it showed:
+
+- **Detail is not the limit.** Every sharp case resolved the exact product,
+  down to a 10-pixel line on the video-sized frame and a 28-pixel line on the
+  camera-sized one, dot-matrix included. Clean small print is read.
+- **Blur is.** A 28- to 40-pixel line stops resolving at a Gaussian radius of
+  4 to 6 pixels or a motion radius of 6 to 8; a 56-pixel line survives twice
+  that. On a phone that is focus and shake, not pixels: the main camera
+  cannot focus closer than about twenty centimetres, and holding a vial
+  close enough to read a two-millimetre line by eye is closer than that.
+  Pinching to zoom does not change the focus distance. This fits the
+  September 12 bottles, which "failed even zoomed in" with no code-bearing
+  line in the evidence at all.
+- **A blurred line is misread, not missed.** In every failing case the
+  first pass returned a well-formed code with wrong digits (a 6 read as a 5,
+  a 4 as a 0): `54405-005-02`, `04800-006-00`, and once `64406-005-02`, which
+  is a listed Biogen product (Tysabri) rather than the Tecfidera on the
+  label. The identification gate refused each of these, as designed
+  (`contradicted` or `unlisted`, nothing filled), so the failure mode is
+  "no identification", never a wrong one. But because a code had been read,
+  the pipeline's second look never ran, and in two of the three motion-blur
+  cases the second look reads the same line right.
+
+**Changed, with tests.** `StillImageRecognizer` now takes its second look
+(the zoomed, correction-off reading of every code-shaped line) whether or
+not the first pass read a code, tiles the frame at full resolution whenever
+nothing read so far names a listed product, and sends every distinct code
+forward rather than letting the first reading stand alone. The gate,
+`NDCIdentification.identify`, sets aside the products the label contradicts
+before judging ambiguity: two codes naming two products used to resolve to
+nothing; now the one the label vouches for wins, two the label cannot choose
+between are still ambiguous, and when every one is contradicted the first
+is reported as such. `NDCIdentificationTests` covers the four cases;
+`LabelPhotoRecognitionTests` pins a motion-blurred line (radius 7: the first
+pass reads `54405-005-02`, unlisted; the second look reads `64406-006-02`;
+Tecfidera resolves) and a soft-focused faint line the tiles find (Gaussian
+radius 5). Both were stable across repeated runs; heavier blur (motion 8,
+Gaussian 6) still fails, and no change to reading can fix a line the camera
+did not resolve.
+
+**What would help on the phone, not done here.** Guidance about distance:
+when the capture's code line reads as unlisted or contradicted, say "move
+the phone back a little and hold still" rather than "hold the NDC line in
+frame"; a sharpness check on the capture (variance of the Laplacian over
+the frame) could trigger the same hint. The Review capture's pixel size and
+lens are still unread on a device, and the capture note exists for that.
+
 ### Not done
 
 - 1b's fix (a text-backed field), pending the device repro above.

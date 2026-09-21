@@ -234,6 +234,25 @@ final class NDCIdentificationTests: XCTestCase {
         XCTAssertNil(match)
     }
 
+    /// The still pipeline reads a code line twice and a blurred line comes back
+    /// as two different codes; the label chooses between them.
+    func testACodeTheLabelContradictsGivesWayToOneItVouchesFor() {
+        let chosen = draft(["DIMETHYL FUMARATE 240 MG DR CAPSULE", "NDC 64406-005-02", "MFR: BIOGEN NDC 64406-006-02"],
+                           rows: rows + [("644060005", "natalizumab", "Tysabri", "300 mg/15 mL", "injection")])
+        XCTAssertEqual(chosen.identification, .accepted(code: "64406-0006-02"))
+        XCTAssertEqual(chosen.brandName, "Tecfidera")
+
+        let byStrength = draft(["SERTRALINE HCL 50 MG TABLET", "NDC 0093-1040-01", "NDC 0093-1039-01"])
+        XCTAssertEqual(byStrength.identification, .accepted(code: "00093-1039-01"), "the 100 mg listing disagrees with the label")
+
+        let noHelp = draft(["NDC 0093-1040-01", "NDC 0093-1039-01"])
+        XCTAssertEqual(noHelp.identification, .ambiguous, "with nothing to choose by, neither fills anything")
+
+        let bothWrong = draft(["TACROLIMUS 1 MG CAPSULE", "NDC 0093-1039-01", "NDC 0093-1040-01"])
+        XCTAssertEqual(bothWrong.identification, .contradicted(code: "00093-1039-01", product: "Sertraline 50 mg"))
+        XCTAssertEqual(bothWrong.name, "Tacrolimus")
+    }
+
     func testTwoCodesNamingDifferentProductsResolveToNothing() {
         let match = NDCIdentification.match(
             in: evidence(["NDC 0093-1039-01", "NDC 0054-4161-01"]),

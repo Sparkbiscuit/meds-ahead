@@ -48,6 +48,45 @@ enum NDCIdentification {
         return resolved.first { $0.source == .barcode } ?? resolved.first
     }
 
+    /// The one product the label vouches for, with the verdict on it, when the
+    /// evidence carries more than one reading of the code.
+    ///
+    /// A blurred line is misread as a well-formed code, and the still pipeline
+    /// reads such a line twice, so two codes naming two products is an ordinary
+    /// result rather than a sign of two labels. The label settles it: a product
+    /// the label plainly contradicts is set aside, and only if more than one
+    /// product survives that is the reading ambiguous. When every product is
+    /// contradicted the first is returned with that verdict, so the review
+    /// screen can say which code was read and refused.
+    static func identify(
+        in evidence: [ScanEvidence],
+        against draft: MedicationDraft,
+        labelText: String,
+        directory: NDCDirectory = .shared
+    ) -> (match: Match, verdict: Verdict)? {
+        guard !directory.isEmpty else { return nil }
+        var byProduct: [String: Match] = [:]
+        var order: [String] = []
+        for reading in readings(in: evidence) {
+            let hits = reading.candidates.compactMap { code in
+                directory.product(for: code).map { Match(code: code, product: $0, source: reading.source) }
+            }
+            guard Set(hits.map(\.product.productKey)).count == 1, let hit = hits.first else { continue }
+            let key = hit.product.productKey
+            if byProduct[key] == nil { order.append(key) }
+            // A barcode reading of the same product outranks a printed one.
+            if byProduct[key] == nil || (hit.source == .barcode && byProduct[key]?.source != .barcode) {
+                byProduct[key] = hit
+            }
+        }
+        let judged = order.compactMap { key in byProduct[key].map { ($0, verdict(for: $0, against: draft, labelText: labelText)) } }
+        guard !judged.isEmpty else { return nil }
+        let surviving = judged.filter { $0.1 != .contradicted }
+        if surviving.isEmpty { return judged[0] }
+        guard surviving.count == 1 else { return nil }
+        return surviving[0]
+    }
+
     /// Every code the evidence carries. The text is read as one document in line
     /// order rather than line by line: a code broken across two recognized lines
     /// ("NDC 00093-" then "1039-01") is only a code when the lines are looked at
@@ -72,7 +111,11 @@ enum NDCIdentification {
         let listed = Set(readings.flatMap { reading in
             reading.candidates.compactMap { directory.product(for: $0)?.productKey }
         })
-        if listed.count > 1 { return .ambiguous }
+        // Two listed products the label does not choose between; a reading that
+        // fits two products on its own is counted by `match`.
+        if listed.count > 1 || match(in: evidence, directory: directory) == nil && listed.count == 1 && readings.contains(where: { reading in
+            Set(reading.candidates.compactMap { directory.product(for: $0)?.productKey }).count > 1
+        }) { return .ambiguous }
         let printed = readings.first { $0.source == .printedText }
         let code = printed?.raw ?? readings.first?.candidates.first?.hyphenated ?? ""
         return listed.isEmpty ? .unlisted(code: code) : nil

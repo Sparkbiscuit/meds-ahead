@@ -997,14 +997,21 @@ enum StillImageRecognizer {
     ///
     /// Vision works the whole frame at a bounded resolution, so on a
     /// twelve-megapixel photo a two-millimetre line of print is handed to the
-    /// recognizer a few pixels tall, whatever `minimumTextHeight` says. When the
-    /// first pass yields no code, every line that looks like it might be the
-    /// code's — the caption, or digits with hyphens — is cut out of the
-    /// full-resolution image, scaled up, and read again with language correction
-    /// off, because correction is built for words and a code is not a word. If
-    /// nothing looked like the code at all, the frame is read in tiles at full
-    /// resolution instead. Only code-bearing lines come back from the second
-    /// look; the rest of the label was already read the first time.
+    /// recognizer a few pixels tall, whatever `minimumTextHeight` says. Every
+    /// line that looks like it might be the code's — the caption, or digits with
+    /// hyphens — is cut out of the full-resolution image, scaled up, and read
+    /// again with language correction off, because correction is built for
+    /// words and a code is not a word. If nothing looked like the code at all,
+    /// or nothing read so far names a listed product, the frame is read in tiles
+    /// at full resolution as well. Only code-bearing lines come back from the
+    /// second look; the rest of the label was already read the first time.
+    ///
+    /// The second look runs whether or not the first pass read a code, because a
+    /// slightly blurred line is not left unread, it is misread: a 6 as a 5, a 4
+    /// as a 0, and the result is a well-formed code that names nothing or,
+    /// worse, a neighbouring product. Neither pass is right every time, so when
+    /// the two read different codes both go forward and the identification gate
+    /// keeps the one the label vouches for.
     private static func recognize(upright: CGImage, origin: ScanEvidence.Origin) throws -> Result {
         let handler = VNImageRequestHandler(cgImage: upright, orientation: .up, options: [:])
         let textRequest = makeTextRequest(languageCorrection: true)
@@ -1023,35 +1030,54 @@ enum StillImageRecognizer {
         // hyphen onto a second line is a code once the lines are joined, and
         // does not need the second look.
         let readTogether = sorted(lines).map(\.text).joined(separator: "\n")
-        if NationalDrugCode.readings(inLabelText: readTogether).isEmpty {
-            let suspects = observations
-                .filter { observation in
-                    observation.topCandidates(1).first.map { looksLikeCodeFragment($0.string) } ?? false
-                }
-                .sorted { $0.boundingBox.height > $1.boundingBox.height }
-                .prefix(maximumRegionPasses)
-            var found: [Line] = []
-            for suspect in suspects {
-                found += zoomedCodeLines(around: suspect.boundingBox, in: upright)
+        var readings = NationalDrugCode.readings(inLabelText: readTogether)
+        if !readings.isEmpty, !resolvesInDirectory(readings) {
+            report += "; the code read is not listed"
+        }
+        let suspects = observations
+            .filter { observation in
+                observation.topCandidates(1).first.map { looksLikeCodeFragment($0.string) } ?? false
             }
-            report += "; zoomed \(suspects.count) line\(suspects.count == 1 ? "" : "s") for the NDC, found \(found.count)"
-            if found.isEmpty {
-                found = tiledCodeLines(in: upright)
-                if found.isEmpty {
-                    report += "; tiling found none"
-                } else {
-                    report += "; tiling found \(found.count)"
-                }
-            }
-            for line in found {
-                // The first pass's misreading of the same print gives way to the
-                // zoomed reading, so the two never compete as equivalent lines.
-                lines.removeAll { !carriesCode($0) && overlap($0.box, line.box) > 0.5 }
-                lines.append(line)
-            }
+            .sorted { $0.boundingBox.height > $1.boundingBox.height }
+            .prefix(maximumRegionPasses)
+        var found: [Line] = []
+        for suspect in suspects {
+            found += zoomedCodeLines(around: suspect.boundingBox, in: upright)
+        }
+        report += "; zoomed \(suspects.count) line\(suspects.count == 1 ? "" : "s") for the NDC, found \(found.count)"
+        readings += found.flatMap { NationalDrugCode.readings(inLabelText: $0.text) }
+        if !resolvesInDirectory(readings) {
+            let tiled = tiledCodeLines(in: upright)
+            found += tiled
+            report += tiled.isEmpty ? "; tiling found none" : "; tiling found \(tiled.count)"
+        }
+        var codesRead = Set(NationalDrugCode.readings(inLabelText: readTogether).map(\.raw))
+        for line in found {
+            // The same code read again adds nothing. A different one goes
+            // forward beside the first pass's line: the first pass's
+            // misreading of non-code print gives way to the zoomed reading, but
+            // a code-bearing line keeps its place, and the identification gate
+            // decides between the two codes with the label's help.
+            let codes = NationalDrugCode.readings(inLabelText: line.text).map(\.raw)
+            guard !codes.isEmpty, !Set(codes).isSubset(of: codesRead) else { continue }
+            codesRead.formUnion(codes)
+            lines.removeAll { !carriesCode($0) && overlap($0.box, line.box) > 0.5 }
+            lines.append(line)
         }
 
         return Result(evidence: makeEvidence(lines: lines, barcodes: barcodes, origin: origin), report: report)
+    }
+
+    /// Whether any candidate of the reading names a listed product. With no
+    /// directory at hand, any well-formed code counts, as before.
+    private static func resolvesInDirectory(_ readings: [NDCReading]) -> Bool {
+        readings.contains(where: resolvesInDirectory)
+    }
+
+    private static func resolvesInDirectory(_ reading: NDCReading) -> Bool {
+        let directory = NDCDirectory.shared
+        guard !directory.isEmpty else { return true }
+        return reading.candidates.contains { directory.product(for: $0) != nil }
     }
 
     private static func makeTextRequest(languageCorrection: Bool) -> VNRecognizeTextRequest {

@@ -83,13 +83,15 @@ enum MedicationLabelInterpreter {
         // what a resolved code is checked against before it may fill anything.
         // Whatever the code came to is recorded, so the review screen can say it.
         var result = labelDraft
-        guard let match = NDCIdentification.match(in: labelDraft.evidence, directory: ndcDirectory) else {
+        let labelText = LabelCandidateBuilder.textLines(from: labelDraft.evidence).joined(separator: "\n")
+        guard let (match, verdict) = NDCIdentification.identify(
+            in: labelDraft.evidence, against: labelDraft, labelText: labelText, directory: ndcDirectory
+        ) else {
             result.identification = NDCIdentification.unresolvedOutcome(in: labelDraft.evidence, directory: ndcDirectory)
             return result
         }
-        let labelText = LabelCandidateBuilder.textLines(from: labelDraft.evidence).joined(separator: "\n")
         let code = match.code.hyphenated
-        switch NDCIdentification.verdict(for: match, against: labelDraft, labelText: labelText) {
+        switch verdict {
         case .accepted:
             result = NDCIdentification.applying(match, to: labelDraft, labelText: labelText, rxNormTable: rxNormTable)
             result.identification = .accepted(code: code)

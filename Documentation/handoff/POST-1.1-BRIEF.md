@@ -5,8 +5,10 @@
 > `VERIFICATION.md`. 1b's UI test passes in the simulator, so it still needs
 > the device repro before any fix; 1h still needs its device check. Section 4's
 > contrast fixes are in too, measured from screenshots because the `.contrast`
-> audit proved unreliable (see `VERIFICATION.md`). Sections 2, 3, 5 and 6 are
-> untouched.
+> audit proved unreliable (see `VERIFICATION.md`). The NDC reading was
+> measured under blur and the still pipeline's second look now runs on
+> misread codes too, with the label choosing between readings. Sections 2,
+> 3, 5 and 6 are untouched.
 >
 > Status, September 16, 2026: 1.1 is live (released September 14) and being
 > shared with caregivers. Everything below was found in a read-only review of
