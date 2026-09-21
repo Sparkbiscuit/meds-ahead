@@ -302,6 +302,7 @@ struct ScannerScreen: View {
                     .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
+                .foregroundStyle(AppTheme.onAccent)
                 .controlSize(.large)
                 .disabled(!canReview)
             }
@@ -355,6 +356,7 @@ struct ScannerScreen: View {
                     UIApplication.shared.open(url)
                 }
                 .buttonStyle(.borderedProminent)
+                .foregroundStyle(AppTheme.onAccent)
                 .controlSize(.large)
             }
         }

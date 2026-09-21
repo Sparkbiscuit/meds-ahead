@@ -304,6 +304,7 @@ private struct TipJarView: View {
                                     .frame(maxWidth: .infinity)
                                 }
                                 .buttonStyle(.borderedProminent)
+                                .foregroundStyle(AppTheme.onAccent)
                                 .controlSize(.large)
                                 .disabled(purchasingProductID != nil)
                             }

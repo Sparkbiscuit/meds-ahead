@@ -101,6 +101,7 @@ private struct StoreUnavailableView: View {
         } actions: {
             Link("Contact Support", destination: URL(string: "https://sparkbiscuit.me/meds/support/")!)
                 .buttonStyle(.borderedProminent)
+                .foregroundStyle(AppTheme.onAccent)
         }
         .padding()
     }

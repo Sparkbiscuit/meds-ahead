@@ -40,6 +40,7 @@ struct HealthImportView: View {
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
+                    .foregroundStyle(AppTheme.onAccent)
                     .controlSize(.large)
                     .disabled(phase == .loading)
                     .accessibilityIdentifier("choose-health-medications")

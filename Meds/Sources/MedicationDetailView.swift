@@ -252,6 +252,7 @@ struct MedicationDetailView: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
+            .foregroundStyle(AppTheme.onAccent)
             .controlSize(.large)
 
             Menu {

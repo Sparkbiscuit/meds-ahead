@@ -80,11 +80,43 @@ sheet's code is unchanged; the test stays as the guard. The brief's device
 repro is still the deciding check, since the August 30 failure was on a phone.
 Identifiers `supply-actions` and `supply-quantity` were added for the test.
 
+### Section 4, contrast: fixed, and measured rather than audited
+
+- **What changed.** `AppTheme.onAccent` (white in the light appearance, black
+  in the dark, where the accent is light) and `AppTheme.onWarning` (black, for
+  the orange missed-day fill). The dose calendar draws complete days with
+  `onAccent` text and missed days with `onWarning` text and a dashed outline,
+  and with Differentiate Without Color on, each logged state also carries a
+  glyph (checkmark, minus, xmark, exclamationmark), in the cells and the legend.
+  The editor's selected weekday letters use `onAccent`. All ten
+  `.borderedProminent` buttons get `.foregroundStyle(AppTheme.onAccent)` after
+  the style (inside the label the style's white wins), so their labels are
+  black on the dark-appearance accent; in the light appearance nothing changes.
+- **Measured from simulator screenshots (iPhone 17 Pro, iOS 26.2, dark),**
+  WCAG relative luminance over the element's pixels: the Taken button's label
+  1.61:1 before, 12.8:1 after; a missed calendar day 8.2:1; a plain day 12.9:1;
+  the log-all button's accent text on its tinted capsule 6.5:1 (unchanged);
+  Skip 6.3:1 (unchanged). Light appearance checked by eye: white on the deep
+  accent as before.
+- **Why there is no `.contrast` audit test.** The brief asked for one, and it
+  was tried on Today, the detail screen and the editor in the dark appearance
+  (forced with a debug launch flag, since `-AppleInterfaceStyle Dark` is not
+  honoured). The audit's verdicts did not follow the pixels: it failed the
+  log-all button's text node whatever colour it was drawn in (6.5:1 as accent,
+  10.6:1 drawn white), failed the detail header's "20 mg" secondary text
+  measured at 8.0:1, and on Today its verdicts on the glass prominent buttons
+  changed from run to run. It also reports every element that has scrolled
+  under the tab bar. So the test, the flag and a `Spacer`/label experiment
+  were all removed again, and the measurements above stand as the check.
+  The App Store "Sufficient Contrast" declaration should rest on a hands-on
+  Accessibility Inspector pass on a phone, not on this audit.
+
 ### Not done
 
 - 1b's fix (a text-backed field), pending the device repro above.
 - 1h (the widget's Taken reaching Today) needs the device check first.
-- Sections 2 to 6 of the brief.
+- Sections 2, 3, 5 and 6 of the brief (6's injection is done as part of 1).
+- The hands-on VoiceOver pass and the accessibility declaration (section 2).
 
 ### Results
 

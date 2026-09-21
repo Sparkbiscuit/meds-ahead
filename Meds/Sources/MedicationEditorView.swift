@@ -934,7 +934,7 @@ private struct WeekdayPicker: View {
                     .frame(maxWidth: .infinity)
                     .frame(minHeight: 44)
                     .background(mask & (1 << index) != 0 ? AppTheme.accent : Color.secondary.opacity(0.12), in: Circle())
-                    .foregroundStyle(mask & (1 << index) != 0 ? .white : .primary)
+                    .foregroundStyle(mask & (1 << index) != 0 ? AppTheme.onAccent : .primary)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(Calendar.current.weekdaySymbols[index])

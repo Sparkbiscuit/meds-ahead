@@ -287,6 +287,7 @@ struct TodayView: View {
                                 .accessibilityLabel("Skip \(medication.displayName) from \(missedDoseLabel(dose.date))")
                             Button("Taken") { record(dose, for: medication, status: .taken) }
                                 .buttonStyle(.borderedProminent)
+                                .foregroundStyle(AppTheme.onAccent)
                                 .frame(minHeight: 44)
                                 .accessibilityLabel("Mark \(medication.displayName) from \(missedDoseLabel(dose.date)) taken")
                         }
@@ -569,6 +570,7 @@ private struct DoseCard: View {
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
+                    .foregroundStyle(AppTheme.onAccent)
                     .controlSize(.large)
                     .accessibilityLabel("Mark \(medication.displayName) taken")
                 }

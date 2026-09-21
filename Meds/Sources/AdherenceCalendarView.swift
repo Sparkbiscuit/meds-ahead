@@ -8,6 +8,7 @@ struct AdherenceCalendarCard: View {
     let doseEvents: [DoseEvent]
     @State private var month = Date.now
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
 
     private var calendar: Calendar { .autoupdatingCurrent }
 
@@ -111,12 +112,48 @@ struct AdherenceCalendarCard: View {
             .frame(maxWidth: .infinity)
             .frame(height: 30)
             .background(fill(for: day.state), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(day.state == .upcoming ? Color.secondary.opacity(0.35) : .clear, lineWidth: 1)
-            }
+            .overlay { outline(for: day.state) }
+            .overlay(alignment: .topTrailing) { glyph(for: day.state) }
             .foregroundStyle(textColor(for: day.state))
             .accessibilityLabel(accessibilityText(for: day))
+    }
+
+    /// The states differ by more than their fill: a missed day is always
+    /// outlined, and with Differentiate Without Color on, every logged state
+    /// carries its own mark as well.
+    @ViewBuilder
+    private func outline(for state: AdherenceDay.State) -> some View {
+        switch state {
+        case .upcoming:
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Color.secondary.opacity(0.35), lineWidth: 1)
+        case .missed:
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(AppTheme.onWarning.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, dash: [3, 2]))
+        case .complete, .partial, .skipped, .none:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private func glyph(for state: AdherenceDay.State) -> some View {
+        if differentiateWithoutColor, let name = glyphName(for: state) {
+            Image(systemName: name)
+                .font(.system(size: 7, weight: .black))
+                .foregroundStyle(textColor(for: state))
+                .padding(3)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private func glyphName(for state: AdherenceDay.State) -> String? {
+        switch state {
+        case .complete: "checkmark"
+        case .partial: "minus"
+        case .skipped: "xmark"
+        case .missed: "exclamationmark"
+        case .upcoming, .none: nil
+        }
     }
 
     private func fill(for state: AdherenceDay.State) -> Color {
@@ -131,7 +168,8 @@ struct AdherenceCalendarCard: View {
 
     private func textColor(for state: AdherenceDay.State) -> Color {
         switch state {
-        case .complete, .missed: .white
+        case .complete: AppTheme.onAccent
+        case .missed: AppTheme.onWarning
         case .partial, .skipped: .primary
         case .upcoming: .primary
         case .none: .secondary
@@ -161,6 +199,14 @@ struct AdherenceCalendarCard: View {
                     RoundedRectangle(cornerRadius: 3, style: .continuous)
                         .fill(fill(for: state))
                         .frame(width: 12, height: 12)
+                        .overlay { outline(for: state) }
+                        .overlay {
+                            if differentiateWithoutColor, let name = glyphName(for: state) {
+                                Image(systemName: name)
+                                    .font(.system(size: 7, weight: .black))
+                                    .foregroundStyle(textColor(for: state))
+                            }
+                        }
                     Text(title)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
