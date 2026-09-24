@@ -652,18 +652,53 @@ private struct ActivityItem: Identifiable {
     let isHealthMirrored: Bool
 }
 
+/// The number a supply sheet records for the text in its field, or nil when the
+/// sheet's button must stay disabled. A count may be zero, since an empty bottle
+/// is a real count; a refill must be more than nothing.
+enum SupplyChangeQuantity {
+    static func value(
+        from text: String,
+        prefilled: Double,
+        requiresMoreThanZero: Bool,
+        locale: Locale = .autoupdatingCurrent
+    ) -> Double? {
+        let value: Double
+        if text == prefilled.medicationQuantityText {
+            // The prefilled text is rounded to two places. Left untouched it stands
+            // for the exact number it was made from, so saving an unchanged count
+            // records no correction.
+            value = prefilled
+        } else {
+            // A second decimal separator is a slipped key, not a number: the
+            // lenient parse reads "2..8" as 2 and "1.5.5" as 1.5, and the sheet
+            // closes on the tap without showing the number it read.
+            let separators = text.filter { $0 == "." || String($0) == locale.decimalSeparator }.count
+            guard separators <= 1, let parsed = Double.medicationQuantity(from: text, locale: locale) else { return nil }
+            value = parsed
+        }
+        guard value.isFinite, value >= 0, !(requiresMoreThanZero && value <= 0) else { return nil }
+        return value
+    }
+}
+
 private struct SupplyChangeSheet: View {
     let title: String
     let message: String
     let unit: String
+    let initialValue: Double
     let actionTitle: String
     let onSave: (Double, String) -> Void
-    @State private var quantity: Double
+    @State private var text: String
     @State private var note = ""
     @Environment(\.dismiss) private var dismiss
 
-    private var isValid: Bool {
-        quantity.isFinite && quantity >= 0 && (actionTitle != "Add Refill" || quantity > 0)
+    /// Read from the text on every change, as the editor's dose field is, never
+    /// from a value a formatted field writes back: on a phone the editor's
+    /// formatted field wrote back only when it lost focus, and here the decimal
+    /// pad has no Return key and the toolbar button does not end editing, so the
+    /// sheet could record the number it opened with instead of the one typed.
+    private var quantity: Double? {
+        SupplyChangeQuantity.value(from: text, prefilled: initialValue, requiresMoreThanZero: actionTitle == "Add Refill")
     }
 
     init(
@@ -677,9 +712,10 @@ private struct SupplyChangeSheet: View {
         self.title = title
         self.message = message
         self.unit = unit
+        self.initialValue = initialValue
         self.actionTitle = actionTitle
         self.onSave = onSave
-        _quantity = State(initialValue: initialValue)
+        _text = State(initialValue: initialValue.medicationQuantityText)
     }
 
     var body: some View {
@@ -687,7 +723,7 @@ private struct SupplyChangeSheet: View {
             Form {
                 Section {
                     HStack {
-                        TextField("Quantity", value: $quantity, format: .number.precision(.fractionLength(0...2)))
+                        TextField("Quantity", text: $text)
                             .keyboardType(.decimalPad)
                             .font(.title2.weight(.semibold))
                             .accessibilityIdentifier("supply-quantity")
@@ -705,10 +741,11 @@ private struct SupplyChangeSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(actionTitle) {
+                        guard let quantity else { return }
                         onSave(quantity, note.trimmingCharacters(in: .whitespacesAndNewlines))
                         dismiss()
                     }
-                    .disabled(!isValid)
+                    .disabled(quantity == nil)
                 }
             }
         }
