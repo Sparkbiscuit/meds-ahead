@@ -12,6 +12,12 @@ struct SupplyForecast: Equatable {
     let daysRemaining: Int?
     let confidence: ForecastConfidence
     let explanation: String
+    /// Scheduled doses since the last count that nobody logged, which the run-out
+    /// date assumes were taken. `currentSupply` stays the ledger's own number.
+    var assumedDoses: Int = 0
+    /// The assumed doses use up everything the ledger still shows. What is left is
+    /// unknown rather than zero, so this reads "Count needed", never "Out of supply".
+    var needsCount: Bool = false
 }
 
 /// Which medications need a refill before a trip, from the forecasts that
@@ -152,6 +158,34 @@ enum ForecastEngine {
             )
         }
 
+        let assumed = assumedTaken(
+            medication: medication,
+            schedules: schedules,
+            inventoryEvents: inventoryEvents,
+            doseEvents: doseEvents,
+            now: now,
+            calendar: calendar
+        )
+        let unlogged = assumed.count == 1
+            ? "the 1 scheduled dose since your last count that wasn't logged was taken"
+            : "the \(assumed.count) scheduled doses since your last count that weren't logged were taken"
+
+        var remaining = supply - assumed.quantity
+        // The ledger still shows medication, but not once the doses nobody logged
+        // are taken out of it. Nothing on record says how much is really left, so
+        // the answer is a count, not a claim that the supply is gone.
+        if assumed.count > 0, remaining <= 0.000_001 {
+            return SupplyForecast(
+                currentSupply: supply,
+                depletionDate: now,
+                daysRemaining: 0,
+                confidence: .estimated,
+                explanation: "If \(unlogged), none of the supply on record is left. Count what is left to update the forecast.",
+                assumedDoses: assumed.count,
+                needsCount: true
+            )
+        }
+
         let horizon = calendar.date(byAdding: .year, value: 3, to: now) ?? now
         let future = ScheduleEngine.doses(
             schedules: schedules,
@@ -161,7 +195,6 @@ enum ForecastEngine {
             calendar: calendar
         )
 
-        var remaining = supply
         for dose in future {
             remaining -= dose.quantity
             if remaining <= 0.000_001 {
@@ -169,8 +202,9 @@ enum ForecastEngine {
                     currentSupply: supply,
                     depletionDate: dose.date,
                     daysRemaining: max(0, calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: dose.date)).day ?? 0),
-                    confidence: .high,
-                    explanation: "Based on the confirmed count and current schedule."
+                    confidence: assumed.count > 0 ? .estimated : .high,
+                    explanation: assumed.count > 0 ? "Assumes \(unlogged)." : "Based on the confirmed count and current schedule.",
+                    assumedDoses: assumed.count
                 )
             }
         }
@@ -180,8 +214,88 @@ enum ForecastEngine {
             depletionDate: nil,
             daysRemaining: nil,
             confidence: .unknown,
-            explanation: "The confirmed supply extends beyond the forecast window."
+            explanation: "The confirmed supply extends beyond the forecast window.",
+            assumedDoses: assumed.count
         )
+    }
+
+    /// How far back unlogged doses are assumed taken. A count older than this is
+    /// forecast as if it had been taken this long ago: every scheduled dose of
+    /// the last 400 days is still weighed, and a forecast that runs on every
+    /// screen and in the widget does not walk years of slots to get there.
+    static let assumedTakenLookbackDays = 400
+
+    /// The scheduled doses since the last count that nobody logged, assumed
+    /// taken. Counting only the doses still to come let every unlogged day push
+    /// the run-out date one day later, so a family that stopped logging watched
+    /// it slide forever and the refill alert keyed to that date never arrived.
+    /// Only a count confirms what is on hand: a refill adds stock but says
+    /// nothing about the doses before it, so it does not move the anchor. A
+    /// logged dose, taken or skipped, is the person's answer and is never
+    /// second-guessed. Nothing is written: the ledger stays what was recorded.
+    private static func assumedTaken(
+        medication: Medication,
+        schedules: [DoseSchedule],
+        inventoryEvents: [InventoryEvent],
+        doseEvents: [DoseEvent],
+        now: Date,
+        calendar: Calendar
+    ) -> (count: Int, quantity: Double) {
+        let anchor = inventoryEvents
+            .filter { $0.medicationID == medication.id && ($0.reason == .openingCount || $0.reason == .correction) }
+            .map(\.date)
+            .max() ?? medication.createdAt
+        let lookback = calendar.date(byAdding: .day, value: -assumedTakenLookbackDays, to: now) ?? now
+        let start = max(anchor, lookback)
+        // A slot joins the assumed set only once Today would call it overdue.
+        let past = ScheduleEngine.doses(
+            schedules: schedules,
+            medicationID: medication.id,
+            from: start,
+            through: now.addingTimeInterval(-ScheduleEngine.dueWindow),
+            calendar: calendar
+        )
+        guard !past.isEmpty else { return (0, 0) }
+
+        // `loggedEvent` walks every log it is handed, once per slot, and a year of
+        // slots against a year of logs is too slow for a widget. A log can only
+        // account for a slot within a day or so of it, so each slot is handed the
+        // logs its schedule has within two days either side, bucketed by absolute
+        // day. The question is still asked of `loggedEvent` alone.
+        let dayNumber = { (date: Date) in Int((date.timeIntervalSinceReferenceDate / 86_400).rounded(.down)) }
+        var logs: [UUID: [Int: [DoseEvent]]] = [:]
+        var unscheduled: [DoseEvent] = []
+        for event in doseEvents where event.medicationID == medication.id {
+            if let scheduleID = event.scheduleID {
+                guard let scheduledAt = event.scheduledAt else { continue }
+                logs[scheduleID, default: [:]][dayNumber(scheduledAt), default: []].append(event)
+            } else if event.status == .taken, event.countsTowardSupply, event.recordedAt >= start, event.recordedAt <= now {
+                // A dose logged outside any slot — Take Now with nothing due, or a
+                // Health dose no slot was near — is still one of the day's doses.
+                // One from before the count is already in that count, and history
+                // imported with the medication was never taken from it.
+                unscheduled.append(event)
+            }
+        }
+
+        var unloggedByDay: [Date: [ScheduledDose]] = [:]
+        for dose in past {
+            let day = dayNumber(dose.date)
+            let nearby = logs[dose.scheduleID].map { bySchedule in (day - 2...day + 2).flatMap { bySchedule[$0] ?? [] } } ?? []
+            guard ScheduleEngine.loggedEvent(for: dose, in: nearby, now: now, calendar: calendar) == nil else { continue }
+            unloggedByDay[calendar.startOfDay(for: dose.date), default: []].append(dose)
+        }
+        for event in unscheduled.sorted(by: { $0.recordedAt < $1.recordedAt }) {
+            let day = calendar.startOfDay(for: event.recordedAt)
+            guard var slots = unloggedByDay[day],
+                  let nearest = slots.indices.min(by: {
+                      abs(slots[$0].date.timeIntervalSince(event.recordedAt)) < abs(slots[$1].date.timeIntervalSince(event.recordedAt))
+                  }) else { continue }
+            slots.remove(at: nearest)
+            unloggedByDay[day] = slots
+        }
+        let unlogged = unloggedByDay.values.joined()
+        return (unlogged.count, unlogged.reduce(0) { $0 + $1.quantity })
     }
 
     private static func asNeededForecast(

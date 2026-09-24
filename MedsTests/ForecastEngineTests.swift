@@ -34,6 +34,179 @@ final class ForecastEngineTests: XCTestCase {
         XCTAssertEqual(calendar.component(.day, from: try XCTUnwrap(result.depletionDate)), 30)
     }
 
+    // MARK: - Unlogged doses
+
+    private func september(_ day: Int, _ hour: Int, _ minute: Int = 0) -> Date {
+        calendar.date(from: DateComponents(year: 2026, month: 9, day: day, hour: hour, minute: minute))!
+    }
+
+    /// A tablet at 08:00 and `eveningQuantity` at 20:00, added and counted at
+    /// 07:00 on September 1st.
+    private func twiceDaily(count: Double = 30, eveningQuantity: Double = 1, addedAt: Date? = nil) -> (Medication, [DoseSchedule], InventoryEvent) {
+        let added = addedAt ?? september(1, 7)
+        let medication = Medication(name: "Example", createdAt: added)
+        let schedules = [
+            DoseSchedule(medicationID: medication.id, minutesAfterMidnight: 8 * 60, doseQuantity: 1, startDate: added),
+            DoseSchedule(medicationID: medication.id, minutesAfterMidnight: 20 * 60, doseQuantity: eveningQuantity, startDate: added)
+        ]
+        return (medication, schedules, InventoryEvent(medicationID: medication.id, date: added, delta: count, reason: .openingCount))
+    }
+
+    private func forecast(
+        _ medication: Medication,
+        _ schedules: [DoseSchedule],
+        _ inventory: [InventoryEvent],
+        _ doses: [DoseEvent] = [],
+        now: Date
+    ) -> SupplyForecast {
+        ForecastEngine.forecast(medication: medication, schedules: schedules, inventoryEvents: inventory, doseEvents: doses, now: now, calendar: calendar)
+    }
+
+    private func logged(_ status: DoseEventStatus, _ schedule: DoseSchedule, at date: Date) -> DoseEvent {
+        DoseEvent(medicationID: schedule.medicationID, scheduleID: schedule.id, scheduledAt: date, recordedAt: date,
+                  doseQuantity: schedule.doseQuantity, status: status)
+    }
+
+    /// Counting only the doses still to come let every unlogged day push the
+    /// run-out date a day later, so the refill alert keyed to it never came.
+    func testUnloggedDosesSinceTheCountAreAssumedTaken() throws {
+        let (medication, schedules, opening) = twiceDaily()
+        let now = september(6, 7)
+        // A count confirmed at this moment assumes nothing: the rule as it was.
+        let confirmedNow = InventoryEvent(medicationID: medication.id, date: now, delta: 0, reason: .correction)
+        let asBefore = forecast(medication, schedules, [opening, confirmedNow], now: now)
+        XCTAssertEqual(asBefore.depletionDate, september(20, 20))
+        XCTAssertEqual(asBefore.assumedDoses, 0)
+        XCTAssertEqual(asBefore.confidence, .high)
+
+        let result = forecast(medication, schedules, [opening], now: now)
+        XCTAssertEqual(result.currentSupply, 30, "the on-hand number stays the ledger's")
+        XCTAssertEqual(result.assumedDoses, 10)
+        XCTAssertEqual(result.depletionDate, september(15, 20))
+        XCTAssertEqual(result.daysRemaining, 9)
+        let earlier = calendar.dateComponents([.day], from: try XCTUnwrap(result.depletionDate), to: try XCTUnwrap(asBefore.depletionDate)).day
+        XCTAssertEqual(earlier, 5, "five unlogged days bring the run-out five days nearer")
+        XCTAssertEqual(result.confidence, .estimated)
+        XCTAssertEqual(result.explanation, "Assumes the 10 scheduled doses since your last count that weren't logged were taken.")
+        XCTAssertFalse(result.needsCount)
+    }
+
+    /// The morning of the day a medication was added is not a dose it missed.
+    func testOnlyDosesSinceTheMedicationWasAddedAreAssumed() {
+        let (medication, schedules, opening) = twiceDaily(addedAt: september(1, 15))
+        let result = forecast(medication, schedules, [opening], now: september(1, 21))
+        XCTAssertEqual(result.assumedDoses, 1)
+        XCTAssertEqual(result.explanation, "Assumes the 1 scheduled dose since your last count that wasn't logged was taken.")
+    }
+
+    func testALoggedDoseIsNeverAssumedAndNeitherIsASkip() {
+        let (medication, schedules, opening) = twiceDaily()
+        let doses = [
+            logged(.skipped, schedules[0], at: september(2, 8)),
+            logged(.taken, schedules[1], at: september(3, 20))
+        ]
+        let result = forecast(medication, schedules, [opening], doses, now: september(6, 7))
+        XCTAssertEqual(result.currentSupply, 29, "only the taken dose left the bottle")
+        XCTAssertEqual(result.assumedDoses, 8)
+        // 29 on record less 8 assumed leaves 21: the 21st dose from the 6th.
+        XCTAssertEqual(result.depletionDate, september(16, 8))
+    }
+
+    /// Take Now with nothing due logs a dose outside any slot. It is still one
+    /// of that day's doses: the nearest one, here the evening's two tablets.
+    func testAnUnscheduledDoseCoversTheNearestSlotThatDay() {
+        let (medication, schedules, opening) = twiceDaily(eveningQuantity: 2)
+        let now = september(6, 7)
+        let nothingLogged = forecast(medication, schedules, [opening], now: now)
+        let takeNow = DoseEvent(medicationID: medication.id, recordedAt: september(2, 19), doseQuantity: 2, status: .taken)
+
+        let result = forecast(medication, schedules, [opening], [takeNow], now: now)
+        XCTAssertEqual(result.assumedDoses, nothingLogged.assumedDoses - 1)
+        XCTAssertEqual(result.depletionDate, nothingLogged.depletionDate, "the two tablets leave the ledger instead of the assumption")
+
+        // History imported from Health with the medication predates the count.
+        let imported = DoseEvent(medicationID: medication.id, recordedAt: september(2, 19), doseQuantity: 2, status: .taken,
+                                 note: DoseEvent.appleHealthNote, countsTowardSupply: false)
+        XCTAssertEqual(forecast(medication, schedules, [opening], [imported], now: now).assumedDoses, nothingLogged.assumedDoses)
+    }
+
+    func testACorrectionReanchorsAndARefillDoesNot() {
+        let (medication, schedules, opening) = twiceDaily()
+        let now = september(6, 7)
+        let correction = InventoryEvent(medicationID: medication.id, date: september(4, 12), delta: -6, reason: .correction)
+        let corrected = forecast(medication, schedules, [opening, correction], now: now)
+        XCTAssertEqual(corrected.currentSupply, 24)
+        XCTAssertEqual(corrected.assumedDoses, 3, "the 4th's evening and the 5th's two")
+
+        let refill = InventoryEvent(medicationID: medication.id, date: september(4, 12), delta: 30, reason: .refill)
+        let refilled = forecast(medication, schedules, [opening, refill], now: now)
+        XCTAssertEqual(refilled.currentSupply, 60)
+        XCTAssertEqual(refilled.assumedDoses, 10, "a refill adds stock but confirms nothing about the doses before it")
+
+        // With no count at all, the doses since the medication was added are the ones assumed.
+        XCTAssertEqual(forecast(medication, schedules, [refill], now: now).assumedDoses, 10)
+
+        // A count dated after now leaves nothing to assume.
+        let later = InventoryEvent(medicationID: medication.id, date: september(7, 7), delta: 0, reason: .correction)
+        XCTAssertEqual(forecast(medication, schedules, [opening, later], now: now).assumedDoses, 0)
+    }
+
+    /// Unlogged doses that would use up everything on record do not make the
+    /// supply zero: they make the count unknown, which a count answers.
+    func testAStaleCountAsksForACountRatherThanReportingNoneLeft() {
+        let (medication, schedules, opening) = twiceDaily(count: 6)
+        let now = september(6, 7)
+        let result = forecast(medication, schedules, [opening], now: now)
+
+        XCTAssertTrue(result.needsCount)
+        XCTAssertEqual(result.currentSupply, 6)
+        XCTAssertEqual(result.daysRemaining, 0)
+        XCTAssertEqual(result.depletionDate, now)
+        XCTAssertEqual(result.assumedDoses, 10)
+        XCTAssertEqual(result.confidence, .estimated)
+        XCTAssertTrue(result.explanation.contains("Count what is left"), result.explanation)
+    }
+
+    /// The assumption shapes the run-out date and nothing else: no event is
+    /// written, and the ledger, a correction and the dose calendar still read
+    /// only what was recorded.
+    func testTheAssumptionLeavesTheLedgerAndAdherenceAlone() {
+        let (medication, schedules, opening) = twiceDaily()
+        let now = september(6, 7)
+        let doses = [logged(.taken, schedules[0], at: september(2, 8))]
+        let adherence = AdherenceSummary.month(containing: now, medicationID: medication.id, schedules: schedules, doseEvents: doses, now: now, calendar: calendar)
+
+        XCTAssertEqual(forecast(medication, schedules, [opening], doses, now: now).assumedDoses, 9)
+        XCTAssertEqual(ForecastEngine.rawSupplyBalance(medicationID: medication.id, inventoryEvents: [opening], doseEvents: doses), 29)
+        XCTAssertEqual(ForecastEngine.correctionDelta(medicationID: medication.id, actualCount: 20, inventoryEvents: [opening], doseEvents: doses), -9)
+        XCTAssertEqual(AdherenceSummary.month(containing: now, medicationID: medication.id, schedules: schedules, doseEvents: doses, now: now, calendar: calendar), adherence)
+        XCTAssertEqual(adherence[2].state, .missed, "an assumed dose is not a logged one")
+    }
+
+    func testAnAsNeededForecastAssumesNothing() {
+        let medication = Medication(name: "Example", isAsNeeded: true, createdAt: september(1, 7))
+        let opening = InventoryEvent(medicationID: medication.id, date: september(1, 7), delta: 20, reason: .openingCount)
+        let doses = (1...4).map { DoseEvent(medicationID: medication.id, recordedAt: september($0, 12), doseQuantity: 1, status: .taken) }
+        // A schedule left behind from before it was made as-needed.
+        let stale = DoseSchedule(medicationID: medication.id, minutesAfterMidnight: 8 * 60, doseQuantity: 1, startDate: september(1, 7))
+
+        let result = forecast(medication, [stale], [opening], doses, now: september(6, 7))
+        XCTAssertEqual(result, forecast(medication, [], [opening], doses, now: september(6, 7)))
+        XCTAssertEqual(result.assumedDoses, 0)
+        XCTAssertEqual(result.confidence, .estimated)
+        XCTAssertTrue(result.explanation.contains("as-needed use"), result.explanation)
+    }
+
+    /// A forecast runs on every screen and in the widget, so it weighs at most
+    /// 400 days of unlogged doses, however old the count.
+    func testTheLookBackStopsAtFourHundredDays() {
+        let added = calendar.date(byAdding: .day, value: -600, to: september(6, 7))!
+        let medication = Medication(name: "Example", createdAt: added)
+        let schedule = DoseSchedule(medicationID: medication.id, minutesAfterMidnight: 8 * 60, doseQuantity: 1, startDate: added)
+        let opening = InventoryEvent(medicationID: medication.id, date: added, delta: 1_000, reason: .openingCount)
+        XCTAssertEqual(forecast(medication, [schedule], [opening], now: september(6, 7)).assumedDoses, 400)
+    }
+
     func testSkippedDoseDoesNotReduceSupply() {
         let medication = Medication(name: "Example")
         let opening = InventoryEvent(medicationID: medication.id, delta: 10, reason: .openingCount)
