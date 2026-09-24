@@ -112,7 +112,7 @@ final class MedsUITests: XCTestCase {
             "-ui-testing",
             "-skip-onboarding",
             "-UIPreferredContentSizeCategoryName",
-            "UICTContentSizeCategoryAccessibilityExtraExtraExtraLarge"
+            "UICTContentSizeCategoryAccessibilityXXXL"
         ]
         app.launch()
 
