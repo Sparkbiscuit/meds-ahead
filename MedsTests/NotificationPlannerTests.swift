@@ -243,6 +243,7 @@ final class NotificationPlannerTests: XCTestCase {
         let threeDaysLate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 13, hour: 12)))
         let outcome = NotificationPlanner.plan(for: [plan], now: threeDaysLate, calendar: calendar)
         XCTAssertFalse(outcome.notifications.contains { $0.kind == .refillCheck }, "its morning has passed")
+        XCTAssertTrue(outcome.retainedIdentifiers.contains(check.identifier), "the question stands until the refill is added")
         XCTAssertEqual(outcome.notifications.filter { $0.kind == .refill }.count, 1,
                        "the pause has ended, so the low-supply warning on the 23rd is planned again")
     }
@@ -266,6 +267,60 @@ final class NotificationPlannerTests: XCTestCase {
         let plan = makePlan(doseRemindersEnabled: false, refillLeadDays: 2, depletionDate: depletion, refillInProgress: true)
 
         XCTAssertEqual(NotificationPlanner.notifications(for: plan, now: now, calendar: calendar).map(\.kind), [.refillCheck])
+    }
+
+    // MARK: - What a replan leaves in Notification Center
+
+    func testAPassedRefillAlertStaysOnlyWhileItIsStillTrue() throws {
+        let before = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 1, hour: 12)))
+        let after = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 15, hour: 12)))
+        let depletion = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 20, hour: 8)))
+        let plan = makePlan(refillLeadDays: 7, depletionDate: depletion)
+        let delivered = try XCTUnwrap(NotificationPlanner.notifications(for: plan, now: before, calendar: calendar).first { $0.kind == .refill }).identifier
+
+        func removed(_ plans: [MedicationNotificationPlan]) -> [String] {
+            let outcome = NotificationPlanner.plan(for: plans, now: after, calendar: calendar)
+            XCTAssertFalse(outcome.retainedIdentifiers.contains { $0.contains(".dose.") }, "dose reminders are never retained")
+            return NotificationService.deliveredIdentifiersToRemove(
+                delivered: [delivered],
+                planned: Set(outcome.notifications.map(\.identifier)),
+                retained: outcome.retainedIdentifiers
+            )
+        }
+
+        XCTAssertEqual(removed([plan]), [], "same run-out day, still low: the only warning stays")
+
+        let refilled = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 9, day: 19, hour: 8)))
+        XCTAssertEqual(removed([makePlan(refillLeadDays: 7, depletionDate: refilled)]), [delivered], "a refill moved the run-out day")
+        XCTAssertEqual(removed([makePlan(isArchived: true, refillLeadDays: 7, depletionDate: depletion)]), [delivered])
+        XCTAssertEqual(removed([makePlan(refillRemindersEnabled: false, refillLeadDays: 7, depletionDate: depletion)]), [delivered])
+        XCTAssertEqual(removed([makePlan(refillLeadDays: 7, depletionDate: depletion, refillInProgress: true, refillStatusDate: after)]), [delivered],
+                       "a refill on its way answers the warning")
+    }
+
+    func testAPassedExpirationAlertStaysWhileThePackageIsTheSame() throws {
+        let before = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 1, hour: 12)))
+        let after = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 25, hour: 12)))
+        let expiration = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 30)))
+        let delivered = try XCTUnwrap(NotificationPlanner.notifications(for: makePlan(doseRemindersEnabled: false, expirationDate: expiration), now: before, calendar: calendar).first).identifier
+
+        let same = NotificationPlanner.plan(for: [makePlan(doseRemindersEnabled: false, expirationDate: expiration)], now: after, calendar: calendar)
+        XCTAssertTrue(same.retainedIdentifiers.contains(delivered))
+
+        let newPackage = try XCTUnwrap(calendar.date(from: DateComponents(year: 2027, month: 8, day: 30)))
+        let replaced = NotificationPlanner.plan(for: [makePlan(doseRemindersEnabled: false, expirationDate: newPackage)], now: after, calendar: calendar)
+        XCTAssertEqual(NotificationService.deliveredIdentifiersToRemove(delivered: [delivered], planned: Set(replaced.notifications.map(\.identifier)), retained: replaced.retainedIdentifiers), [delivered])
+    }
+
+    func testRequestsNoLongerPlannedAreStillCancelledAndOldDoseRemindersCleared() throws {
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 1, hour: 12)))
+        let outcome = NotificationPlanner.plan(for: [makePlan(refillRemindersEnabled: false)], now: now, calendar: calendar)
+        let planned = Set(outcome.notifications.map(\.identifier))
+        XCTAssertEqual(planned, ["meds.group.dose.daily.0830"])
+
+        let moved = "meds.group.dose.daily.0700"
+        XCTAssertEqual(NotificationService.pendingIdentifiersToRemove(pending: [moved, "meds.group.dose.daily.0830", "other.app"], planned: planned), [moved])
+        XCTAssertEqual(NotificationService.deliveredIdentifiersToRemove(delivered: [moved, "meds.group.dose.daily.0830"], planned: planned, retained: outcome.retainedIdentifiers), [moved])
     }
 
     func testAPackageExpirationIsAnnouncedAWeekAhead() throws {

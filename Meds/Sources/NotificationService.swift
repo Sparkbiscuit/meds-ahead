@@ -5,6 +5,25 @@ import WidgetKit
 actor NotificationService {
     static let shared = NotificationService()
 
+    /// Requests still waiting to fire are replaced by the plan outright: one
+    /// the plan no longer asks for must not fire.
+    static func pendingIdentifiersToRemove(pending: [String], planned: Set<String>) -> [String] {
+        pending.filter { $0.hasPrefix("meds.") && !planned.contains($0) }
+    }
+
+    /// Delivered alerts that no longer say something true. A refill or
+    /// expiration alert is planned only until its moment, so once delivered it
+    /// is never in the plan again; sweeping everything unplanned took the only
+    /// low-supply warning out of Notification Center on the next launch, or the
+    /// next Taken on the lock screen. Those the planner still vouches for stay.
+    static func deliveredIdentifiersToRemove(
+        delivered: [String],
+        planned: Set<String>,
+        retained: Set<String>
+    ) -> [String] {
+        delivered.filter { $0.hasPrefix("meds.") && !planned.contains($0) && !retained.contains($0) }
+    }
+
     func replaceAllNotifications(
         for plans: [MedicationNotificationPlan],
         requestAuthorization: Bool = false
@@ -18,10 +37,14 @@ actor NotificationService {
         let managedPending = pending.map(\.identifier).filter { $0.hasPrefix("meds.") }
         let managedDelivered = delivered.map { $0.request.identifier }.filter { $0.hasPrefix("meds.") }
         center.removePendingNotificationRequests(
-            withIdentifiers: managedPending.filter { !plannedIdentifiers.contains($0) }
+            withIdentifiers: Self.pendingIdentifiersToRemove(pending: managedPending, planned: plannedIdentifiers)
         )
         center.removeDeliveredNotifications(
-            withIdentifiers: managedDelivered.filter { !plannedIdentifiers.contains($0) }
+            withIdentifiers: Self.deliveredIdentifiersToRemove(
+                delivered: managedDelivered,
+                planned: plannedIdentifiers,
+                retained: outcome.retainedIdentifiers
+            )
         )
 
         // The status is read and reported even when nothing is planned, so Settings
