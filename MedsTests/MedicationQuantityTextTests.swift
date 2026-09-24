@@ -47,6 +47,17 @@ final class MedicationQuantityTextTests: XCTestCase {
     /// record a correction of the rounding.
     func testUntouchedPrefilledTextRecordsTheExactNumber() {
         let supply = 27.125
-        XCTAssertEqual(SupplyChangeQuantity.value(from: supply.medicationQuantityText, prefilled: supply, requiresMoreThanZero: false), supply)
+        XCTAssertEqual(SupplyChangeQuantity.value(from: SupplyChangeQuantity.text(for: supply), prefilled: supply, requiresMoreThanZero: false), supply)
+    }
+
+    /// A region that groups with "." would prefill 1497.5 mL as "1.497,5", and
+    /// deleting only the fraction left "1.497", which recorded 1.497.
+    func testAGroupedNumberIsNeitherPrefilledNorGuessedAt() {
+        let german = Locale(identifier: "de_DE")
+        XCTAssertEqual(SupplyChangeQuantity.text(for: 1497.5, locale: german), "1497,5")
+        XCTAssertEqual(SupplyChangeQuantity.value(from: "1497", prefilled: 1497.5, requiresMoreThanZero: false, locale: german), 1497)
+        XCTAssertNil(SupplyChangeQuantity.value(from: "1.497", prefilled: 1497.5, requiresMoreThanZero: false, locale: german))
+        XCTAssertNil(SupplyChangeQuantity.value(from: "1,000", prefilled: 30, requiresMoreThanZero: true, locale: Locale(identifier: "en_US")))
+        XCTAssertEqual(SupplyChangeQuantity.value(from: "1000.5", prefilled: 30, requiresMoreThanZero: true, locale: Locale(identifier: "en_US")), 1000.5)
     }
 }

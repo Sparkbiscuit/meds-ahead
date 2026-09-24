@@ -668,6 +668,14 @@ private struct ActivityItem: Identifiable {
 /// sheet's button must stay disabled. A count may be zero, since an empty bottle
 /// is a real count; a refill must be more than nothing.
 enum SupplyChangeQuantity {
+    /// The text a sheet opens with, never grouped. A region that groups with "."
+    /// shows 1497.5 as "1.497,5"; deleting only the fraction would leave "1.497",
+    /// which the shared parser reads as 1.497, not 1497.
+    static func text(for value: Double, locale: Locale = .autoupdatingCurrent) -> String {
+        if value.rounded() == value { return value.medicationQuantityText }
+        return value.formatted(.number.grouping(.never).precision(.fractionLength(0...2)).locale(locale))
+    }
+
     static func value(
         from text: String,
         prefilled: Double,
@@ -675,7 +683,7 @@ enum SupplyChangeQuantity {
         locale: Locale = .autoupdatingCurrent
     ) -> Double? {
         let value: Double
-        if text == prefilled.medicationQuantityText {
+        if text == Self.text(for: prefilled, locale: locale) {
             // The prefilled text is rounded to two places. Left untouched it stands
             // for the exact number it was made from, so saving an unchanged count
             // records no correction.
@@ -685,7 +693,12 @@ enum SupplyChangeQuantity {
             // lenient parse reads "2..8" as 2 and "1.5.5" as 1.5, and the sheet
             // closes on the tap without showing the number it read.
             let separators = text.filter { $0 == "." || String($0) == locale.decimalSeparator }.count
-            guard separators <= 1, let parsed = Double.medicationQuantity(from: text, locale: locale) else { return nil }
+            // Neither the prefill nor the decimal pad writes a grouping separator,
+            // so one here was pasted or typed on a keyboard, and it is ambiguous:
+            // "1.497" is 1497 to a German reader and 1.497 to the parser.
+            let grouped = locale.groupingSeparator.map { !$0.isEmpty && text.contains($0) } ?? false
+            guard separators <= 1, !grouped,
+                  let parsed = Double.medicationQuantity(from: text, locale: locale) else { return nil }
             value = parsed
         }
         guard value.isFinite, value >= 0, !(requiresMoreThanZero && value <= 0) else { return nil }
@@ -727,7 +740,7 @@ private struct SupplyChangeSheet: View {
         self.initialValue = initialValue
         self.actionTitle = actionTitle
         self.onSave = onSave
-        _text = State(initialValue: initialValue.medicationQuantityText)
+        _text = State(initialValue: SupplyChangeQuantity.text(for: initialValue))
     }
 
     var body: some View {
