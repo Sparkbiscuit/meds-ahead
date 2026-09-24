@@ -825,10 +825,15 @@ struct MedicationEditorView: View {
 /// twice-daily fill read 28 doses high, and a count that is too high is the one
 /// that lets someone run out. So a scanned count is offered, never filled in.
 extension MedicationDraft {
-    /// The count a scanned label printed, when it printed one.
+    /// The count a scanned label printed, when it printed one, as the number the
+    /// Use button writes into the field. A label can print more decimals than a
+    /// quantity shows ("QTY: 473.176"), and the note, the button's Using state
+    /// and the saved amount must all be the one number the person sees.
     var labelDispensedQuantity: Double? {
-        guard source == .scanned, let currentSupply, currentSupply.isFinite, currentSupply > 0 else { return nil }
-        return currentSupply
+        guard source == .scanned, let currentSupply, currentSupply.isFinite,
+              let shown = Double.medicationQuantity(from: currentSupply.medicationQuantityText),
+              shown > 0 else { return nil }
+        return shown
     }
 
     /// The line under Current amount on a scanned label's review screen.
