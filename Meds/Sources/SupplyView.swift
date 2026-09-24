@@ -34,11 +34,8 @@ struct SupplyView: View {
         }
     }
 
-    private func attentionCount(in forecasts: [(Medication, SupplyForecast)]) -> Int {
-        forecasts.filter { item in
-            guard let days = item.1.daysRemaining, item.0.refillStatus == .none else { return false }
-            return days <= item.0.refillLeadDays
-        }.count
+    private func attentionCount(in forecasts: [(Medication, SupplyForecast)], now: Date) -> Int {
+        forecasts.filter { SupplyAttention(medication: $0.0, forecast: $0.1, now: now).needsAttention }.count
     }
 
     /// Ranked forecasts grouped under the person each medication is for, when
@@ -68,7 +65,7 @@ struct SupplyView: View {
             CanvasBackground()
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 16) {
-                    header(attentionCount: attentionCount(in: forecasts))
+                    header(attentionCount: attentionCount(in: forecasts, now: now))
                     if forecasts.isEmpty {
                         EmptyStateCard(
                             symbol: "chart.bar.doc.horizontal",
@@ -90,7 +87,7 @@ struct SupplyView: View {
                                 NavigationLink {
                                     MedicationDetailView(medication: medication)
                                 } label: {
-                                    SupplyRow(medication: medication, forecast: forecast)
+                                    SupplyRow(medication: medication, forecast: forecast, now: now)
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -135,20 +132,22 @@ struct SupplyView: View {
 private struct SupplyRow: View {
     let medication: Medication
     let forecast: SupplyForecast
+    let now: Date
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    /// Low, and nothing done about it yet: a refill under way turns the alarm off.
-    private var isLow: Bool {
-        guard medication.refillStatus == .none else { return false }
-        return forecast.daysRemaining.map { $0 <= medication.refillLeadDays } ?? false
+    private var attention: SupplyAttention {
+        SupplyAttention(medication: medication, forecast: forecast, now: now)
     }
+
+    /// Low, and no refill in progress that can still answer for it.
+    private var isLow: Bool { attention.needsAttention }
 
     var body: some View {
         Group {
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack(alignment: .top, spacing: 14) {
-                        SupplyGauge(daysRemaining: forecast.daysRemaining, leadDays: medication.refillLeadDays, size: 54)
+                        SupplyGauge(daysRemaining: forecast.daysRemaining, leadDays: attention.leadDays, size: 54)
                         nameLine
                         Spacer(minLength: 0)
                     }
@@ -156,7 +155,7 @@ private struct SupplyRow: View {
                 }
             } else {
                 HStack(spacing: 14) {
-                    SupplyGauge(daysRemaining: forecast.daysRemaining, leadDays: medication.refillLeadDays, size: 54)
+                    SupplyGauge(daysRemaining: forecast.daysRemaining, leadDays: attention.leadDays, size: 54)
                     VStack(alignment: .leading, spacing: 5) {
                         nameLine
                         supplyCopy
@@ -193,6 +192,14 @@ private struct SupplyRow: View {
                 .font(.subheadline)
                 .foregroundStyle(isLow ? .orange : .secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            // A late refill is still worth naming, but under the warning, not
+            // in place of it.
+            if isLow, let status = RefillStatusText.line(for: medication, now: now) {
+                Text(status)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             Text("\(forecast.currentSupply.medicationQuantityText) \(medication.form.unitName)\(forecast.currentSupply == 1 ? "" : "s") on hand")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
@@ -201,9 +208,10 @@ private struct SupplyRow: View {
     }
 
     private var summary: String {
-        if let status = RefillStatusText.line(for: medication) { return status }
+        if isLow { return SupplyAttention.line(for: forecast) }
+        if let status = RefillStatusText.line(for: medication, now: now) { return status }
         if let date = forecast.depletionDate {
-            return isLow ? "Act soon · around \(date.formatted(.dateTime.month(.abbreviated).day()))" : "Runs out around \(date.formatted(.dateTime.month(.abbreviated).day()))"
+            return "Runs out around \(date.formatted(.dateTime.month(.abbreviated).day()))"
         }
         return forecast.explanation
     }

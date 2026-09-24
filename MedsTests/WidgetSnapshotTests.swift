@@ -107,7 +107,50 @@ final class WidgetSnapshotTests: XCTestCase {
     }
 
     func testARefillOnItsWayNeedsNoAttention() {
-        let item = RunsOutSnapshot.Item(medicationID: UUID(), displayName: "Tacrolimus", daysRemaining: 3, depletionDate: date(9), refillLeadDays: 7, refillInProgress: true, accentIndex: 0)
+        let item = RunsOutSnapshot.Item(medicationID: UUID(), displayName: "Tacrolimus", daysRemaining: 3, depletionDate: date(9), refillLeadDays: 7,
+                                        refillsRemaining: nil, refillInProgress: true, daysSinceRefillDate: nil, onHand: true, accentIndex: 0)
         XCTAssertFalse(item.needsAttention)
+    }
+
+    private func item(daysRemaining: Int?, onHand: Bool = true, refillInProgress: Bool, daysSinceRefillDate: Int? = nil) -> RunsOutSnapshot.Item {
+        RunsOutSnapshot.Item(medicationID: UUID(), displayName: "Furosemide", daysRemaining: daysRemaining, depletionDate: date(9), refillLeadDays: 7,
+                             refillsRemaining: nil, refillInProgress: refillInProgress, daysSinceRefillDate: daysSinceRefillDate, onHand: onHand, accentIndex: 0)
+    }
+
+    /// "Refill on its way" is said only while the refill can still answer for
+    /// the supply. At zero it used to be what the widget said instead of out.
+    func testARefillOnItsWayIsNeverSaidOverAnEmptySupply() {
+        let out = item(daysRemaining: 0, onHand: false, refillInProgress: true, daysSinceRefillDate: 0)
+        XCTAssertEqual(out.line, "Out of supply")
+        XCTAssertEqual(out.tone, .out)
+        XCTAssertTrue(out.needsAttention)
+
+        let lastDose = item(daysRemaining: 0, refillInProgress: true, daysSinceRefillDate: -1)
+        XCTAssertEqual(lastDose.line, "Out of supply")
+
+        let onItsWay = item(daysRemaining: 5, refillInProgress: true, daysSinceRefillDate: -1)
+        XCTAssertEqual(onItsWay.line, "Refill on its way")
+        XCTAssertEqual(onItsWay.tone, .steady)
+
+        let late = item(daysRemaining: 5, refillInProgress: true, daysSinceRefillDate: 3)
+        XCTAssertEqual(late.line, "About 5 days left")
+        XCTAssertEqual(late.tone, .attention)
+        XCTAssertTrue(late.needsAttention)
+
+        XCTAssertEqual(item(daysRemaining: nil, refillInProgress: false).tone, .unknown)
+        XCTAssertEqual(item(daysRemaining: 20, refillInProgress: false).line, "About 20 days left")
+    }
+
+    func testTheSnapshotCountsTheRefillsLatenessWhenItIsMade() throws {
+        let (_, furosemide, schedules) = medications()
+        furosemide.refillStatus = .requested
+        furosemide.refillStatusDate = calendar.date(byAdding: .day, value: -3, to: date(9))
+        let inventory = [InventoryEvent(medicationID: furosemide.id, delta: 10, reason: .openingCount)]
+        let snapshot = RunsOutSnapshot.make(medications: [furosemide], schedules: schedules, inventoryEvents: inventory, doseEvents: [], now: date(9), calendar: calendar)
+        let soonest = try XCTUnwrap(snapshot.soonest)
+
+        XCTAssertEqual(soonest.daysSinceRefillDate, 3)
+        XCTAssertTrue(soonest.needsAttention, "three days late with five days left")
+        XCTAssertNotEqual(soonest.line, "Refill on its way")
     }
 }

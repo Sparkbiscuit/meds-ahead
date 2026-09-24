@@ -114,15 +114,53 @@ struct RunsOutSnapshot: Equatable, Sendable {
         let daysRemaining: Int?
         let depletionDate: Date?
         let refillLeadDays: Int
+        let refillsRemaining: Int?
         let refillInProgress: Bool
+        /// Counted when the snapshot is made, as `daysRemaining` is.
+        let daysSinceRefillDate: Int?
+        let onHand: Bool
         let accentIndex: Int
 
         var id: UUID { medicationID }
 
-        /// Low, and nothing done about it yet.
-        var needsAttention: Bool {
-            guard !refillInProgress, let daysRemaining else { return false }
-            return daysRemaining <= refillLeadDays
+        /// How urgent the widget shows a medication to be; the widget picks the
+        /// colour for each.
+        enum Tone: Equatable, Sendable {
+            case unknown
+            case steady
+            case attention
+            case out
+        }
+
+        var attention: SupplyAttention {
+            SupplyAttention(
+                daysRemaining: daysRemaining,
+                onHand: onHand,
+                refillLeadDays: refillLeadDays,
+                refillsRemaining: refillsRemaining,
+                refillInProgress: refillInProgress,
+                daysSinceRefillDate: daysSinceRefillDate
+            )
+        }
+
+        /// Low, and no refill in progress that can still answer for it.
+        var needsAttention: Bool { attention.needsAttention }
+
+        private var isOut: Bool { !onHand || (daysRemaining ?? 1) <= 0 }
+
+        var tone: Tone {
+            if isOut { return .out }
+            if needsAttention { return .attention }
+            return daysRemaining == nil ? .unknown : .steady
+        }
+
+        /// A refill on its way is said only while it can still answer for the
+        /// supply; at zero, or once it runs late, the count speaks instead.
+        var line: String {
+            if isOut { return "Out of supply" }
+            if attention.refillPauseHolds { return "Refill on its way" }
+            guard let daysRemaining else { return "Timing unknown" }
+            return daysRemaining == 1 ? "About 1 day left" : "About \(daysRemaining) days left"
         }
     }
 
@@ -150,13 +188,17 @@ struct RunsOutSnapshot: Equatable, Sendable {
                     now: now,
                     calendar: calendar
                 )
+                let attention = SupplyAttention(medication: medication, forecast: forecast, now: now, calendar: calendar)
                 return Item(
                     medicationID: medication.id,
                     displayName: medication.displayName,
                     daysRemaining: forecast.daysRemaining,
                     depletionDate: forecast.depletionDate,
                     refillLeadDays: medication.refillLeadDays,
-                    refillInProgress: medication.refillStatus != .none,
+                    refillsRemaining: medication.refillsRemaining,
+                    refillInProgress: attention.refillInProgress,
+                    daysSinceRefillDate: attention.daysSinceRefillDate,
+                    onHand: attention.onHand,
                     accentIndex: medication.accentIndex
                 )
             }

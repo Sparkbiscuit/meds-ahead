@@ -203,7 +203,8 @@ final class NotificationPlannerTests: XCTestCase {
     }
 
     /// A refill already requested or ready is the answer to the warning, so the
-    /// warning stops; the forecast itself does not change.
+    /// warning stops; the forecast itself does not change. What remains is the
+    /// one question for the morning the refill stops answering for the supply.
     func testARefillInProgressSilencesTheLowSupplyWarning() throws {
         let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 1, hour: 12)))
         let depletion = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 20, hour: 8)))
@@ -211,7 +212,60 @@ final class NotificationPlannerTests: XCTestCase {
         XCTAssertEqual(NotificationPlanner.notifications(for: warned, now: now, calendar: calendar).count, 1)
 
         let requested = makePlan(doseRemindersEnabled: false, refillLeadDays: 7, depletionDate: depletion, refillInProgress: true)
-        XCTAssertTrue(NotificationPlanner.notifications(for: requested, now: now, calendar: calendar).isEmpty)
+        let notifications = NotificationPlanner.notifications(for: requested, now: now, calendar: calendar)
+        XCTAssertTrue(notifications.filter { $0.kind == .refill }.isEmpty)
+        XCTAssertEqual(notifications.map(\.kind), [.refillCheck], "two days before it runs out, with no date to go on")
+    }
+
+    /// Requested on the 10th, and not in hand: the morning of the 12th asks, and
+    /// from then on the warning is back. A refill check whose morning has gone
+    /// is not asked again.
+    func testALateRefillIsCheckedOnTheMorningThePauseEnds() throws {
+        let requestedOn = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 10, hour: 12)))
+        let depletion = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 30, hour: 8)))
+        let plan = makePlan(displayName: "Furosemide", doseRemindersEnabled: false, detailedNotifications: false, refillLeadDays: 7,
+                            depletionDate: depletion, refillInProgress: true, refillStatusDate: requestedOn)
+
+        let dayAfter = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 11, hour: 12)))
+        let lapse = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 12, hour: 9)))
+        let check = try XCTUnwrap(NotificationPlanner.notifications(for: plan, now: dayAfter, calendar: calendar).first { $0.kind == .refillCheck })
+        XCTAssertEqual(check.trigger, .date(lapse))
+        XCTAssertEqual(check.identifier, "meds.AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE.refillcheck.20260812")
+        XCTAssertEqual(check.title, "Is the refill in hand?")
+        XCTAssertFalse(check.title.contains("Furosemide") || check.body.contains("Furosemide"), "private copy names nothing")
+
+        let named = makePlan(displayName: "Furosemide", doseRemindersEnabled: false, detailedNotifications: true, refillLeadDays: 7,
+                             depletionDate: depletion, refillInProgress: true, refillStatusDate: requestedOn)
+        let detailed = try XCTUnwrap(NotificationPlanner.notifications(for: named, now: dayAfter, calendar: calendar).first { $0.kind == .refillCheck })
+        XCTAssertTrue(detailed.title.contains("Furosemide"))
+        XCTAssertTrue(detailed.body.contains("Aug 30"), detailed.body)
+
+        let threeDaysLate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 13, hour: 12)))
+        let outcome = NotificationPlanner.plan(for: [plan], now: threeDaysLate, calendar: calendar)
+        XCTAssertFalse(outcome.notifications.contains { $0.kind == .refillCheck }, "its morning has passed")
+        XCTAssertEqual(outcome.notifications.filter { $0.kind == .refill }.count, 1,
+                       "the pause has ended, so the low-supply warning on the 23rd is planned again")
+    }
+
+    /// A refill requested well before supply runs low used to cancel the one
+    /// warning for good, even if it never came.
+    func testARefillThatNeverComesDoesNotCancelTheWarning() throws {
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 1, hour: 12)))
+        let depletion = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 30, hour: 8)))
+        let plan = makePlan(doseRemindersEnabled: false, refillLeadDays: 7, depletionDate: depletion, refillInProgress: true, refillStatusDate: now)
+        let leadMorning = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 23, hour: 9)))
+        let notifications = NotificationPlanner.notifications(for: plan, now: now, calendar: calendar)
+
+        XCTAssertEqual(notifications.map(\.kind), [.refillCheck, .refill])
+        XCTAssertEqual(notifications.last?.trigger, .date(leadMorning))
+    }
+
+    func testARefillCheckAndAWarningOnTheSameMorningAreOneAlert() throws {
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 1, hour: 12)))
+        let depletion = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 20, hour: 8)))
+        let plan = makePlan(doseRemindersEnabled: false, refillLeadDays: 2, depletionDate: depletion, refillInProgress: true)
+
+        XCTAssertEqual(NotificationPlanner.notifications(for: plan, now: now, calendar: calendar).map(\.kind), [.refillCheck])
     }
 
     func testAPackageExpirationIsAnnouncedAWeekAhead() throws {
@@ -356,7 +410,9 @@ final class NotificationPlannerTests: XCTestCase {
         refillInProgress: Bool = false,
         expirationDate: Date? = nil,
         pharmacyName: String = "",
-        rxNumber: String = ""
+        rxNumber: String = "",
+        refillStatusDate: Date? = nil,
+        onHand: Bool = true
     ) -> MedicationNotificationPlan {
         MedicationNotificationPlan(
             medicationID: medicationID,
@@ -381,7 +437,9 @@ final class NotificationPlannerTests: XCTestCase {
             refillInProgress: refillInProgress,
             expirationDate: expirationDate,
             pharmacyName: pharmacyName,
-            rxNumber: rxNumber
+            rxNumber: rxNumber,
+            refillStatusDate: refillStatusDate,
+            onHand: onHand
         )
     }
 }
