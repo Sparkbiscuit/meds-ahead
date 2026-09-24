@@ -162,7 +162,8 @@ final class MedsUITests: XCTestCase {
     /// A scanned draft must survive the hand-off into the review screen. The
     /// overlay saying it found a name, strength and quantity is worthless if the
     /// editor then opens blank. The quantity is the exception on purpose: a
-    /// label's count is what was dispensed, so it is offered, not filled in.
+    /// label's count is what the bottle held when full, so it is offered, not
+    /// filled in.
     func testScannedDraftPopulatesTheReviewScreen() {
         let app = XCUIApplication()
         app.launchArguments = ["-ui-testing", "-skip-onboarding", "-simulate-scan-result"]
@@ -189,7 +190,7 @@ final class MedsUITests: XCTestCase {
         )
         let note = app.descendants(matching: .any)["label-quantity-note"]
         XCTAssertTrue(note.exists)
-        XCTAssertTrue(note.label.hasPrefix("Label says 60 dispensed"), note.label)
+        XCTAssertTrue(note.label.hasPrefix("Label says 60 when full"), note.label)
 
         // Blank is still not zero: Add asks for the amount, as it does for any draft.
         app.buttons["save-medication"].tap()

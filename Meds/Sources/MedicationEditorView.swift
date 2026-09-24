@@ -609,7 +609,7 @@ struct MedicationEditorView: View {
                 Label(note, systemImage: "doc.text.viewfinder")
                     .font(.subheadline.weight(.semibold))
                     .fixedSize(horizontal: false, vertical: true)
-                Text("That is what the pharmacy filled, not what is left. Use it for an unopened bottle; otherwise enter what you count now.")
+                Text("That is the count before any were taken, not what is left. Use it for an unopened bottle; otherwise enter what you count now.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -820,10 +820,12 @@ struct MedicationEditorView: View {
     }
 }
 
-/// A label's quantity is the amount the pharmacy dispensed, not the amount in
-/// the bottle now. Filled in as the current amount, a bottle two weeks into a
-/// twice-daily fill read 28 doses high, and a count that is too high is the one
-/// that lets someone run out. So a scanned count is offered, never filled in.
+/// A label's quantity is what the bottle held when full, not the amount in it
+/// now. Filled in as the current amount, a bottle two weeks into a twice-daily
+/// fill read 28 doses high, and a count that is too high is the one that lets
+/// someone run out. So a scanned count is offered, never filled in. The words
+/// say "when full" rather than "dispensed" because the parser also reads a
+/// stock bottle's printed count ("120 TABLETS"), which no pharmacy filled.
 extension MedicationDraft {
     /// The count a scanned label printed, when it printed one, as the number the
     /// Use button writes into the field. A label can print more decimals than a
@@ -838,7 +840,7 @@ extension MedicationDraft {
 
     /// The line under Current amount on a scanned label's review screen.
     var labelDispensedNote: String? {
-        labelDispensedQuantity.map { "Label says \($0.medicationQuantityText) dispensed" }
+        labelDispensedQuantity.map { "Label says \($0.medicationQuantityText) when full" }
     }
 
     /// What Current amount starts as. A scanned draft's number is the label's,

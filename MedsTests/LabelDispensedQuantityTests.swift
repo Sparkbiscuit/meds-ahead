@@ -1,7 +1,7 @@
 import XCTest
 @testable import Meds
 
-/// A label's QTY is what the pharmacy dispensed. Filled in as the current
+/// A label's count is what the bottle held when full. Filled in as the current
 /// amount it reads high for every dose already taken from the bottle, which is
 /// the direction that runs someone out, so the review screen offers it instead.
 final class LabelDispensedQuantityTests: XCTestCase {
@@ -15,8 +15,23 @@ final class LabelDispensedQuantityTests: XCTestCase {
 
         XCTAssertEqual(draft.currentSupply, 90, "the parser still reads the label's count")
         XCTAssertEqual(draft.labelDispensedQuantity, 90)
-        XCTAssertEqual(draft.labelDispensedNote, "Label says 90 dispensed")
+        XCTAssertEqual(draft.labelDispensedNote, "Label says 90 when full")
         XCTAssertEqual(draft.initialCurrentAmountText, "", "a dispensed count must never become the current amount on its own")
+    }
+
+    /// A stock bottle's printed count was never dispensed, so the note must not
+    /// say a pharmacy filled it; it is still the count when full, and still not
+    /// filled in.
+    func testAStockBottlesCountIsOfferedAsTheCountWhenFull() {
+        let draft = MedicationLabelInterpreter.offlineDraft([
+            ScanEvidence(kind: .text, value: "MELATONIN 5 MG", confidence: 0.9),
+            ScanEvidence(kind: .text, value: "DIETARY SUPPLEMENT", confidence: 0.9),
+            ScanEvidence(kind: .text, value: "120 TABLETS", confidence: 0.9)
+        ])
+
+        XCTAssertEqual(draft.currentSupply, 120)
+        XCTAssertEqual(draft.labelDispensedNote, "Label says 120 when full")
+        XCTAssertEqual(draft.initialCurrentAmountText, "")
     }
 
     /// The Use button writes the quantity as shown, to two decimals. Offered at
