@@ -116,7 +116,7 @@ enum NotificationDoseRecorder {
                 recordedAt: .now,
                 doseQuantity: schedule.doseQuantity,
                 status: status,
-                note: "Logged from reminder"
+                note: DoseEventNote.reminder
             )
         )
         try context.save()
