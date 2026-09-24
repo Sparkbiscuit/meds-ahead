@@ -495,6 +495,18 @@ struct MedicationDetailView: View {
             doseEvents: allDoseEvents,
             now: now
         )
+        if let claimed {
+            // The widget may have logged this dose where these arrays cannot see
+            // it yet. A tap made while the screen still shows it unlogged is that
+            // same dose, not another one, so nothing more is written.
+            do {
+                guard try !DoseLogGuard.isLogged(claimed, in: modelContext, now: now) else { return }
+            } catch {
+                saveErrorMessage = "Your change wasn't saved. Try again."
+                showingSaveError = true
+                return
+            }
+        }
         let quantity = claimed?.quantity
             ?? ScheduleEngine.nearestScheduledQuantity(
                 schedules: allSchedules,
