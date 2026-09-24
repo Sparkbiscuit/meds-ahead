@@ -1,5 +1,37 @@
 # Verification record
 
+## September 24, 2026 — every unit test read, and the ones that add nothing removed
+
+Each of the 373 unit tests was read against one question: would the suite
+lose anything if this test went? 37 went. No production code changed, and
+nothing that guards a rule in `AGENTS.md` was removed: the ledger, the
+as-needed window, slot identity, the store move, the notification cap, the
+two name gates, the NDC gate and the Health mirror keep every test they had.
+The rendered-label OCR tests stay whole, because recognition is not monotonic
+in print size.
+
+- **Repeats (31).** Each of these makes only assertions that a test which stays
+  already makes on the same path. The three OCR-garbage sigs are still
+  rejected in the directions-gate test. `SERTRALINE HCL 50MG G1`,
+  the ambiguous label-furniture draft and the two-product NDC pair were each
+  asserted twice. The plain sertraline label duplicated the risedronate test,
+  and the valganciclovir and printed-brand drafts duplicated the brand and
+  vocabulary tests. The vocabulary repairs are still made against the shipped
+  list, and a single-entry PDF still opens as a one-page document. The rest
+  were similar pairs in the scan preview, interpreter, NDC, RxNorm, take-now,
+  review-prompt and list-document tests.
+- **Mirrors (4).** These restated an implementation rather than checking a
+  behaviour: the Health-form switch, the scan frame's inset formula, and 24
+  brand-table rows copied from the file, plus a brand-to-generic lookup the
+  resolution tests already make. The table's integrity test, its resolution
+  tests and the deliberate blanks stay.
+- **Could not fail (2).** An unbaselined `measure` block, and a palette test
+  that passed as long as two of eight names differed in colour.
+
+### Results
+
+- Unit tests 336/336 and UI tests 10/10 on the iPhone 17 Pro simulator.
+
 ## September 21, 2026 — 1.1.1: the supply-accuracy fixes from the post-1.1 brief
 
 An unattended session on the branch `fix/1.1.1-supply-accuracy`, working

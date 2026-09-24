@@ -208,24 +208,6 @@ final class MedicationLabelInterpreterTests: XCTestCase {
         XCTAssertEqual(result.strength, "5 mg")
     }
 
-    func testOfflineDraftAddsBrandForGenericName() {
-        let draft = MedicationLabelInterpreter.offlineDraft([
-            ScanEvidence(kind: .text, value: "SERTRALINE HCL 50MG")
-        ])
-
-        XCTAssertEqual(draft.name, "Sertraline")
-        XCTAssertEqual(draft.brandName, "Zoloft")
-    }
-
-    func testOfflineDraftResolvesPrintedBrandToGenericName() {
-        let draft = MedicationLabelInterpreter.offlineDraft([
-            ScanEvidence(kind: .text, value: "PROGRAF 5MG CAPSULE")
-        ])
-
-        XCTAssertEqual(draft.name, "Tacrolimus")
-        XCTAssertEqual(draft.brandName, "Prograf")
-    }
-
     func testOfflineDraftLeavesUnindexedMedicationNameAndBrandUnchanged() {
         let draft = MedicationLabelInterpreter.offlineDraft([
             ScanEvidence(kind: .text, value: "MELATONIN 5MG")
@@ -251,15 +233,6 @@ final class MedicationLabelInterpreterTests: XCTestCase {
 
         XCTAssertTrue(strengths.contains("400-80 mg"))
         XCTAssertFalse(strengths.contains("80 mg"))
-    }
-
-    func testCandidateBuilderStrengthCandidatesDoNotContainUncanonicalizedForms() {
-        let strengths = LabelCandidateBuilder.build(from: [
-            ScanEvidence(kind: .text, value: "SERTRALINE 50MG")
-        ]).strengths.map(\.value)
-
-        XCTAssertTrue(strengths.contains("50 mg"))
-        XCTAssertFalse(strengths.contains("50MG"))
     }
 
     func testCandidateBuilderDirectionsExcludePharmacyGarbageAndStayTrusted() {

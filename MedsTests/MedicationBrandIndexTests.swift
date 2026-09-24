@@ -115,59 +115,12 @@ final class MedicationBrandIndexTests: XCTestCase {
         }
     }
 
-    /// Medications common in lung-transplant care. The shared list a clinician
-    /// reads should carry both names for each of them.
-    func testTransplantMedicationsResolveToTheirBrands() {
-        let expected: [(String, String)] = [
-            ("tacrolimus", "Prograf"),
-            ("mycophenolate mofetil", "CellCept"),
-            ("mycophenolate sodium", "Myfortic"),
-            ("azathioprine", "Imuran"),
-            ("sirolimus", "Rapamune"),
-            ("valganciclovir", "Valcyte"),
-            ("letermovir", "Prevymis"),
-            ("maribavir", "Livtencity"),
-            ("sulfamethoxazole / trimethoprim", "Bactrim"),
-            ("atovaquone", "Mepron"),
-            ("acyclovir", "Zovirax"),
-            ("valacyclovir", "Valtrex"),
-            ("posaconazole", "Noxafil"),
-            ("voriconazole", "Vfend"),
-            ("itraconazole", "Sporanox"),
-            ("isavuconazonium", "Cresemba"),
-            ("azithromycin", "Zithromax"),
-            ("pantoprazole", "Protonix"),
-            ("famotidine", "Pepcid"),
-            ("levalbuterol", "Xopenex"),
-            ("metoprolol succinate", "Toprol XL"),
-            ("sertraline", "Zoloft"),
-            ("alendronate", "Fosamax"),
-            ("magnesium oxide", "Mag-Ox")
-        ]
-        for (generic, brand) in expected {
-            XCTAssertEqual(
-                MedicationBrandIndex.brandName(forGeneric: generic),
-                brand,
-                "\(generic) should resolve to \(brand)"
-            )
-        }
-    }
-
     /// A pharmacy prints the salt and the release form, not the bare ingredient.
     func testTransplantNamesResolveAsAPharmacyPrintsThem() {
         XCTAssertEqual(MedicationBrandIndex.resolve("Metoprolol Succinate XL")?.brand, "Toprol XL")
         XCTAssertEqual(MedicationBrandIndex.resolve("Sertraline HCl")?.brand, "Zoloft")
         XCTAssertEqual(MedicationBrandIndex.resolve("Sulfamethoxazole-Trimethoprim")?.brand, "Bactrim")
         XCTAssertEqual(MedicationBrandIndex.resolve("Azathioprine Sodium")?.brand, "Imuran")
-    }
-
-    /// Scanning the brand side has to give back the generic, which is the whole
-    /// point of the table for someone holding a bottle that says PROGRAF.
-    func testTransplantBrandsResolveBackToGenerics() {
-        XCTAssertEqual(MedicationBrandIndex.genericName(forBrand: "Prograf"), "tacrolimus")
-        XCTAssertEqual(MedicationBrandIndex.genericName(forBrand: "CellCept"), "mycophenolate mofetil")
-        XCTAssertEqual(MedicationBrandIndex.genericName(forBrand: "Valcyte"), "valganciclovir")
-        XCTAssertEqual(MedicationBrandIndex.genericName(forBrand: "Prevymis"), "letermovir")
     }
 
     func testDisplayNameUppercasesOnlyTheFirstCharacter() {

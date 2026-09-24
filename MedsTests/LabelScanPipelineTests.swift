@@ -80,20 +80,6 @@ final class LabelScanPipelineTests: XCTestCase {
         XCTAssertEqual(mapped.height, 2360, accuracy: 1)
     }
 
-    /// The frame's top edge follows the pill row it sits under, so a row that
-    /// wraps at a large text size pushes the frame down instead of lying across it.
-    func testFrameTopInsetFollowsTheMeasuredPillRow() {
-        XCTAssertEqual(ScanFrameLayout.topInset(forPillRowHeight: 0), ScanFrameLayout.topInset, "unmeasured: the default")
-        XCTAssertEqual(ScanFrameLayout.topInset(forPillRowHeight: 30), ScanFrameLayout.pillRowTop + 30 + ScanFrameLayout.pillRowGap)
-        XCTAssertEqual(ScanFrameLayout.topInset(forPillRowHeight: 70), ScanFrameLayout.pillRowTop + 70 + ScanFrameLayout.pillRowGap)
-
-        let bounds = CGRect(x: 0, y: 0, width: 393, height: 700)
-        let region = ScanFrameLayout.region(in: bounds, topInset: ScanFrameLayout.topInset(forPillRowHeight: 70))
-        XCTAssertEqual(region.minY, ScanFrameLayout.pillRowTop + 70 + ScanFrameLayout.pillRowGap)
-        XCTAssertEqual(region.maxY, 700 - ScanFrameLayout.bottomInset)
-        XCTAssertEqual(region.minX, ScanFrameLayout.horizontalInset)
-    }
-
     /// A better live reading of a captured line takes the captured line's place
     /// in its line order, or the adjacency a wrapped sig depends on is lost.
     func testABetterLiveReadingKeepsTheCapturedLinesPosition() {

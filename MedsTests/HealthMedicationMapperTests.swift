@@ -86,19 +86,6 @@ final class HealthMedicationMapperTests: XCTestCase {
         XCTAssertEqual(HealthMedicationMapper.cleanedName(from: "Prednisolone 15 mg/5 mL oral solution"), "Prednisolone")
     }
 
-    func testHealthFormsMapOntoTheAppsForms() {
-        XCTAssertEqual(HealthMedicationMapper.form(for: .tablet), .tablet)
-        XCTAssertEqual(HealthMedicationMapper.form(for: .capsule), .capsule)
-        XCTAssertEqual(HealthMedicationMapper.form(for: .liquid), .liquid)
-        XCTAssertEqual(HealthMedicationMapper.form(for: .injection), .injection)
-        XCTAssertEqual(HealthMedicationMapper.form(for: .inhaler), .inhaler)
-        XCTAssertEqual(HealthMedicationMapper.form(for: .patch), .patch)
-        XCTAssertEqual(HealthMedicationMapper.form(for: .drops), .drops)
-        XCTAssertEqual(HealthMedicationMapper.form(for: .ointment), .topical)
-        XCTAssertEqual(HealthMedicationMapper.form(for: .spray), .other)
-        XCTAssertNil(HealthMedicationMapper.form(for: .unknown))
-    }
-
     @MainActor
     func testAnEntryAlreadyOnFileIsRecognised() {
         let sertraline = Medication(name: "Sertraline", brandName: "Zoloft", strength: "50 mg")

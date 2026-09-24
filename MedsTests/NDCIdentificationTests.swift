@@ -253,14 +253,6 @@ final class NDCIdentificationTests: XCTestCase {
         XCTAssertEqual(bothWrong.name, "Tacrolimus")
     }
 
-    func testTwoCodesNamingDifferentProductsResolveToNothing() {
-        let match = NDCIdentification.match(
-            in: evidence(["NDC 0093-1039-01", "NDC 0054-4161-01"]),
-            directory: directory(rows)
-        )
-        XCTAssertNil(match)
-    }
-
     func testAnEmptyDirectoryChangesNothing() {
         let draft = MedicationLabelInterpreter.offlineDraft(
             evidence(["SERTRALINE HCL 50 MG TABLET", "NDC 0093-1039-01"]),

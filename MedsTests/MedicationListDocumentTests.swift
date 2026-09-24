@@ -139,23 +139,6 @@ final class MedicationListDocumentTests: XCTestCase {
         )
     }
 
-    @MainActor
-    func testRenderedPDFIsARealDocument() throws {
-        let entry = MedicationListEntry(
-            id: UUID(),
-            title: "Tacrolimus",
-            subtitle: "1 mg · Capsule",
-            directions: "Take 1 capsule by mouth twice daily",
-            scheduleLines: ["8:00 AM — 1 capsule · Every day"],
-            supplyLine: "30 capsules on hand",
-            detailLine: "2 refills remaining"
-        )
-        let url = try XCTUnwrap(MedicationListPDFRenderer.render(entries: [entry]))
-        let data = try Data(contentsOf: url)
-        XCTAssertTrue(data.starts(with: Array("%PDF".utf8)))
-        XCTAssertGreaterThan(data.count, 1000)
-    }
-
     /// The household this was built for has more than a dozen medications. Rendered
     /// as one page sized to its content that was a sheet some three feet tall, which
     /// prints to nothing legible.
@@ -240,23 +223,5 @@ final class MedicationListDocumentTests: XCTestCase {
         )
 
         XCTAssertEqual(try XCTUnwrap(entries.first).subtitle, "Sertraline · Brand: Zoloft · 50 mg · Tablet")
-    }
-
-    func testEntrySubtitleKeepsThePreviousTextWhenBrandIsEmpty() throws {
-        let medication = Medication(
-            name: "Sertraline",
-            brandName: "",
-            strength: "50 mg",
-            form: .tablet
-        )
-        let entries = MedicationListDocument.entries(
-            medications: [medication],
-            schedules: [],
-            inventoryEvents: [],
-            doseEvents: [],
-            calendar: calendar
-        )
-
-        XCTAssertEqual(try XCTUnwrap(entries.first).subtitle, "50 mg · Tablet")
     }
 }

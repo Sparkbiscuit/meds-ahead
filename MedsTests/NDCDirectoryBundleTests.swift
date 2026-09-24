@@ -97,12 +97,4 @@ final class NDCDirectoryBundleTests: XCTestCase {
         XCTAssertEqual(draft.form, .capsule)
         XCTAssertEqual(draft.productIdentifier, "00469-0617-73")
     }
-
-    func testLookupIsFastEnoughForTheLivePreview() {
-        measure {
-            for key in ["644060006", "004690617", "581510575", "167140612", "000000000", "999999999"] {
-                _ = directory.product(forKey: key)
-            }
-        }
-    }
 }
