@@ -204,6 +204,46 @@ final class MedsUITests: XCTestCase {
         XCTAssertFalse(useLabelQuantity.isEnabled)
     }
 
+    /// At the largest text size Current amount has scrolled away by the time the
+    /// label's count is on screen, so the button, and its Using state, are the
+    /// only way to fill the field and see that it worked.
+    func testScannedLabelQuantityAtLargestAccessibilityText() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-ui-testing",
+            "-skip-onboarding",
+            "-simulate-scan-result",
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryAccessibilityXXXL"
+        ]
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["Add"].tap()
+        // At this size the scan summary fills the first screen, so the name field
+        // has not been built yet; the navigation bar is what shows the review
+        // screen opened.
+        XCTAssertTrue(app.navigationBars["Review Medication"].waitForExistence(timeout: 5), "review screen never appeared")
+
+        let useLabelQuantity = app.buttons["use-label-quantity"]
+        for _ in 0..<10 where !useLabelQuantity.isHittable { app.swipeUp() }
+        XCTAssertTrue(useLabelQuantity.isHittable, "the label's count cannot be reached at the largest text size")
+        XCTAssertEqual(useLabelQuantity.label, "Use 60 as the current amount")
+        try app.performAccessibilityAudit(for: [
+            .elementDetection,
+            .hitRegion,
+            .sufficientElementDescription,
+            .trait
+        ])
+
+        useLabelQuantity.tap()
+        XCTAssertEqual(useLabelQuantity.label, "Using 60 as the current amount")
+        XCTAssertFalse(useLabelQuantity.isEnabled)
+        let supply = app.textFields["current-supply"]
+        for _ in 0..<4 where !supply.isHittable { app.swipeDown() }
+        XCTAssertEqual(supply.value as? String, "60", "Use 60 did not fill the current amount")
+    }
+
     func testLogAllDueRecordsEveryDueDose() {
         let app = XCUIApplication()
         app.launchArguments = [
