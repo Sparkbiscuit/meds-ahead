@@ -23,10 +23,15 @@ enum DoseTimingState: Equatable {
 }
 
 enum ScheduleEngine {
+    /// How long either side of its time a dose counts as due rather than
+    /// upcoming or overdue. The first-day rule in `scheduledDate` measures from
+    /// the same window, so a dose Today would call due is never one it hides.
+    static let dueWindow: TimeInterval = 30 * 60
+
     static func timingState(
         for scheduledAt: Date,
         now: Date = .now,
-        dueWindow: TimeInterval = 30 * 60
+        dueWindow: TimeInterval = ScheduleEngine.dueWindow
     ) -> DoseTimingState {
         // The UI-test override lives here rather than in one screen's own copy, so
         // driving the overdue state cannot make Today and Take Now disagree about
@@ -69,7 +74,16 @@ enum ScheduleEngine {
         guard isActive(schedule, on: day, calendar: calendar) else { return nil }
         let hour = schedule.minutesAfterMidnight / 60
         let minute = schedule.minutesAfterMidnight % 60
-        return calendar.date(bySettingHour: hour, minute: minute, second: 0, of: day)
+        guard let date = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: day) else { return nil }
+        // A time already past when the schedule was saved was never a dose this
+        // app asked for: offered anyway, a medication added at 15:00 showed its
+        // 08:00 dose overdue, "Mark all due" charged it to the count just entered,
+        // and the next morning asked whether it was missed. One still inside its
+        // due window stays, since Today would call it due. Only the start day can
+        // bind, and an edited time keeps its schedule's start date, so the days
+        // before the edit keep their slots.
+        guard date >= schedule.startDate.addingTimeInterval(-dueWindow) else { return nil }
+        return date
     }
 
     /// Every dose scheduled on the calendar day containing `day`. Today, the
