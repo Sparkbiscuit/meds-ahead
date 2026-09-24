@@ -62,6 +62,17 @@ final class SupplyAttentionTests: XCTestCase {
         XCTAssertFalse(attention(daysRemaining: 3, daysSinceRefillDate: 0).needsAttention)
     }
 
+    /// Told the refill comes only after the supply runs out, the app used to say
+    /// it was on its way and hold back every warning until two days were left.
+    func testARefillDueOnlyAfterTheSupplyRunsOutIsAGap() {
+        let afterRunOut = attention(daysRemaining: 6, daysSinceRefillDate: -16)
+        XCTAssertFalse(afterRunOut.refillPauseHolds)
+        XCTAssertTrue(afterRunOut.needsAttention)
+        XCTAssertTrue(attention(daysRemaining: 6, daysSinceRefillDate: -6).needsAttention, "due the day it runs out")
+        XCTAssertFalse(attention(daysRemaining: 6, daysSinceRefillDate: -5).needsAttention, "due the day before: in time")
+        XCTAssertFalse(attention(daysRemaining: 20, daysSinceRefillDate: -25).needsAttention, "due after it runs out, but nowhere near low: nothing to act on yet")
+    }
+
     func testTheCheckComesOnTheMorningThePauseEnds() throws {
         let late = try XCTUnwrap(SupplyAttention.refillCheckMoment(refillStatusDate: day(10), depletionDate: day(30, hour: 8), calendar: calendar))
         XCTAssertEqual(late, day(12, hour: 9))

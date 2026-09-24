@@ -269,6 +269,22 @@ final class NotificationPlannerTests: XCTestCase {
         XCTAssertEqual(NotificationPlanner.notifications(for: plan, now: now, calendar: calendar).map(\.kind), [.refillCheck])
     }
 
+    /// Expected on the 20th, with the supply gone on the 10th: however punctual
+    /// the pharmacy, that is days without medication, so the warning is not
+    /// held back for it.
+    func testARefillDueAfterTheSupplyRunsOutDoesNotQuietTheWarning() throws {
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 1, hour: 12)))
+        let depletion = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 10, hour: 8)))
+        let expected = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 20)))
+        let leadMorning = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 3, hour: 9)))
+        let checkMorning = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 8, hour: 9)))
+        let plan = makePlan(doseRemindersEnabled: false, refillLeadDays: 7, depletionDate: depletion, refillInProgress: true, refillStatusDate: expected)
+        let notifications = NotificationPlanner.notifications(for: plan, now: now, calendar: calendar)
+
+        XCTAssertEqual(notifications.map(\.kind), [.refill, .refillCheck])
+        XCTAssertEqual(notifications.map(\.trigger), [.date(leadMorning), .date(checkMorning)])
+    }
+
     // MARK: - What a replan leaves in Notification Center
 
     func testAPassedRefillAlertStaysOnlyWhileItIsStillTrue() throws {

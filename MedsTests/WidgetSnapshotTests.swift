@@ -137,6 +137,10 @@ final class WidgetSnapshotTests: XCTestCase {
         XCTAssertEqual(late.tone, .attention)
         XCTAssertTrue(late.needsAttention)
 
+        let dueAfterRunOut = item(daysRemaining: 5, refillInProgress: true, daysSinceRefillDate: -9)
+        XCTAssertEqual(dueAfterRunOut.line, "About 5 days left", "a refill due after the supply is gone is not on its way in time")
+        XCTAssertEqual(dueAfterRunOut.tone, .attention)
+
         XCTAssertEqual(item(daysRemaining: nil, refillInProgress: false).tone, .unknown)
         XCTAssertEqual(item(daysRemaining: 20, refillInProgress: false).line, "About 20 days left")
     }

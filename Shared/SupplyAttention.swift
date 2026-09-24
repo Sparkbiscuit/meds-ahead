@@ -46,11 +46,16 @@ struct SupplyAttention: Equatable, Sendable {
 
     /// A refill in progress stands in for the warning only while it is still
     /// believable: not run late past its grace, with enough left to wait for it,
-    /// and something on hand. An unknown runway is not a short one.
+    /// due before the supply runs out, and something on hand. An unknown runway
+    /// is not a short one.
     var refillPauseHolds: Bool {
         guard refillInProgress, onHand else { return false }
         if let daysSinceRefillDate, daysSinceRefillDate >= Self.refillGraceDays { return false }
         if let daysRemaining, daysRemaining <= Self.refillPauseMinimumDays { return false }
+        // Due on the run-out day or after it, a refill that arrives exactly when
+        // promised can still leave doses with nothing to take, and the person has
+        // told the app so: that is a gap to close, not a refill on its way.
+        if let daysSinceRefillDate, let daysRemaining, -daysSinceRefillDate >= daysRemaining { return false }
         return true
     }
 
