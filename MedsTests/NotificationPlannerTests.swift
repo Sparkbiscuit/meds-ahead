@@ -243,7 +243,7 @@ final class NotificationPlannerTests: XCTestCase {
         let threeDaysLate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 13, hour: 12)))
         let outcome = NotificationPlanner.plan(for: [plan], now: threeDaysLate, calendar: calendar)
         XCTAssertFalse(outcome.notifications.contains { $0.kind == .refillCheck }, "its morning has passed")
-        XCTAssertTrue(outcome.retainedIdentifiers.contains(check.identifier), "the question stands until the refill is added")
+        XCTAssertTrue(outcome.retains(check.identifier), "the question stands until the refill is added")
         XCTAssertEqual(outcome.notifications.filter { $0.kind == .refill }.count, 1,
                        "the pause has ended, so the low-supply warning on the 23rd is planned again")
     }
@@ -280,12 +280,8 @@ final class NotificationPlannerTests: XCTestCase {
 
         func removed(_ plans: [MedicationNotificationPlan]) -> [String] {
             let outcome = NotificationPlanner.plan(for: plans, now: after, calendar: calendar)
-            XCTAssertFalse(outcome.retainedIdentifiers.contains { $0.contains(".dose.") }, "dose reminders are never retained")
-            return NotificationService.deliveredIdentifiersToRemove(
-                delivered: [delivered],
-                planned: Set(outcome.notifications.map(\.identifier)),
-                retained: outcome.retainedIdentifiers
-            )
+            XCTAssertFalse(outcome.retains("meds.group.dose.daily.0830"), "dose reminders are never retained")
+            return NotificationService.deliveredIdentifiersToRemove(delivered: [delivered], outcome: outcome)
         }
 
         XCTAssertEqual(removed([plan]), [], "same run-out day, still low: the only warning stays")
@@ -305,11 +301,11 @@ final class NotificationPlannerTests: XCTestCase {
         let delivered = try XCTUnwrap(NotificationPlanner.notifications(for: makePlan(doseRemindersEnabled: false, expirationDate: expiration), now: before, calendar: calendar).first).identifier
 
         let same = NotificationPlanner.plan(for: [makePlan(doseRemindersEnabled: false, expirationDate: expiration)], now: after, calendar: calendar)
-        XCTAssertTrue(same.retainedIdentifiers.contains(delivered))
+        XCTAssertTrue(same.retains(delivered))
 
         let newPackage = try XCTUnwrap(calendar.date(from: DateComponents(year: 2027, month: 8, day: 30)))
         let replaced = NotificationPlanner.plan(for: [makePlan(doseRemindersEnabled: false, expirationDate: newPackage)], now: after, calendar: calendar)
-        XCTAssertEqual(NotificationService.deliveredIdentifiersToRemove(delivered: [delivered], planned: Set(replaced.notifications.map(\.identifier)), retained: replaced.retainedIdentifiers), [delivered])
+        XCTAssertEqual(NotificationService.deliveredIdentifiersToRemove(delivered: [delivered], outcome: replaced), [delivered])
     }
 
     func testRequestsNoLongerPlannedAreStillCancelledAndOldDoseRemindersCleared() throws {
@@ -320,7 +316,65 @@ final class NotificationPlannerTests: XCTestCase {
 
         let moved = "meds.group.dose.daily.0700"
         XCTAssertEqual(NotificationService.pendingIdentifiersToRemove(pending: [moved, "meds.group.dose.daily.0830", "other.app"], planned: planned), [moved])
-        XCTAssertEqual(NotificationService.deliveredIdentifiersToRemove(delivered: [moved, "meds.group.dose.daily.0830"], planned: planned, retained: outcome.retainedIdentifiers), [moved])
+        XCTAssertEqual(NotificationService.deliveredIdentifiersToRemove(delivered: [moved, "meds.group.dose.daily.0830"], outcome: outcome), [moved])
+    }
+
+    /// The run-out day in a refill alert's identifier moves a day while the
+    /// morning dose is due and not yet logged, after a Skip, and every day once
+    /// nothing is left. Opening the app from the dose reminder, or a Skip on the
+    /// Lock Screen, used to take the only warning out of Notification Center.
+    @MainActor
+    func testADeliveredWarningOutlivesTheRunOutDayMoving() throws {
+        func at(_ day: Int, _ hour: Int = 12, _ minute: Int = 0) -> Date {
+            calendar.date(from: DateComponents(year: 2026, month: 8, day: day, hour: hour, minute: minute))!
+        }
+        let medication = Medication(name: "Furosemide", refillLeadDays: 7)
+        let schedule = DoseSchedule(medicationID: medication.id, minutesAfterMidnight: 8 * 60, startDate: at(1, 0))
+        let counted = [InventoryEvent(medicationID: medication.id, date: at(1, 0), delta: 10, reason: .openingCount)]
+        func logged(through last: Int, _ status: DoseEventStatus = .taken) -> [DoseEvent] {
+            (1...last).map {
+                DoseEvent(medicationID: medication.id, scheduleID: schedule.id, scheduledAt: at($0, 8), recordedAt: at($0, 8),
+                          doseQuantity: 1, status: $0 == last ? status : .taken)
+            }
+        }
+        func outcome(at now: Date, doses: [DoseEvent], inventory: [InventoryEvent] = counted) -> NotificationPlanOutcome {
+            let plan = NotificationPlanBuilder.make(medication: medication, schedules: [schedule], inventoryEvents: inventory,
+                                                    doseEvents: doses, now: now, calendar: calendar)
+            return NotificationPlanner.plan(for: [plan], now: now, calendar: calendar)
+        }
+        let delivered = try XCTUnwrap(outcome(at: at(1), doses: logged(through: 1)).notifications.first { $0.kind == .refill }).identifier
+
+        let dueNotLogged = outcome(at: at(6, 8, 5), doses: logged(through: 5))
+        XCTAssertFalse(dueNotLogged.notifications.contains { $0.identifier == delivered }, "the run-out day in the identifier has moved")
+        XCTAssertEqual(NotificationService.deliveredIdentifiersToRemove(delivered: [delivered], outcome: dueNotLogged), [],
+                       "opened from the dose reminder before logging it")
+        XCTAssertEqual(NotificationService.deliveredIdentifiersToRemove(delivered: [delivered], outcome: outcome(at: at(6, 8, 5), doses: logged(through: 6, .skipped))), [],
+                       "skipped on the Lock Screen")
+        XCTAssertEqual(NotificationService.deliveredIdentifiersToRemove(delivered: [delivered], outcome: outcome(at: at(11), doses: logged(through: 10))), [],
+                       "the day after it ran out, the warning is truer than ever")
+
+        let refilled = counted + [InventoryEvent(medicationID: medication.id, date: at(6, 9), delta: 30, reason: .refill)]
+        XCTAssertEqual(NotificationService.deliveredIdentifiersToRemove(delivered: [delivered], outcome: outcome(at: at(6, 9, 5), doses: logged(through: 6), inventory: refilled)),
+                       [delivered], "a refill added answers it")
+    }
+
+    /// A refill check asks until the refill is added or cleared, whichever
+    /// morning it was asked for; it is not a refill alert, nor one a refill
+    /// alert keeps.
+    func testADeliveredRefillCheckStaysUntilTheRefillIsAddedOrCleared() throws {
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 13, hour: 12)))
+        let depletion = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 16, hour: 8)))
+        let requestedOn = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 10)))
+        let check = "meds.AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE.refillcheck.20260811"
+        let inProgress = NotificationPlanner.plan(for: [makePlan(doseRemindersEnabled: false, refillLeadDays: 7, depletionDate: depletion,
+                                                                 refillInProgress: true, refillStatusDate: requestedOn)], now: now, calendar: calendar)
+        XCTAssertEqual(NotificationService.deliveredIdentifiersToRemove(delivered: [check], outcome: inProgress), [],
+                       "asked for a morning the check no longer falls on, and still unanswered")
+
+        let cleared = NotificationPlanner.plan(for: [makePlan(doseRemindersEnabled: false, refillLeadDays: 7, depletionDate: depletion)], now: now, calendar: calendar)
+        XCTAssertTrue(cleared.retainedPrefixes.contains("meds.AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE.refill."), "still low, so a refill alert would stay")
+        XCTAssertEqual(NotificationService.deliveredIdentifiersToRemove(delivered: [check], outcome: cleared), [check],
+                       "but the question went with the refill")
     }
 
     func testAPackageExpirationIsAnnouncedAWeekAhead() throws {

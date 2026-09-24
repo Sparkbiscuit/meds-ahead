@@ -72,8 +72,19 @@ struct NotificationPlanOutcome: Equatable, Sendable {
     /// Refill, expiration and refill-check alerts whose moment has passed but
     /// which still say something true. Their moments are never planned again,
     /// so a delivered one may be the only warning left in Notification Center,
-    /// and replanning must not sweep it away.
+    /// and replanning must not sweep it away. An expiration alert is kept by
+    /// its exact identifier: its date is the package's own, and changes only
+    /// when a new package is recorded.
     let retainedIdentifiers: Set<String>
+    /// Refill alerts and refill checks are kept by medication instead, as
+    /// identifier prefixes. The run-out day in their identifiers moves a day
+    /// whenever a dose is skipped or not yet logged, and every day once nothing
+    /// is left, while the warning already given is just as true.
+    let retainedPrefixes: Set<String>
+
+    func retains(_ identifier: String) -> Bool {
+        retainedIdentifiers.contains(identifier) || retainedPrefixes.contains { identifier.hasPrefix($0) }
+    }
 }
 
 enum NotificationPlanner {
@@ -183,6 +194,7 @@ enum NotificationPlanner {
 
         var refillNotifications: [PlannedNotification] = []
         var retainedIdentifiers: Set<String> = []
+        var retainedPrefixes: Set<String> = []
         for plan in plans where !plan.isArchived && plan.refillRemindersEnabled {
             if let expirationDate = plan.expirationDate {
                 let expirationDay = calendar.startOfDay(for: expirationDate)
@@ -218,31 +230,31 @@ enum NotificationPlanner {
             // midnight when the pause has already lapsed: dropping it then would
             // cancel the one alert that says so.
             var refillCheckDay: Date?
+            if plan.refillInProgress {
+                // One already asked is still a fair question until the refill is
+                // added or cleared, whichever morning it was asked for.
+                retainedPrefixes.insert("meds.\(plan.medicationID.uuidString).refillcheck.")
+            }
             if plan.refillInProgress,
                let checkDate = SupplyAttention.refillCheckMoment(
                    refillStatusDate: plan.refillStatusDate,
                    depletionDate: plan.depletionDate,
                    calendar: calendar
-               ) {
+               ),
+               checkDate > now {
                 refillCheckDay = calendar.startOfDay(for: checkDate)
-                let identifier = "meds.\(plan.medicationID.uuidString).refillcheck.\(dayCode(checkDate, calendar: calendar))"
-                if checkDate > now {
-                    refillNotifications.append(
-                        PlannedNotification(
-                            identifier: identifier,
-                            kind: .refillCheck,
-                            title: plan.detailedNotifications ? "Is the refill for \(plan.displayName) in hand?" : "Is the refill in hand?",
-                            body: refillCheckBody(for: plan, calendar: calendar),
-                            trigger: .date(checkDate),
-                            medicationID: plan.medicationID,
-                            scheduleID: nil,
-                            groupedDoseCount: 0
-                        )
+                refillNotifications.append(
+                    PlannedNotification(
+                        identifier: "meds.\(plan.medicationID.uuidString).refillcheck.\(dayCode(checkDate, calendar: calendar))",
+                        kind: .refillCheck,
+                        title: plan.detailedNotifications ? "Is the refill for \(plan.displayName) in hand?" : "Is the refill in hand?",
+                        body: refillCheckBody(for: plan, calendar: calendar),
+                        trigger: .date(checkDate),
+                        medicationID: plan.medicationID,
+                        scheduleID: nil,
+                        groupedDoseCount: 0
                     )
-                } else {
-                    // Still a fair question until the refill is added or cleared.
-                    retainedIdentifiers.insert(identifier)
-                }
+                )
             }
 
             guard let depletionDate = plan.depletionDate else { continue }
@@ -258,17 +270,16 @@ enum NotificationPlanner {
             let dateCode = depletionDay.formatted(.dateTime.year().month(.twoDigits).day(.twoDigits).locale(Locale(identifier: "en_US_POSIX")))
                 .filter(\.isNumber)
             let identifier = "meds.\(plan.medicationID.uuidString).refill.\(dateCode)"
+            // One already delivered stays for as long as the supply still needs
+            // someone to act, whatever run-out day it was written for.
+            if attention(for: plan, at: now, depletionDay: depletionDay, calendar: calendar).needsAttention {
+                retainedPrefixes.insert("meds.\(plan.medicationID.uuidString).refill.")
+            }
             // A lead moment that has already passed is never re-announced. Plans are
             // rebuilt whenever the app is open, so an immediate alert would only ever
             // interrupt someone already looking at the low-supply state on Today and
             // Supply, and would fire again on every launch once it was dismissed.
-            // One already delivered stays for as long as it is still true.
-            guard reminderDate > now else {
-                if attention(for: plan, at: now, depletionDay: depletionDay, calendar: calendar).needsAttention {
-                    retainedIdentifiers.insert(identifier)
-                }
-                continue
-            }
+            guard reminderDate > now else { continue }
             // A refill in progress that will still answer for the supply when the
             // warning is due makes the warning unnecessary; the refill check comes
             // when it stops answering. On the same morning, the check says it.
@@ -298,7 +309,8 @@ enum NotificationPlanner {
         return NotificationPlanOutcome(
             notifications: Array((notifications + refillNotifications).prefix(maximumScheduledRequests)),
             droppedDoseReminders: max(0, notifications.count - maximumScheduledRequests),
-            retainedIdentifiers: retainedIdentifiers
+            retainedIdentifiers: retainedIdentifiers,
+            retainedPrefixes: retainedPrefixes
         )
     }
 

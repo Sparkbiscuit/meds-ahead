@@ -18,10 +18,10 @@ actor NotificationService {
     /// next Taken on the lock screen. Those the planner still vouches for stay.
     static func deliveredIdentifiersToRemove(
         delivered: [String],
-        planned: Set<String>,
-        retained: Set<String>
+        outcome: NotificationPlanOutcome
     ) -> [String] {
-        delivered.filter { $0.hasPrefix("meds.") && !planned.contains($0) && !retained.contains($0) }
+        let planned = Set(outcome.notifications.map(\.identifier))
+        return delivered.filter { $0.hasPrefix("meds.") && !planned.contains($0) && !outcome.retains($0) }
     }
 
     func replaceAllNotifications(
@@ -40,11 +40,7 @@ actor NotificationService {
             withIdentifiers: Self.pendingIdentifiersToRemove(pending: managedPending, planned: plannedIdentifiers)
         )
         center.removeDeliveredNotifications(
-            withIdentifiers: Self.deliveredIdentifiersToRemove(
-                delivered: managedDelivered,
-                planned: plannedIdentifiers,
-                retained: outcome.retainedIdentifiers
-            )
+            withIdentifiers: Self.deliveredIdentifiersToRemove(delivered: managedDelivered, outcome: outcome)
         )
 
         // The status is read and reported even when nothing is planned, so Settings

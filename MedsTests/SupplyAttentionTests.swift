@@ -98,8 +98,7 @@ final class SupplyAttentionTests: XCTestCase {
         let plan = NotificationPlanBuilder.make(medication: medication, schedules: schedules, inventoryEvents: inventory, doseEvents: [], now: now, calendar: calendar)
         let outcome = NotificationPlanner.plan(for: [plan], now: now, calendar: calendar)
         XCTAssertTrue(outcome.notifications.filter { $0.kind == .refill }.isEmpty, "the ten-day moment has passed")
-        XCTAssertTrue(outcome.retainedIdentifiers.contains { $0.hasPrefix("meds.\(medication.id.uuidString).refill.") },
-                      "and the alert it gave is still true")
+        XCTAssertTrue(outcome.retainedPrefixes.contains("meds.\(medication.id.uuidString).refill."), "and the alert it gave is still true")
     }
 
     func testARequestedRefillPastItsDateSaysSo() {
