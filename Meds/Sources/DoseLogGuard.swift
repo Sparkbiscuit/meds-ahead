@@ -18,10 +18,31 @@ enum DoseLogGuard {
         now: Date = .now,
         calendar: Calendar = .autoupdatingCurrent
     ) throws -> Bool {
-        let medicationID = dose.medicationID
-        let events = try context.fetch(
-            FetchDescriptor<DoseEvent>(predicate: #Predicate { $0.medicationID == medicationID })
-        )
+        let events = try doseEvents(for: dose.medicationID, in: context)
         return ScheduleEngine.loggedEvent(for: dose, in: events, now: now, calendar: calendar) != nil
+    }
+
+    /// The dose a Take Now tap claims, chosen from what the store holds. The
+    /// widget logs the earliest dose still due, which is the one stale arrays
+    /// would offer; a tap then belongs to the next one still due, as it would
+    /// had the screen caught up, and not to nothing.
+    static func actionableDose(
+        schedules: [DoseSchedule],
+        medicationID: UUID,
+        in context: ModelContext,
+        now: Date = .now,
+        calendar: Calendar = .autoupdatingCurrent
+    ) throws -> ScheduledDose? {
+        ScheduleEngine.actionableDose(
+            schedules: schedules,
+            medicationID: medicationID,
+            doseEvents: try doseEvents(for: medicationID, in: context),
+            now: now,
+            calendar: calendar
+        )
+    }
+
+    private static func doseEvents(for medicationID: UUID, in context: ModelContext) throws -> [DoseEvent] {
+        try context.fetch(FetchDescriptor<DoseEvent>(predicate: #Predicate { $0.medicationID == medicationID }))
     }
 }

@@ -32,6 +32,8 @@ struct TodayView: View {
     @Environment(\.requestReview) private var requestReview
     @State private var savingDoseIDs: Set<String> = []
     @State private var showingSaveError = false
+    @State private var showingAlreadyLogged = false
+    @State private var alreadyLoggedMessage = ""
     @State private var showingLogAllConfirmation = false
     /// Set aside for the rest of the day rather than forever: someone who tracks
     /// supply without logging every dose should not be nagged permanently, and
@@ -149,6 +151,11 @@ struct TodayView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text("This dose wasn't logged. Try again.")
+        }
+        .alert("Already Logged", isPresented: $showingAlreadyLogged) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(alreadyLoggedMessage)
         }
     }
 
@@ -435,7 +442,11 @@ struct TodayView: View {
                 modelContext.insert(event)
                 newEvents.append(event)
             }
-            guard !newEvents.isEmpty else { return }
+            guard !newEvents.isEmpty else {
+                alreadyLoggedMessage = "The widget or a reminder has already logged these doses. Nothing more was recorded."
+                showingAlreadyLogged = true
+                return
+            }
             try modelContext.save()
             let newIDs = Set(newEvents.map(\.id))
             let plans = NotificationPlanBuilder.makeAll(
@@ -462,8 +473,13 @@ struct TodayView: View {
         savingDoseIDs.insert(dose.id)
         defer { savingDoseIDs.remove(dose.id) }
         do {
-            // The widget may have logged this dose where these arrays cannot see it yet.
-            guard try !DoseLogGuard.isLogged(dose, in: modelContext) else { return }
+            // The widget may have logged this dose where these arrays cannot see it
+            // yet. The card still offers it, so a tap that writes nothing says why.
+            guard try !DoseLogGuard.isLogged(dose, in: modelContext) else {
+                alreadyLoggedMessage = "The widget or a reminder has already logged this dose. Nothing more was recorded."
+                showingAlreadyLogged = true
+                return
+            }
             let event = DoseEvent(
                 medicationID: medication.id,
                 scheduleID: dose.scheduleID,

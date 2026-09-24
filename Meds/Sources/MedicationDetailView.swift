@@ -17,6 +17,7 @@ struct MedicationDetailView: View {
     @State private var showingDeleteConfirmation = false
     @State private var showingSaveError = false
     @State private var saveErrorMessage = ""
+    @State private var showingAlreadyLogged = false
 
     private var schedules: [DoseSchedule] {
         allSchedules.filter { $0.medicationID == medication.id }.sorted { $0.minutesAfterMidnight < $1.minutesAfterMidnight }
@@ -171,6 +172,11 @@ struct MedicationDetailView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(saveErrorMessage)
+        }
+        .alert("Already Logged", isPresented: $showingAlreadyLogged) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("The widget or a reminder has already logged this dose. Nothing more was recorded.")
         }
     }
 
@@ -489,21 +495,33 @@ struct MedicationDetailView: View {
     /// unscheduled one, at the amount belonging to the nearest time of day.
     private func recordNow() {
         let now = Date.now
-        let claimed = ScheduleEngine.actionableDose(
+        var claimed = ScheduleEngine.actionableDose(
             schedules: allSchedules,
             medicationID: medication.id,
             doseEvents: allDoseEvents,
             now: now
         )
-        if let claimed {
-            // The widget may have logged this dose where these arrays cannot see
-            // it yet. A tap made while the screen still shows it unlogged is that
-            // same dose, not another one, so nothing more is written.
+        if claimed != nil {
+            // The widget may have logged the dose these arrays offer where they
+            // cannot see it yet, so the store chooses the dose: the next one
+            // still due, as a screen that had caught up would offer. When the
+            // store has every due dose logged, a tap made while this screen still
+            // shows one as due is that same dose, not an extra one: nothing more
+            // is written, and the alert says why.
             do {
-                guard try !DoseLogGuard.isLogged(claimed, in: modelContext, now: now) else { return }
+                claimed = try DoseLogGuard.actionableDose(
+                    schedules: allSchedules,
+                    medicationID: medication.id,
+                    in: modelContext,
+                    now: now
+                )
             } catch {
                 saveErrorMessage = "Your change wasn't saved. Try again."
                 showingSaveError = true
+                return
+            }
+            guard claimed != nil else {
+                showingAlreadyLogged = true
                 return
             }
         }
