@@ -1562,9 +1562,9 @@ extension AddMedicationFlow {
         /// A scanned review thrown away is followed by a new scanner too,
         /// with nothing added to the tally. The scanner it came from still
         /// holds the discarded bottle's text, and would read the next bottle
-        /// together with it: a tacrolimus label set aside as already counted
-        /// named the prednisone bottle after it, and offered to add its count
-        /// to tacrolimus. The back button still returns to that scanner, to
+        /// together with it: a Furosemide label set aside as already counted
+        /// named the next bottle after it, and offered to add that bottle's
+        /// count to Furosemide. The back button still returns to that scanner, to
         /// add another photo of the same label.
         mutating func discard() {
             path = [.scanner(scannersShown)]
