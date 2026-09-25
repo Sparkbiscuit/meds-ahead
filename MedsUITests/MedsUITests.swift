@@ -725,31 +725,43 @@ final class MedsUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
 
+        // The form builds its rows as they scroll in, so a row further down
+        // does not exist until it is near, and one under the keyboard exists
+        // but cannot be tapped: scroll until it is both, a bounded number of
+        // times, whatever an earlier test left the keyboard or the scroll
+        // position doing.
+        func scrollUp(to element: XCUIElement, _ description: String) {
+            XCTAssertTrue(reveal(element, in: app), "\(description) cannot be reached")
+        }
+
         func reviewByCode(_ code: String) {
             app.tabBars.buttons["Add"].tap()
             XCTAssertTrue(app.buttons["manual-entry"].waitForExistence(timeout: 3))
             app.buttons["manual-entry"].tap()
+            XCTAssertTrue(app.textFields["medication-name"].waitForExistence(timeout: 3))
             let ndc = app.textFields["ndc-entry"]
-            for _ in 0..<10 where !ndc.isHittable { app.swipeUp() }
+            scrollUp(to: ndc, "the NDC field")
             ndc.tap()
             ndc.typeText(code)
             let use = app.buttons["use-ndc-product"]
             XCTAssertTrue(use.waitForExistence(timeout: 5))
-            if !use.isHittable { app.swipeUp() }
+            scrollUp(to: use, "Use This Product")
             use.tap()
             // Back to the top, where the banner sits above the name.
             let name = app.textFields["medication-name"]
-            for _ in 0..<8 where !name.isHittable { app.swipeDown() }
+            reveal(name, in: app, swipingDown: true)
             app.swipeDown()
         }
 
         reviewByCode("0469-0617-73")
         let supply = app.textFields["current-supply"]
-        for _ in 0..<6 where !supply.isHittable { app.swipeUp() }
+        scrollUp(to: supply, "Current amount")
         supply.tap()
         supply.typeText("30")
         app.buttons["save-medication"].tap()
-        app.tap()
+        // Whether this run is the first to save and be asked depends on the
+        // tests before it, so the answer is looked for rather than assumed.
+        answerNotificationPermissionIfAsked()
         XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
 
         reviewByCode("0469-0677-73")
@@ -767,6 +779,33 @@ final class MedsUITests: XCTestCase {
         reviewByCode("0378-2046-01")
         XCTAssertTrue(banner.waitForExistence(timeout: 5), "a generic Prograf bottle was not offered to the Prograf tracked")
         XCTAssertEqual(banner.label, "Already in Meds Ahead: Tacrolimus 1 mg (Prograf)")
+    }
+
+    /// Swipes until the element exists and can be tapped, at most `limit`
+    /// times, and stops as soon as it can: a `for … where` loop goes on
+    /// querying the screen once the element is found, which adds seconds to
+    /// every row a long form scrolls to.
+    @discardableResult
+    private func reveal(_ element: XCUIElement, in app: XCUIApplication, swipingDown: Bool = false, limit: Int = 12) -> Bool {
+        var swipes = 0
+        while !(element.exists && element.isHittable), swipes < limit {
+            if swipingDown { app.swipeDown() } else { app.swipeUp() }
+            swipes += 1
+        }
+        return element.exists && element.isHittable
+    }
+
+    /// The first save asks for notification permission. The system shows
+    /// the question over the app, so it is answered where it is shown.
+    private func answerNotificationPermissionIfAsked() {
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        for title in ["Allow", "Don’t Allow", "Don't Allow"] {
+            let button = springboard.alerts.buttons[title]
+            if button.waitForExistence(timeout: title == "Allow" ? 2 : 0.5) {
+                button.tap()
+                return
+            }
+        }
     }
 
     /// With no refills left the low-supply alert comes earlier, and the detail
