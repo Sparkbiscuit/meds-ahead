@@ -206,9 +206,25 @@ enum MedicationLabelInterpreter {
 
     /// A label prints one of the two names a medication has. The curated table
     /// supplies the other so the shared list a clinician reads carries both.
+    ///
+    /// The release the label prints goes with the name: the vocabulary reads
+    /// "TACROLIMUS XL" as tacrolimus, whose brand in the table is Prograf, the
+    /// immediate-release product. So the brand is looked up with the release
+    /// ("GLUCOPHAGE XR" is Glucophage XR), and where the table's brand is
+    /// another release's the brand stays blank and the name keeps the
+    /// release, "Tacrolimus XL", since nothing else would say it.
     private static func withBrandNames(_ draft: MedicationDraft) -> MedicationDraft {
         guard !draft.name.isEmpty, draft.brandName.isEmpty else { return draft }
-        guard let pair = MedicationBrandIndex.resolve(draft.name) else { return draft }
+        let labelText = LabelCandidateBuilder.textLines(from: draft.evidence).joined(separator: "\n")
+        let nameWords = Set(draft.name.lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init))
+        let release = ReleaseForm.evidence(in: labelText, namedBy: nameWords)
+        let released = release.modified.map { ReleaseForm.name(draft.name, keeping: release.printedLetters(for: $0)) } ?? draft.name
+        guard let pair = MedicationBrandIndex.resolve(released, release: release.modified) else {
+            guard released != draft.name, MedicationBrandIndex.resolve(draft.name) != nil else { return draft }
+            var result = draft
+            result.name = released
+            return result
+        }
 
         var result = draft
         result.brandName = pair.brand
