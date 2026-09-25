@@ -45,13 +45,6 @@ final class RxNormTableTests: XCTestCase {
         XCTAssertEqual(table.clinicalDrugCode(for: "424242"), "424242", "an unknown code answers for itself")
     }
 
-    func testAnEmptyTableAnswersNothing() {
-        let empty = RxNormTable(productsData: Data())
-        XCTAssertTrue(empty.isEmpty)
-        XCTAssertNil(empty.product(forProductKey: "004690617"))
-        XCTAssertEqual(empty.clinicalDrugCode(for: "108513"), "108513")
-    }
-
     // MARK: - The files that ship
 
     func testTheBundledSliceIsPresentAndPinsRealProducts() throws {

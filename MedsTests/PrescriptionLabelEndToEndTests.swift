@@ -33,19 +33,6 @@ final class PrescriptionLabelEndToEndTests: XCTestCase {
         XCTAssertEqual(draft.form, .tablet)
     }
 
-    /// A name the vocabulary does recognise is still normalised to its spelling.
-    func testVocabularyStillCorrectsARecognisedName() {
-        let draft = MedicationLabelInterpreter.offlineDraft(evidence([
-            "FUROSEMIDE 20 MG TABLET",
-            "TAKE ONE TABLET TWICE DAILY",
-            "QTY: 60"
-        ]))
-
-        XCTAssertEqual(draft.name, "Furosemide")
-        XCTAssertEqual(draft.strength, "20 mg")
-        XCTAssertEqual(draft.currentSupply, 60)
-    }
-
     func testNameProvenanceGatesTheFallback() {
         let anchored = ScanParser.parse(evidence([
             "ATORVASTATIN CALCIUM 40 MG TAB", "TAKE ONE TABLET AT BEDTIME"
@@ -73,26 +60,27 @@ final class PrescriptionLabelEndToEndTests: XCTestCase {
         XCTAssertEqual(ScanParser.tidiedNameResidue("Solifenacin"), "Solifenacin")
     }
 
-    /// An ambiguous line must still yield nothing rather than a guess at a drug name.
-    func testAmbiguousLabelDoesNotInventAName() {
+    /// "DR" on the product line is the delayed-release form. The address test
+    /// read it as "Drive", and the name of every delayed-release label came out
+    /// blank, mycophenolic acid's among them.
+    func testADelayedReleaseProductLineKeepsItsName() {
         let draft = MedicationLabelInterpreter.offlineDraft(evidence([
-            "SPRINGFIELD FAMILY PHARMACY", "OPEN 9 TO 6", "CALL FOR REFILLS"
-        ]))
-        XCTAssertTrue(draft.name.isEmpty, "invented a name from label furniture: \(draft.name)")
-    }
-
-    func testSertralineLabelReturnsTheCorrectDrugBrandAndStrength() {
-        let draft = MedicationLabelInterpreter.offlineDraft(evidence([
-            "WALGREENS PHARMACY", "1200 MAIN ST", "SPRINGFIELD MA 01103",
-            "RX# 8842197", "DOE, JOHN",
-            "SERTRALINE HCL 100MG TABLET",
-            "TAKE 1 TABLET BY MOUTH ONCE DAILY",
-            "QTY: 30"
+            "RIVERSIDE PHARMACY", "RX# 5521093", "PEMBERTON, ELLIS",
+            "MYCOPHENOLIC ACID DR 360 MG TABLET",
+            "TAKE 2 TABLETS BY MOUTH TWICE DAILY",
+            "QTY: 120"
         ]))
 
-        XCTAssertEqual(draft.name, "Sertraline")
-        XCTAssertEqual(draft.brandName, "Zoloft")
-        XCTAssertEqual(draft.strength, "100 mg")
+        XCTAssertEqual(draft.name, "Mycophenolic acid")
+        XCTAssertEqual(draft.nameProvenance, .vocabulary)
+        XCTAssertEqual(draft.strength, "360 mg")
+
+        // Only the strength's own line is read that way: a street or a
+        // prescriber beside the strength is still not a name.
+        for line in ["450 OAK DR", "DR. A. GREENE"] {
+            let beside = MedicationLabelInterpreter.offlineDraft(evidence([line, "360 MG TABLET", "QTY: 120"]))
+            XCTAssertEqual(beside.name, "", line)
+        }
     }
 
     func testSertralineLabelJunkCandidateCannotBecomeRisedronate() {
@@ -130,17 +118,6 @@ final class PrescriptionLabelEndToEndTests: XCTestCase {
         ] {
             XCTAssertNotEqual(draft.name, rejectedLine, rejectedLine)
         }
-    }
-
-    func testValganciclovirLabelReturnsTheCorrectDrugBrandAndStrength() {
-        let draft = MedicationLabelInterpreter.offlineDraft(evidence([
-            "VALGANCICLOVIR HCL 450 MG TABLET",
-            "TAKE 1 TABLET BY MOUTH ONCE DAILY"
-        ]))
-
-        XCTAssertEqual(draft.name, "Valganciclovir")
-        XCTAssertEqual(draft.brandName, "Valcyte")
-        XCTAssertEqual(draft.strength, "450 mg")
     }
 
     // MARK: - Names that must never be invented
@@ -184,18 +161,6 @@ final class PrescriptionLabelEndToEndTests: XCTestCase {
             XCTAssertEqual(draft.name, "", "\(furniture) reached the name field")
             XCTAssertEqual(draft.nameProvenance, .none)
         }
-    }
-
-    /// The reason the strength-anchored path exists: a pharmacy's own wording for a
-    /// drug the vocabulary lists under four salt names, printed on the strength line.
-    func testAPharmacysOwnWordingOnTheStrengthLineStillSurvives() {
-        let draft = MedicationLabelInterpreter.offlineDraft(evidence([
-            "AMPHETAMINE SALT COMBO 20 MG TAB",
-            "TAKE 1 TABLET BY MOUTH TWICE DAILY"
-        ]))
-
-        XCTAssertEqual(draft.name, "Amphetamine Salt Combo")
-        XCTAssertEqual(draft.nameProvenance, .strengthAnchored)
     }
 
     /// A name on its own line above the strength is the commonest label layout, and

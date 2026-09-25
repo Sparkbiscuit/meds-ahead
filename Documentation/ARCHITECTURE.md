@@ -29,13 +29,27 @@ Current supply is derived from inventory events minus taken dose events. This pr
 
 A dose event carries `countsTowardSupply`. It is true for everything the app logs itself. History imported from Apple Health is stored with it false: those doses were taken before Meds Ahead was keeping the count the person just entered, so they feed the as-needed rate and appear in history but never charge the supply. It was added with an inline default and taken through the same lightweight migration `brandName` was.
 
-Medication identity keeps `brandName` as a stored field alongside the generic `name`. The empty default lets existing SwiftData records take the new field through a lightweight migration, and the reviewed value remains available to subtitles and exports without recomputation. `MedicationBrandIndex` uses a bundled curated table and exact, letters-only keys, with only a trailing salt or release-form suffix fallback. It resolves a generic or brand to its counterpart without a network lookup; fuzzy matching is deliberately excluded because a plausible but wrong brand on a clinician-facing list is worse than leaving the field blank.
+Medication identity keeps `brandName` as a stored field alongside the generic `name`. The empty default lets existing SwiftData records take the new field through a lightweight migration, and the reviewed value remains available to subtitles and exports without recomputation. `MedicationBrandIndex` uses a bundled curated table and exact, letters-only keys, with only a trailing salt or release-form suffix fallback. It resolves a generic or brand to its counterpart without a network lookup; fuzzy matching is deliberately excluded because a plausible but wrong brand on a clinician-facing list is worse than leaving the field blank. A release suffix set aside to find the generic brings back only a brand of that same release (1.1.1). The table's brand for tacrolimus is Prograf, the immediate-release product, and until then "Tacrolimus XL" was recorded as Prograf, "Metformin ER" as Glucophage and "Diltiazem CD" as Cardizem, though the extended-release products are dosed differently and are not interchangeable with them. Now those keep the release in the name and leave the brand blank; "Metoprolol succinate ER" still gets Toprol XL, because that salt is only ever extended-release (a short table lists such generics, checked against the FDA directory), and a reference brand followed by release letters, "Glucophage XR", is that release's own brand and kept as written.
 
-A logged dose is matched to the slot it belongs to by schedule identifier and scheduled time, and every surface asks `ScheduleEngine` that one question rather than answering it locally. Take Now on a medication claims the same dose Today is offering, so one dose cannot be logged from both places and charged to the supply twice. Doses that were never logged remain answerable for two days on Today, because an unlogged dose reads as an unspent one and quietly stretches the forecast.
+A logged dose is matched to the slot it belongs to by schedule identifier and scheduled time, and every surface asks `ScheduleEngine` that one question rather than answering it locally. Take Now on a medication claims the same dose Today is offering, so one dose cannot be logged from both places and charged to the supply twice. Doses that were never logged remain answerable for two days on Today, because the forecast can only assume what became of an unlogged dose (see "Unlogged doses and the run-out date"), and a logged one needs no assumption.
+
+A schedule has no slot earlier than the moment it was saved, less the due window. `ScheduleEngine.dueWindow`, thirty minutes either side of a dose's time, is the one constant behind Today's due and overdue states, the widget's change times, this first-day rule and the forecast's line between assumed and upcoming doses. In 1.1 a medication added at 15:00 showed that morning's 08:00 dose as overdue, Mark All charged it to the count just entered, and the next morning's missed-dose card asked whether it had been missed. New schedules are stamped with their save time and `ScheduleEngine.scheduledDate` declines any start-day slot before it, so Today, the widget, Mark All, Take Now, the reminders, the missed-dose card, the adherence calendar and the forecast agree that the dose never existed. A slot still inside its due window when the schedule is saved (08:00 saved at 08:10) is still offered; a first dose given later than that has no slot and is logged with Take Now. An edited time keeps its schedule's start date, because `ScheduleReconciler` reuses the record, so the days after the start day keep their slots. The demo store starts its schedules at the start of the day, so the UI tests do not depend on the hour they run. The rule has one trade-off: the start day is judged against the time the schedule has now, not the time it had when saved, which is not stored and would take an `@Model` change to keep. Moving a time later after the start day can bring back a start-day slot that was never offered; the next day's missed-dose card may ask about it once, and the forecast assumes it was taken, which only brings the run-out date earlier. Moving a time earlier can leave a start-day log without a slot.
 
 An as-needed rate is measured over the history that exists — the days between the first logged dose in the window and now, capped at thirty — rather than a fixed thirty days. Three doses taken this week divided by thirty reported four times the runway that existed, and an over-long supply estimate is the failure that leaves someone without medication.
 
 Each scheduled time retains its own dose quantity and weekday mask. Editing schedules reconciles those definitions with existing `DoseSchedule` records instead of replacing them. Stable schedule identifiers keep earlier `DoseEvent` history associated with the correct intended dose. Count corrections compare the entered physical count with the raw ledger balance, including any negative discrepancy, before the displayed balance is clamped to zero.
+
+## Unlogged doses and the run-out date
+
+1.1 forecast a scheduled medication from the ledger's balance and the doses still to come. A dose nobody logged was never subtracted, so every unlogged day moved the run-out date a day later, and the refill alert keyed to that date moved with it and never fired: a household that stopped logging for a week would be told its supply lasted a week longer than it did. That is the over-long estimate the as-needed rule exists to prevent.
+
+The scheduled forecast therefore assumes that every scheduled dose since the anchor that nobody logged, and that is past its due window, was taken. The anchor is the last moment the ledger's number was known to be what was on hand: the latest opening count or correction, or a refill onto a ledger at or below zero, whichever is later, and failing both, the medication's creation. No dose could come out of an empty supply, so what is on hand after such a refill is the refill; a refill onto stock the ledger still showed confirms nothing about the doses before it and does not move the anchor. There is no look-back limit. The first version stopped at four hundred days, and dropping the oldest dose each day brought the slide back; a count years old still weighs every dose since.
+
+`ScheduleEngine.unloggedDoses` returns the unlogged doses between the anchor and thirty minutes ago, where a dose turns overdue, and owns the slot question. A log naming a schedule accounts for the dose `loggedEvent` says it does, taken or skipped. A log outside every slot (Take Now with nothing due, or a Health dose no slot was near) accounts for the nearest unlogged dose on its own day within `ScheduleEngine.nearbySlotTolerance`, two hours, and for one dose at most: within reach it is that dose taken early or late, but hours from any slot it is as likely an extra one, so the slot stays assumed and the error is toward an earlier date. The pairing is made over the whole day, so asking about a range in pieces gives the same answer as asking once. The forecast hands over only the outside-slot logs that were taken, count toward supply and were made since the anchor, since history imported with a medication never came out of the count. The doses still to come start at the same boundary and leave out logged ones, so every dose since the anchor is counted exactly once, a dose logged a little early is not charged twice, and the run-out date, and the refill alert keyed to it, hold still while a dose sits in its due window. `DoseLogIndex` files a medication's logs by schedule and day, so a dose with a log on its own day is never timed, and the future is laid out a stretch at a time, thirty-one days and then doubling, until the supply runs out. A test holds `unloggedDoses` to the answer `loggedEvent` gives dose by dose, across a daylight-saving day and logs shifted by hours.
+
+Nothing is written. `currentSupply`, `correctionDelta`, `AdherenceSummary` and the as-needed rate read only what was recorded. `SupplyForecast.assumedDoses` says how many doses were assumed: the forecast is then an estimate that says so and whether they are counted since the last count or the last refill, and every surface calls the ledger's number "on record" rather than "on hand", because the run-out date beside it has already taken those doses out. When the assumptions would use up everything on record, `needsCount` is set. The forecast then carries today as its date and zero days, but what is left is unknown, not zero, so it must read "Count needed", never "Out of supply": Supply, Today, the detail card, the runs-out widget, the printed list and Trip Check say so, and the notification planner writes no refill alert from that date.
+
+Only a count ends an assumption. Correct Count always records an event: a count that matches the ledger is a zero correction, shown in Recent Activity as "Count confirmed", and it is a new anchor. While the forecast assumes any dose, the count sheet opens empty and Save Count stays disabled until a number is typed, because a prefilled number saved with one tap would record a count nobody made, clear every assumed dose, and move the run-out date later. Restoring an archived medication opens the count sheet at once, since the engine cannot see what happened while it was archived; cancelling leaves "Count needed" showing until someone counts, which is the honest answer. An edit that changes a kept schedule's amount or weekdays, or drops a schedule, while doses are being assumed opens the count sheet too once the editor closes (`ScheduleReconciler.asksForCount`): the reconciler rewrites those records in place, so the forecast would otherwise weigh the unlogged past at the new schedule, and a taper from four tablets to two over ten unlogged days moved the run-out date from 4 days to 19 when 9 was right. A changed or added time leaves the past's amounts alone, and a logged dose keeps its own, so neither asks. Ending the old schedule and starting a new one would keep the past exact, but every surface would have to learn to skip ended schedules. Since 1.2 that is done in one case, a finished course taken up again (see "Courses").
 
 ## Privacy
 
@@ -47,9 +61,92 @@ The SwiftData store uses iOS data protection and remains available after the fir
 
 A prescription with no refills left needs a prescriber before a pharmacy can act, so it warns on the longer of the person's own lead time and a ten-day prescriber lead, and says which call to make. Refill reminders are only scheduled for a lead moment still in the future. Plans are rebuilt on launch, on returning to the foreground, and after every change, so an already-passed lead day would otherwise produce an immediate alert on top of the low-supply state the person is already looking at, and would fire again on every launch once dismissed. A supply that has already run out is surfaced in Today and Supply rather than pushed.
 
-Notification planning is global across the medication set. Doses that occur at the same local time on the same weekday are consolidated into one slot-level request such as `8:00 PM meds are ready`; an identical seven-day slot collapses to one repeating daily request. A grouped notification opens Meds Ahead for review and does not expose one-tap Taken or Skip actions, because one action cannot safely represent several medications. A single-dose slot retains the privacy-aware quick actions. This reduces notification spam and keeps common polypharmacy routines comfortably below iOS's pending-notification ceiling while retaining exact weekday behavior.
+Notification planning is global across the medication set. Doses that occur at the same local time on the same weekday are consolidated into one slot-level request such as `8:00 PM meds are ready`; an identical seven-day slot collapses to one repeating daily request. A grouped notification opens Meds Ahead for review and does not expose one-tap Taken or Skip actions, because one action cannot safely represent several medications. A single-dose slot retains the privacy-aware quick actions. This reduces notification spam and keeps common polypharmacy routines comfortably below iOS's pending-notification ceiling while retaining exact weekday behavior. A course or a schedule starting within the week is planned one day at a time instead, and a moment it shares with a repeating schedule rings twice; see Dated reminders below.
 
 Delivery can fail silently in two ways iOS reports quietly: a refused or withdrawn authorization, and an individual request the system declines to hold. Both outcomes are recorded by `NotificationHealth` on every scheduling pass and stated on Today, because an app that exists to remember a dose must not fail without saying so.
+
+## Supply attention
+
+`SupplyAttention` is the one rule for whether a medication's supply needs someone to act. It is decided once, over plain values, and Supply, Today, the detail screen's forecast card, the runs-out widget and the notification planner all read it. In 1.1 they did not agree: the screens and the alert counted different lead times, and a refill marked requested or ready silenced every one of them for good, even with nothing on hand. The lead is now the person's own everywhere, or the ten-day prescriber lead when no refills are left. A supply is low inside the lead, with nothing on hand, or when a count is needed.
+
+A refill in progress pauses the warning only while it can still answer for the supply: fewer than two whole days have passed since its expected or pickup date (`refillGraceDays`), more than two days of supply remain (`refillPauseMinimumDays`), something is on hand, no count is needed, and its date falls before the run-out day. A pharmacy a day behind is ordinary; one two days behind may not be coming, and the warning is then the only prompt. With two days left, a refill that does not arrive is a missed dose however recently it was asked for. A refill due on the run-out day or after it can leave doses with nothing to take even if it arrives as promised (on the run-out day itself, any dose after the one that empties the bottle), so it is a gap to close rather than a refill on its way. A refill with no date, or a supply with no forecast, does not end the pause: an unknown runway is not a short one. The pause ends at the start of the second day after the refill's date, the stricter of the two readings of "two days late". When it no longer holds, Supply puts the attention line first ("Act soon · around" a date, "No confirmed supply remains", or "Count needed") and the refill's status under it, "Refill requested · was expected" a date once that date has passed; Today says "A refill needs checking"; and the widget shows the day count in the attention colour instead of "Refill on its way", and "Out of supply" at zero whatever the refill's status. A changed refill status starts its date from today, because the stored date belonged to the previous status, and keeping it started a pause that had already ended the moment the person marked the refill ready.
+
+The morning the pause ends is announced. A refill check (`PlannedNotificationKind.refillCheck`, identifier `meds.<id>.refillcheck.<yyyyMMdd>` in the plan's calendar) asks "Is the refill in hand?" at 9:00 on the earlier of two days after the refill's date and two days before the run-out day (`SupplyAttention.refillCheckMoment`); the detailed version names the medication, the run-out date, and the pharmacy and Rx number. It is planned whenever a refill is in progress and that moment is still ahead, including for a medication with plenty left whose refill is running late, because a late refill nobody updated means the record is stale. It is sorted with the refill and expiration alerts, behind every dose reminder, under the sixty-request cap. The ordinary low-supply alert is skipped only when the pause will still hold at its own moment, or when a refill check falls on the same morning and says it instead. A count needed plans neither, since its date is where the assumptions ran out.
+
+A replan used to remove every delivered alert it had not planned. A refill or expiration alert is planned only until its moment, so once delivered it was never in the plan again, and the next launch, or the next Taken on the Lock Screen, took the only low-supply warning out of Notification Center. `NotificationPlanOutcome.retains` now says which delivered alerts still say something true, and `NotificationService.deliveredIdentifiersToRemove` leaves them: an expiration alert by its exact identifier while the same expiration date is on file; a refill alert by medication while `SupplyAttention` says the supply needs attention now; a refill check by medication while the refill is in progress, until it is added or cleared. Each needs the medication active and refill reminders on, and dose reminders are never kept. Refill alerts are kept by medication rather than by identifier because the run-out day in the identifier moves, with a skipped dose and every day once nothing is left, while the warning already given is just as true. The price is that a kept alert can quote a run-out date a day or so off today's forecast; Supply shows the current one. A delivered refill alert is still removed when the medication is archived, refill reminders are turned off, a refill lifts the supply out of the lead, or a refill in progress pauses the warning. Pending requests are still replaced by the plan outright, since one the plan no longer asks for must not fire. The refill and expiration identifiers keep 1.1's date code, the digits of the month, day and year, so alerts delivered before the update keep their identity across it.
+
+## Dated reminders, follow-ups and the weekly count check
+
+Until 1.2 every dose reminder was a repeating request, and a schedule's first and last days were never consulted: the engine honoured `startDate` and `endDate`, but nothing let a person set an end, so nothing had one. Courses (below) changed that. A repeating request cannot skip a day, so a reminder for a course's last Tuesday would have gone on ringing every Tuesday after it, beside leftover tablets.
+
+`NotificationPlanner` now reads each schedule's reach against the planning week, today and the six days after it (`NotificationPlanner.datedHorizonDays`, 7), with the days themselves always asked of `ScheduleEngine.slotDate`, never worked out in the planner:
+
+- **Ended.** Its last day is before today. Nothing is planned.
+- **Steady.** It started by today and runs past the week. It is planned as repeating requests, consolidated as above, exactly as in 1.1. A course whose last day is a week or more away is steady until the morning its end comes within the week; if nothing replans in that last week it rings past its end, which is the safe way to be wrong, and a Taken or Skip on it finds no dose to log, replans, and so withdraws it.
+- **Dated.** It starts or ends within the week. It is planned as one-shot requests, one per day and time across every dated schedule (`meds.group.dose.date.<yyyyMMdd>.<HHmm>`), on the days `ScheduleEngine` gives it a slot. A dated slot already logged, early inside its due window or from the widget, is left out, since in a house with two people giving doses the ring would invite a second one; a repeating request cannot skip that day, and a one-shot can.
+- **Later.** It starts after the week. Nothing is planned yet; the week reaches it on some later opening of the app.
+
+Only the schedules that start or end within the week are dated. Planning the ongoing medications one day at a time as well would make every reminder depend on the app being opened again within a week, and a reminder that goes quiet because nobody opened the app is the failure a reminder exists to prevent. So where a steady schedule and a dated one share a day and time, that moment rings twice: the repeating request and the dated one (`DatedReminderPlanningTests.testASharedTimeRingsForBothOnTheCoursesDays`). Two reminders are the price of never going quiet, and this is the one exception to consolidating same-time slots.
+
+A dated request carries the day it is for in its `userInfo` (`NotificationIdentifiers.slotDayKey`, `yyyyMMdd`), and its Taken or Skip logs the dose on that day as it falls on the phone's clock now, with `ScheduleEngine` still deciding which dose that is. It is a day rather than an instant because a one-shot trigger names no time zone and rings at its clock time wherever the phone is: after a flight from Sydney to Los Angeles, the 11th's 08:00 reminder used to log the 10th's dose. A dated request or follow-up that has rung is never planned again, so a replan would sweep it out of Notification Center; it is kept by its identifier for 24 hours after its slot while that slot is unlogged, as a repeating one would be. For a schedule that has stopped repeating, the repeating names for that time are kept too, since its reminder may have rung under one of them the morning it turned dated.
+
+The week is replanned whenever the app comes forward, after every change, and after every Taken or Skip on a reminder, including one that finds nothing to log. When the week, or the sixty-request cap, leaves a dated reminder wanted after some day, `NotificationPlanOutcome.plannedThrough` names the last day that is covered, and from three days before it Today says "Reminders are planned through" that day, while reminders can be delivered at all. Dated requests come after the repeating ones under the cap, soonest first, because a repeating request keeps ringing whether or not the app is opened again; dated ones the cap cuts within the next 48 hours are counted with the repeating ones that did not fit, so Today says some reminders weren't set.
+
+### Follow-ups
+
+"Remind Again If Not Logged" in Settings repeats an unlogged dose's question 30 minutes after its time (`ScheduleEngine.dueWindow`), consolidated by moment (`meds.group.followup.<yyyyMMdd>.<HHmm>`), for slots less than a day ahead. It is off until someone chooses it, because this phone knows only what was logged on it. With two caregivers, a dose given and logged on the other phone is unlogged here, and its follow-up still rings; worded as a prompt, it would invite a second dose. So it asks whether anyone has given it: "It isn't logged on this phone yet. Check before giving it, in case someone already did." The Settings footer says the same.
+
+A follow-up rings when the clock shows the dose's time plus 30 minutes, and never less than 30 minutes after the dose: on the night the clocks go back, a 01:30 dose plus thirty elapsed minutes is the second 01:00, and a one-shot asked for 01:00 rings at the first, before the dose. Logging the dose anywhere in the app replans and withdraws it. The widget's Taken, which cannot replan, withdraws it by name, pending or delivered, once every dose it asks about is logged, since one follow-up can stand for several medications due at the same moment. Under the sixty-request cap follow-ups come last, after the dose requests and after the refill, expiration, refill-check and count-check alerts, because a follow-up repeats a question already asked, while a refill alert crowded out until its moment passes is never announced again.
+
+### The weekly count check
+
+A run-out date is only as honest as the last count. A dose given and logged on another phone, a tablet dropped, a dose logged twice: none of it shows until someone counts, and 1.1.1's assumed doses (see "Unlogged doses and the run-out date") make the date hold still but cannot see any of it. `CountCheckPolicy` asks one question a week, about the one medication it would hurt most to be wrong about. It is on unless turned off in Settings ("Weekly Count Check").
+
+A medication can be asked about when it is scheduled, running today, not archived, has refill reminders on, and its last count, the opening count or the latest correction, is seven or more calendar days old; a refill adds to a count but nobody counted what was already there. Of those, the target is one that needs a count, then the fewest days remaining, then the name. The question comes at 10:00, after the morning doses, on the first day a whole number of weeks after the count's day whose 10:00 is still ahead. It is planned before it falls due, because plans are made only when the app is used, and one made the evening before must already hold the next morning's question or it comes a week late; a course that is over by the question's moment is not asked about.
+
+The week is the reminder's, not each medication's. Two medications counted a day apart were otherwise asked about on two mornings running, so the planner remembers the check it planned and the last one whose moment has come (`CountCheckPolicy.plannedMomentKey` and `askedMomentKey` in `UserDefaults`), and the next comes at least seven days after the last one asked. A check replaced before its moment was never asked. A delivered check stays in Notification Center while that medication's count is still due. Its words are Today's quick count card's for the same medication: "Count needed" when only a count can say what is left, since no low-supply alert can be planned until then, and "Quick count" otherwise.
+
+## Courses
+
+A discharge writes antibiotics, antivirals and steroid courses with a last day, and until 1.2 the editor could not say so: a ten-day antibiotic read as an ongoing medication, its reminders never stopped, and its forecast warned about running out of something nobody meant to refill. A medication is on a course when every one of its schedules has an `endDate`; the course ends on the latest of them (`ScheduleEngine.courseEnd`). As-needed medications are never courses. The helpers are in `Shared/ScheduleEngine+Courses.swift`, beside the engine that owns which days hold a dose, so Today, the widget, the forecast and the planner all read the same last day. No `@Model` changed: `DoseSchedule.endDate` has existed since 1.0.
+
+**The last day is inclusive, and stored as noon.** `endDate` is the last day doses are taken, and the course is still running all of that day, whatever the hour, since an evening dose may be left. It is stored as noon, local, on that day (`ScheduleEngine.normalizedEndDate(forDay:)`). `isActive` reads only the day, in whatever zone the phone is in when it asks; a stored midnight reads as the day before as soon as the phone is anywhere west, and the last day's doses would vanish from Today and the forecast. Noon stays on the same calendar day for any change of less than twelve hours either way. Beyond twelve hours west the last day is lost, and beyond twelve east one is gained; comparing calendar components in `isActive` would close that, but changes the engine's rule for every screen, and is left for a decision.
+
+**A stored end is never normalised again.** The editor's "Course ends" toggle and date-only "Last day" picker apply to every schedule of a scheduled medication. A day the person picks is saved as `normalizedEndDate`; a day left as it was is saved as the stored moment, untouched; turning the toggle off saves none. Read abroad, a stored noon can fall on the next calendar day, and normalising what the picker shows there would move the course's end at home for good. Save refuses a newly picked day before today: a compact picker shows a value below its range as the range's first day but keeps the earlier value, so the range alone cannot stop a past day being saved. For a finished course the range starts at its own last day, so the picker shows the day the course really ended.
+
+**Taking a course up again starts from today.** Once every schedule has ended, saving a last day of today or later, or no last day, creates new schedules starting now, and the ended ones stay untouched as history (`ScheduleReconciler.reconcile`). Reused, they kept their start date, and the days between the old last day and today came back holding doses nobody was asked to take: Today's missed doses and the calendar listed them as not logged, and the forecast assumed them taken. `ScheduleReconciler.currentSchedules`, the running schedules or else the course that ended last, is what the editor loads and the detail screen and printed list show; the calendar, the forecast and the planner read every schedule. Moving, setting or clearing a last day across days already past while doses were assumed asks for a count, as a taper does (see "Unlogged doses and the run-out date"), and so does moving a passed last day later or clearing it.
+
+**The forecast asks the course first.** A finished course is decided before the supply is looked at: nothing is due and nothing needs a refill, whatever is on hand, so an empty bottle at the end of a course dispensed to the tablet raises nothing ("Course finished Sep 24."). A count needed still comes before anything else. Otherwise a course is covered when the supply, after the assumed-taken rule, outlasts every unlogged dose still to come through the course's last moment ("Enough to finish the course on Sep 30, with 4 tablets left."); a supply that exactly meets the last dose is covered with nothing left, not a run-out on the last day. With nothing on record, a course is covered only when every dose it asked for since the anchor was logged taken: a dose that went by unlogged or skipped with the bottle empty most likely means it ran out early, and calling that enough would clear the warning for a family still missing doses. A course that runs out first keeps the ordinary date and alert and adds "Runs out before the course ends on" its last day. One ending beyond the forecast's three-year window is weighed like any other schedule. `SupplyAttention` counts a covered or finished course as on hand, Trip Check files both as fine, and the runs-out widget shows a covered course with a tick after the medications that have a run-out date, and leaves a finished one off.
+
+**A course that ran out is not called finished.** `FinishedCourseNotice.ranOutFirst` asks the forecast at the moments that can tell: the course's last morning, with the refills and counts it had, and the moment before each refill or count added while it ran. The second matters because a refill onto an empty ledger becomes the forecast's anchor, and the doses missed before it drop out of every later forecast; a refill picked up two days after running out would otherwise pass for a course seen through. Logs made outside any slot from the last day on are left out of the last-morning check, since a count made that day already holds them, so a last dose logged early with Take Now is not counted twice. Where it ran out first, the detail screen, the Supply row, the printed list and Why This Date say "Last day was" the day, add that the supply on record ran out before it where there is room, and the ring shows a calendar rather than a tick. On a list handed to a clinician, "Course finished" would read as completed. While any of a finished course's doses since its last count went unlogged, its number is "on record", not "on hand", though none is assumed taken now that nothing is due.
+
+**Today offers to archive a finished course.** For three days after its last day, a card names it with Not Now and Archive; without it a course that asks for nothing and warns about nothing would sit on Today and Supply until someone thought to archive it. Archive writes no ledger event. Not Now is remembered per course, by medication and stored end moment (`FinishedCourseNotice.setAsideKey`), so a card set aside at home stays set aside abroad and a course taken up again and finished later gets a new one; keys more than four days old are dropped. No card is offered for a course that ran out first, since offering to archive it would read as a clean finish.
+
+## Why this date?
+
+A run-out date that assumes unlogged doses (1.1.1) is right more often and easier to doubt, and a caregiver who cannot see where a date came from cannot check it against the bottle. "Why this date?", a button on the detail screen's forecast card and in each Supply row's context menu and accessibility actions, lays the arithmetic out as a short ledger: the last count, the refills, losses and logged doses since, the number on record, the doses assumed, what the schedule uses a day, the course's last day, the conclusion, and the low-supply alert.
+
+It does not calculate anything itself. `ForecastEngine.evaluation` is the one pass; `forecast()` returns its forecast, and `breakdown()` returns a `ForecastBreakdown` built from the same values, so the explanation can never describe a second calculation that disagrees with the date beside it. The walk starts at the forecast's own anchor, and its steps add up exactly to the ledger's raw balance (`ForecastBreakdownTests`). The use line gives today's amount; a taper's or a later schedule's changes before the run-out day or the course's last day are listed under it (`ForecastBreakdown.useChanges`), because the forecast works out the date one day at a time and a single average would not add up by eye. A finished course has no use line. The alert line restates the planner's per-medication rule over `SupplyAttention`, and a test holds the two together; it cannot see the global sixty-request cap, which drops the farthest refill alerts first on a very heavy regimen. It reads the same permission state as Today's delivery banner, and there is no alert line for a count needed, for nothing on hand, or for a covered or finished course. All the wording is in `WhyThisDateLedger`, a pure type, so every line, plural and state is unit-tested and the view only lays them out; each line also carries one full spoken sentence for VoiceOver, with the signs said as words. Count Now on the sheet records the count the way Today and the detail screen do.
+
+## The quick count
+
+The weekly count check's other half is on Today: a card that asks about the same medication, chosen by the same `CountCheckPolicy.candidate` and `target` over the same forecasts, so tapping the reminder lands on a card that names what the reminder named. Tapping a count check remembers its medication (`QuickCountPrompt.tapKey`, through `MedicationNotificationRoute.follow`), and the card asks about that one until it is counted, because the policy's choice can change between planning and the tap. Once a count answers the check, a count of an askable medication made a week or more after its previous one, from any screen, the card rests for seven days as the reminder does, rather than asking about each medication due in turn. A medication that needs a count is never rested, since no low-supply alert can be planned for it until then. Not Now (`QuickCountPrompt.setAsideKey`) hides the card for three days, and only a tap on that medication's count check made after Not Now brings it back. The Settings switch that turns the reminder off turns the card off too.
+
+The card sits below the missed-doses card, and while its medication is listed there it asks for those doses to be logged or skipped first. A dose is taken off the supply at the moment it is logged, so a dose from before a count, logged after it, comes off a number that already left it out. The ledger orders doses by when they were recorded, and making it respect the scheduled time instead would change every forecast; that is left for a decision, and the card's order is the guard for now. Today's cards run pickups, missed doses, the quick count, finished courses, then the day's routine.
+
+## Scanning a dozen bottles
+
+On the first day home a caregiver may add a dozen bottles in a row. In 1.1 each one was a round trip: Add, Scan a Label, review, Add, and the flow closed. Now Add on a review that came from the scanner goes back to a new, empty scanner (Save and Scan Next); manual entry still closes after Add, and a Health review still returns to the Health list. Each bottle gets a scanner no earlier bottle used: the scanner step is numbered and the screen is given that number as its identity (`.id(session)`), because a navigation stack keeps the screen already in its first place, state and all, and the last bottle's evidence was left behind the next Review button. Discarding a scanned review moves on to a new scanner the same way.
+
+A bar under the camera, `SetupSessionTally`, answers "which ones are done?" without leaving it: "3 added: Tacrolimus, Prednisone and Furosemide · Added to Amlodipine". Names are newest first and whichever kind of bottle came last leads, because the bar has two lines and by the sixth bottle what the caregiver is checking is the one just saved, so the oldest names are the ones cut short. It is one VoiceOver element with Done beside it; its text stops growing at the first accessibility size, and Done offers the large content viewer.
+
+## The same bottle twice
+
+A second bottle of something already tracked, saved as new, splits one supply into two counts that each run out early and rings every reminder twice. So the review screen, for a scanned or typed draft, never an edit or a Health review, asks `DuplicateMedicationMatcher` first and shows "Already in Meds Ahead:" the drug, then its brand, nickname and person, with "Add this bottle to" it. It only asks: two people in one household can take the same drug, so every match is listed with whose it is, and the person decides.
+
+A match is the same NDC product in any package size, only when the draft's code filled its identity; the same clinical drug by RxNorm, both sides widened as the Health import widens them, so a generic bottle finds its tracked brand; or the same name at the same strength when nothing says they are different products. Different strengths never match, and a strength written two ways ("1.0 mg", "1 mg") is one strength. Before the name decides, the match is refused when both sides have RxNorm codes with no clinical drug in common, when both have NDC products that differ and the tracked code is listed as the medication itself, or when both have brands that differ. The FDA directory files immediate- and extended-release products under one generic name, strength and form, Prograf and Astagraf XL both "tacrolimus 1 mg capsule", so name and strength alone would add a once-daily capsule to a twice-daily count. A tracked code counts only when the directory lists it as that medication, because a code the label printed but never vouched for is stored as read, and a misreading must not say two bottles differ, nor make them the same. Archived medications and finished courses are left out: a new course's bottle added to one would sit under a last day that has passed, with no reminder planned. The tables load only for a draft that has codes, so a name typed by hand never waits on them.
+
+Adding the bottle (`AddBottleSheet`, `AddBottleRecord`) records a refill on the existing medication, append-only, clears a refill marked requested or ready as Add Refill does, and replans. The label's other values are taken only when asked, and only where they cannot move a warning later: an expiry only when earlier than the one on file, refills left only when fewer, and the Rx number when it differs. The earlier bottle's pills may still be in the count, and a label from an older fill shows refills since used. The sheet says which values stay, and refills left is never counted down. The scanner's bar then says "Added to" the medication.
 
 ## Scanner frame
 
@@ -101,7 +198,27 @@ one found on the line that also carries the strength, which is where a drug name
 actually sits. A merely name-shaped line is dropped, because "Open 9 to 6" or a
 patient's own name in the medication field is worse than a blank one. `ScanParser`
 reports this as `MedicationNameProvenance` so the distinction is explicit rather
-than re-derived.
+than re-derived. On the strength's own line a trailing "DR" is the
+delayed-release form and is set aside before the address and person tests,
+which read it as "Drive" and used to leave every delayed-release label ("X DR
+240 MG CAPSULE") with a blank name (1.1.1); a street or a prescriber line with
+DR is still refused.
+
+A label's count is the other exception: it is offered, never filled. The number a
+label prints, a pharmacy's QTY or CONTENTS or a stock bottle's "120 TABLETS", is
+what the bottle held when full, not what is on hand, and in 1.1 a scanned draft
+put it straight into Current amount. A bottle two weeks into a twice-daily fill
+then read 28 doses high, the direction that runs someone out. `ScanParser` still
+reads the count into `MedicationDraft.currentSupply`, but the scanned review
+screen starts Current amount blank and offers the count beneath it: "Label says N
+when full", a sentence saying that is the count before any were taken, and a Use N
+button, so the person's tap is what confirms it for an unopened bottle. The
+wording avoids "dispensed" because a stock bottle's count was never dispensed. N
+is the label's count rounded to the two places a quantity shows, so the note, the
+button's "Using N" state and the saved amount agree, and a count that shows as 0
+at two places is not offered. Manual and Apple Health drafts are unchanged. The
+rule lives in `MedicationDraft.labelDispensedQuantity`, `labelDispensedNote` and
+`initialCurrentAmountText`.
 
 ## Exact identification
 
@@ -120,7 +237,7 @@ resolution (`minimumTextHeight` of zero), and the rendered-label tests read a
 code printed at one percent of the frame height. `NDCDirectory` is a
 snapshot of the FDA National Drug Code Directory — public domain, refreshed daily
 by the FDA, trimmed by `Tools/build_ndc_directory.py` to generic name, brand name,
-strength and dosage form for human prescription and OTC listings — sorted by
+strength, dosage form and release for human prescription and OTC listings — sorted by
 nine-digit product key and binary-searched in place, so a hundred thousand
 products cost one buffer rather than a dictionary. No network is involved at any
 point. The FDA's delisted-products file was examined and contributes nothing:
@@ -131,16 +248,17 @@ snapshot falls back to the printed name like any other.
 The line is also the hardest to read. Vision works a whole frame at a bounded
 resolution, so on a twelve-megapixel capture a two-millimetre line of print
 reaches the recognizer a few pixels tall whatever `minimumTextHeight` says. The
-still pipeline therefore takes a second look when its first pass yields no code:
+still pipeline therefore takes a second look whether or not its first pass read
+a code, because a blurred line is misread more often than it is missed:
 every line that looks like it might be the code's — the caption, which small
 print turns into "N0C", or digits with hyphens — is cut out of the
 full-resolution image with room around it, scaled up to a height Vision reads
 comfortably, and read again with language correction off, because correction is
-built for words and a code is not a word; when nothing even looked like the code
-the frame is read in overlapping full-resolution tiles instead. Only code-bearing
-lines come back from the second look, and they take the place of the first
-pass's misreading of the same print. After the caption every digit confusable is
-repaired — O, D and Q for 0, I and l for 1, Z for 2, S for 5, G for 6, T for 7,
+built for words and a code is not a word; when nothing read so far names a
+listed product the frame is also searched in overlapping full-resolution tiles.
+Only code-bearing lines come back from the second look, and they take the place
+of the first pass's misreading of the same print. After the caption every digit
+confusable is repaired — O, D and Q for 0, I and l for 1, Z for 2, S for 5, G for 6, T for 7,
 B for 8 — and the hyphens of a small code, which come through as spaces at least
 as often as its digits come through as letters, are accepted as spaces when the
 segments fit a layout, after the caption only. A code broken across two
@@ -149,6 +267,65 @@ rather than one at a time. The Review capture is merged ahead of the live items
 rather than behind them, so the evidence cap cuts live extras and never the
 capture, and a better live reading of a captured line keeps that line's place
 in the capture's order so the adjacency wrapped text depends on survives.
+
+iOS 27 changed what the second look has to do (1.1.1). Vision offers the same
+text-recognition revision 3 on iOS 26 and 27, so there is no revision to pin,
+but the model under it reads small print differently: over some 140 crops,
+scales and filters of a shaken Tecfidera line, iOS 27 never put the right code
+first and listed it among its top ten guesses in about one look in seven, where
+iOS 26.5 read it first in about one in three. The still pipeline now runs four
+passes, in order:
+
+1. The first pass over the whole frame, with language correction on.
+2. The zoomed second look at each code-shaped line, with correction off.
+3. When nothing read so far names a listed product, tiles, which now only find
+   the code line: the zoom reads each line a tile finds. A tile hands Vision
+   small print at its own few pixels, and iOS 27 read a 12-point "-02" as
+   "-07" there where the zoom read it right, so the zoom's reading leads. The
+   zoom misreads a shaken line too, so the tile's reading goes forward beside
+   it whenever it carries a code the zoom did not read.
+4. A search of Vision's lower-ranked guesses, only when nothing read, in print
+   or in a barcode, is a listed code the label accepts, the label shows a
+   confirmed name and a strength, and a code-shaped line exists. It reads at
+   most two such lines at seven text heights, 40 to 150 pixels, because where a
+   shaken line reads right is close to chance, a matter of how its blurred
+   edges land on the pixel grid; it leaves language correction on, the only
+   mode that ranks guesses, and looks at the top ten of each. It costs a few
+   seconds in the simulator when it runs, off the main actor like the rest of
+   the still pipeline, and a code the label accepts, a barcode included, spares
+   it.
+
+Wherever two passes read different codes, both go forward and the
+identification gate asks the label. The evidence merge judges two lines to be
+one line read twice by their letters, and two readings of one code line differ
+only in their digits, so it used to keep whichever Vision scored higher and
+choose a product by OCR confidence; it now never merges two text readings that
+carry different codes, in the capture, in a photo merged into a scan, or in the
+live tracker's retained lines.
+
+A guess below the top reading is a guess among guesses, and the likeliest
+wrong one is a neighbour from the same labeler, which numbers its line in
+sequence: the same drug at another strength, or at the same strength in another
+release. On the shaken Tecfidera 240 mg line the 120 mg code turned up among
+the guesses more often than the right one, and Prograf and Astagraf XL are one
+digit apart at every strength. So a guess must clear a stricter bar than a top
+reading, `NDCIdentification.labelNamesExactly`, before it joins the evidence:
+the label's confirmed name and an equivalent printed strength are the
+product's; a form the label prints is the product's form; a brand it prints is
+the product's whole brand, release letters included, so WELLBUTRIN XL is not
+Wellbutrin SR and WELLBUTRIN alone names neither; nothing on the label
+contradicts the product, release included; and none of the labeler's other
+products fits the label as well. A label that says only "TACROLIMUS 1 MG
+CAPSULE" fits both Prograf and Astagraf XL and takes a guess at neither; one
+that prints PROGRAF can take only the Prograf code, and one that prints
+ASTAGRAF XL only the Astagraf XL code. An admitted guess enters the evidence as
+"NDC" and its code alone and displaces no line, so a quantity or a date beside
+the code keeps the passes' reading rather than the guess's, and it then faces
+the ordinary gate beside every other reading, where two surviving products
+still fill nothing. Rivals are looked for only under the guess's own labeler: a
+directory-wide rule would refuse every drug that has generics, the Tecfidera
+guess iOS 27 needs among them, so a guess misread onto another labeler that
+lists the same name, strength and form is caught only by a printed brand.
 
 `NDCIdentification` is the gate between a resolved code and the review screen.
 It runs after the ordinary label reading, not instead of it, because that reading
@@ -159,7 +336,8 @@ because one misread digit is a different product and the directory would state i
 with confidence. A code from either source is refused when the label plainly
 contradicts it: a confirmed name of another drug, a strength that disagrees, a salt
 that makes a different product (metoprolol succinate is not metoprolol tartrate),
-a vitamin number that differs, or a printed form that differs. Ten bare digits
+a vitamin number that differs, a printed form that differs, a release that
+differs, or a brand of another product of the drug (below). Ten bare digits
 that fit two listed products, or two codes naming two products, resolve to
 nothing. A refused or uncorroborated code is still kept as the product code, as
 read, so the person can see it; it just fills nothing. An accepted one fills name,
@@ -181,6 +359,91 @@ directory and the listing is shown — "Tacrolimus 1 mg (Prograf), capsule" — 
 a button that fills name, brand, strength and form from it. The corroboration
 rule holds: the code fills nothing on its own word, and the person's reading it
 off the bottle and choosing the product it names is the word that fills it.
+
+The directory is keyed by labeler and product, and the label vouches for the
+drug, strength and form, so nothing checks the two package digits. When printed
+readings of the accepted product disagree there ("-02" from the zoom, "-07"
+from a tile on iOS 27), the first one read used to be stored and printed on the
+shared list, a package no pharmacy dispensed. Such a code is now kept as the
+FDA's two-segment product NDC, "64406-0006" (1.1.1;
+`NDCIdentification.Match.recordedCode`): it names the drug exactly and claims
+no package it does not know. A barcode's check digit settles the package,
+readings that agree keep the full code, and the review screen's note says why
+the code is shorter than the bottle's, so nobody "corrects" it; typing the code
+from the bottle and choosing Use This Product still records the full one. A
+stored NDC can therefore be either form, and anything that parses one must
+accept both. RxNorm is looked up by product and does not care.
+
+Release is part of a product's identity (1.1.1). Prograf (0469-0617) and
+Astagraf XL (0469-0677) are both tacrolimus 1 mg capsules from labeler 0469,
+one digit apart, and small print swaps 1 and 7. Prograf is immediate-release
+and taken twice a day, Astagraf XL extended-release and taken once, and they
+are not interchangeable. Name, strength and form cannot tell them apart, so a
+misread code on a Prograf bottle, even one that printed PROGRAF, was accepted as
+Astagraf XL. Only release and brand tell them apart, so an immediate- against
+an extended-release disagreement is a contradiction like a salt's, and a
+brand is checked both ways.
+
+The directory's sixth column is the listing's release: "er", "dr", or empty
+when the listing claims neither. `Tools/build_ndc_directory.py` takes it from
+the FDA's dosage form ("CAPSULE, EXTENDED RELEASE"); where that is silent, from
+a release phrase in the proprietary name, its suffix or the nonproprietary name
+("potassium chloride extended-release", "Enteric coated"); and, for oral
+tablets and capsules only, from release letters after the first word of the
+brand or of the generic name (XL, XR, ER, SR, CR, LA, CD and XT for extended,
+DR and EC for delayed). The letters count only there because "Dr. Sheffield"
+and "La Roche-Posay" lead with them on creams and sunscreens; the generic name
+counts because a repackager lists extended-release metformin as a plain TABLET
+named "Metformin ER 500 mg".
+`NDCDirectory` reads the column into `NDCProduct.release` and still loads
+five-column rows. Release is compared only for tablets, capsules and oral
+liquids (`NDCProduct.comparableRelease`): a patch is extended-release by
+nature, and a label for a patch or an injection seldom says so.
+
+`ReleaseForm` reads the label's release only on the lines that name the drug,
+because read across the whole label a prescriber's "DR JONES" is delayed
+release and a Louisiana address is long-acting. Extended-release letters also count on the
+next line when it is the rest of the description, as a narrow label wraps
+"TACROLIMUS" / "XL 1 MG CAPSULE"; DR, EC and LA stay on the drug's own line,
+since a prescriber, a manufacturer and a state are what usually follow it. A
+dosing interval is never release evidence: "every 12 hours" is how Prograf is
+taken. A product's "24 HR" only suggests extended release, since Nexium 24HR
+is not, so it can back a code up and never refuses one. From there:
+
+- A label that states a release the product is not refuses the code, and a
+  reference brand it prints states the release for it: PROGRAF is
+  immediate-release, TOPROL XL extended. The one asymmetry is that a DR label
+  does not refuse a listing that claims no release, because the FDA files some
+  delayed-release products, Tecfidera among them, as plain capsules; extended
+  release is the one that changes how often a dose is taken.
+- A printed code for an extended- or delayed-release product fills nothing
+  until the label backs the release up: its letters or phrase, the product's
+  "24 HR", the product's own brand when that brand is more than the drug's
+  name and strength ("Aspirin 81 mg" is not), or a drug name the table knows
+  in only that release, as metoprolol succinate is only ever extended-release.
+  A barcode needs no backing, as it needs no corroboration, but a label that
+  contradicts it still refuses it.
+- The other brands a label can print are the table's reference brand and the
+  brands of the code's labeler's other products of the drug
+  (`NDCDirectory.products(withLabeler:genericName:)`), where a one-digit
+  misread lands first. One of those printed refuses a branded code whose own
+  brand is not on the label, PROGRAF with an Astagraf XL code or ASTAGRAF XL
+  with a Prograf one, and its release counts as the label's, so ASTAGRAF XL on
+  a line of its own refuses the labeler's generic immediate-release code too. A
+  variant of the product's own brand (Bactrim DS, Adderall XR) and a store's
+  brand that prints "compare to Advil" are left to the strength and release
+  checks.
+- The brand the table lends a label's name, Prograf for "TACROLIMUS", is held
+  back whenever a code read on the label names the drug in another release or
+  the label prints another brand of it (`NDCIdentification.doubts`), whatever
+  the code's verdict and in the language model's pass as well. Generic
+  extended-release tacrolimus is named "Tacrolimus ER" with no brand, and the
+  review screen's listing says the release when the brand does not. A brand
+  the label prints is never held back.
+
+Extended releases share one value, so a printed brand tells a labeler's
+branded variants apart but generic letters do not: "BUPROPION SR" against a
+bupropion XL code, or diltiazem CD against LA, is not refused on release.
 
 Strengths are compared as amounts, not strings, because the directory and the
 label write one fact several ways: `800-160 mg` against `800 mg/160 mg`,
@@ -213,6 +476,21 @@ where the person enters what is on hand and the schedule Meds Ahead should keep
 count of. Saving returns to the Health list rather than closing the flow, so a
 regimen of a dozen medications is a dozen reviews, not a dozen trips through Add,
 and a medication already on file is marked as such in the list.
+
+That mark, "Already in Meds Ahead", matches names only within one release
+(1.1.1), since Prograf and Astagraf XL share the name tacrolimus and an
+Astagraf XL entry used to read as the Prograf bottle already here. A release
+the entry states stays in its name for any drug, "Nifedipine ER", where it used
+to be set aside with the form words. An entry whose text states none takes the
+release the FDA directory gives every product the bundled RxNorm table lists
+under its code, so "Tacrolimus 1 mg" coded as Astagraf XL reads as "Tacrolimus ER" with no
+brand; finding a code's products reads the whole table, so the importer does it
+once, off the main actor, as the entry is read
+(`HealthMedicationSummary.codedRelease`). A name that states no release is
+read as the table's reference product. When both sides carry codes that name
+different clinical drugs, a matching name never joins them. RxNorm's names
+lead with a duration, "24 HR tacrolimus", which is not taken as part of the
+name.
 
 Dose logs come with the medication. The per-object grant that shares a
 medication is the grant for the doses logged against it — HealthKit refuses a
@@ -271,7 +549,10 @@ concept into `Medication.rxNormCode`, which is what lets the dose sync recognise
 a scanned bottle in Health, and both sides of that match are widened to the
 clinical drug so a generic bottle scanned here and the brand chosen in Health
 read as one medication. The Health import's duplicate check uses the same
-widening. The shared list prints the code beside the NDC, since a clinic's
+widening. It never joins two releases: RxNorm gives each its own clinical drug
+(Prograf 1 mg, 108513, widens to 198377; Astagraf XL 1 mg, 1431982, to
+1431980), which a test pins against the shipped files for both the duplicate
+check and the dose sync. The shared list prints the code beside the NDC, since a clinic's
 system speaks RxNorm where a pharmacy's speaks NDC.
 
 ## The pharmacy card, refills under way, trips, people, expirations, and days
@@ -289,10 +570,12 @@ model already had or gained in 1.1's one migration.
   with which number. A renewal reminder does not, because the call it asks
   for is to the prescriber.
 - **A refill under way.** `RefillStatus` — requested, or ready for pickup —
-  with a date. The forecast is unchanged, because the count is the count, but
-  the low-supply reminder stops while the status stands, Supply shows the
-  status instead of "Act soon", Today lists what to pick up and when, and
-  adding the refill clears it. Never inferred: the person sets it.
+  with a date. The forecast is unchanged, because the count is the count.
+  In 1.1 the low-supply reminder stopped for as long as the status stood;
+  since 1.1.1 the refill quiets the warning only while `SupplyAttention` says
+  it can still answer for the supply, and a refill check asks on the morning
+  it stops (see "Supply attention"). Today lists what to pick up and when,
+  and adding the refill clears it. Never inferred: the person sets it.
 - **Trip check.** `TripCheck` is pure arithmetic over the forecasts Supply
   already has: a supply that runs out on or before the return day needs a
   refill before leaving, one with no forecast cannot be vouched for, the rest
@@ -332,9 +615,33 @@ The Taken button on the next-dose widget is `LogNextDoseIntent`. It appears
 only when exactly one medication is due at that time, for the reason a grouped
 reminder offers no Taken action: one tap cannot safely stand for several doses.
 The intent matches the dose to its slot through `ScheduleEngine` and leaves a
-slot already logged alone, from Today, from a reminder, or from Health; the app
-replans notifications the next time it comes forward, as it does after a
-reminder action.
+slot already logged alone, from Today, from a reminder, or from Health. Since
+1.1.1 it also asks `ScheduleEngine.hasSlot` whether the schedule still has a
+dose at exactly the moment the widget drew, as the reminder actions do, and
+writes nothing when a time was edited, a schedule ended, or a first day began
+after that time since the widget last drew. The app replans notifications the
+next time it comes forward, as it does after a reminder action.
+
+The same question has to run the other way. The widget saves from its own
+process, and nothing guarantees that a running app's `@Query` arrays have
+merged that write when the person next taps Taken on Today or Take Now on a
+medication; the arrays alone would call the dose unlogged and spend the supply
+a second time. So every path in the app that writes a scheduled dose asks the
+store first, as the reminder actions and the widget already did:
+`DoseLogGuard.isLogged` for Today's Taken and Skip, the missed-dose card and
+Mark All, and `DoseLogGuard.actionableDose` for Take Now, which claims the next
+due dose the store has unlogged. The widget logs the earliest due dose, so a
+Take Now tap then belongs to the next one, as it would had the screen caught
+up, and not to nothing. The fetch is narrowed only by medication; slot
+identity is still `ScheduleEngine.loggedEvent` and `actionableDose`. A tap that
+finds its dose already logged writes nothing and says so in an "Already
+Logged" alert, and a failed fetch shows the existing couldn't-log alert and
+writes nothing. `DoseLogGuardTests` proves it with two containers on one store
+file. The guard does not refresh the screen. Whether Today shows the widget's
+log when the app comes back depends on SwiftData merging another process's
+write into a running app's queries, which nobody has yet watched on a phone;
+it is a device check in `RELEASE_CHECKLIST.md`. Until it is settled, Today may
+show a dose as due that the store already has, and a tap on it writes nothing.
 
 A widget runs in its own process and can only reach a store in an app group
 container, so the store now lives in `group.com.christoforakis.Meds`.
@@ -350,6 +657,45 @@ the legacy store, with the widgets saying to open the app. The widget itself
 never creates the store — opening a SwiftData container where none exists would
 create one, and an empty store at the shared location would tell the app the
 move had already happened — so it opens only a store that exists.
+
+## Words and numbers kept exact
+
+The notes a dose carries when it was logged away from Today are stored data,
+not display copy. `DoseEventNote.reminder` ("Logged from reminder") and
+`DoseEventNote.widget` ("Logged from widget") live in `Shared`, so the app and
+the widget write the same words, and `DoseEvent.appleHealthNote` ("Logged in
+Apple Health") lives with the model. `HealthDoseReconciler` tells a dose logged
+here from Health's copy of one by its note, and every event already saved keeps
+the words it was saved with, so rewording one would mean migrating stored
+history. `DoseEventNoteTests` pins all three.
+
+The words after a number are written out once. Every surface used to add "s"
+to the form's unit, which printed "30 patchs on hand", "150 mLs" and "1 days of
+supply remaining". `Shared/QuantityText.swift`, compiled into the app and the
+widgets, holds `MedicationForm.quantityText(_:)` and `unitText(for:)`, with each
+form's plural written out rather than derived ("patch" takes "es"; mL is a
+symbol and never takes one), and `Int.dayCountText` and `Int.counted(_:plural:)`
+for whole-number counts. The singular follows the number as printed, not as
+stored: 1.004 prints as "1" and reads "1 tablet", decided by the same two-place
+rounding `medicationQuantityText` uses, in a fixed locale so a region's digits
+cannot change the answer. Notification plans carry the medication's form rather
+than a unit name, so a reminder can choose the plural.
+
+Add Refill and Correct Count read the number from the text as typed. They were
+`TextField(value:format:)` fields on a keypad with no Return key, a pattern
+that on a phone committed the editor's dose field only when focus left (August
+30), and the sheet's button never took focus. The simulator never reproduced
+that for the sheets, so the change is defensive and the phone repro stays
+open. The sheets keep the text and parse it on every change through
+`SupplyChangeQuantity` and `Double.medicationQuantity(from:)`: a count may be
+0 and a refill may not, and empty, unparseable or negative text, or text with
+two decimal separators, leaves the button disabled. The sheets, the editor's
+Current amount and the scanned label's Use button write their numbers without
+grouping, and text containing the region's grouping separator disables the
+button rather than being guessed at, because a region that groups with "."
+read "1.497" as 1.497, and en_US read "1,000" as 1. Untouched prefilled text
+stands for the exact number it was made from, so the two-place rounding is
+never recorded as a difference.
 
 ## Rating request
 

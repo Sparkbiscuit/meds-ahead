@@ -39,8 +39,21 @@ enum MedicationNotificationAction {
 }
 
 enum MedicationNotificationRoute {
+    /// A count check opens Today, where the quick count asks about the same
+    /// medication; everything but a refill alert does.
     static func destination(for userInfo: [AnyHashable: Any]) -> AppTab {
         userInfo["notificationKind"] as? String == "refill" ? .supply : .today
+    }
+
+    /// A reminder someone tapped: where it opens, and for a count check, the
+    /// medication it named, kept so Today's quick count asks about that one.
+    /// The check's pick can change between planning and the tap.
+    static func follow(_ userInfo: [AnyHashable: Any], at date: Date = .now, defaults: UserDefaults = .standard) -> AppTab {
+        if userInfo["notificationKind"] as? String == "countCheck",
+           let medicationID = (userInfo["medicationID"] as? String).flatMap(UUID.init(uuidString:)) {
+            QuickCountPrompt.rememberTap(of: medicationID, at: date, in: defaults)
+        }
+        return destination(for: userInfo)
     }
 }
 
@@ -75,11 +88,16 @@ enum NotificationDoseRecordingResult: Equatable {
 
 @MainActor
 enum NotificationDoseRecorder {
+    /// `slotDay` is a moment on the day a dated reminder or a follow-up
+    /// names. It decides the day when present: a follow-up for a 23:45 dose
+    /// is delivered after midnight, and the delivery's day would be the next
+    /// day's dose. The engine still says which dose that day is.
     static func record(
         status: DoseEventStatus,
         medicationID: UUID,
         scheduleID: UUID,
         notificationDate: Date,
+        slotDay: Date? = nil,
         in context: ModelContext,
         calendar: Calendar = .autoupdatingCurrent
     ) throws -> NotificationDoseRecordingResult {
@@ -91,18 +109,22 @@ enum NotificationDoseRecorder {
               schedule.medicationID == medicationID,
               let scheduledAt = ScheduleEngine.scheduledDate(
                 for: schedule,
-                on: notificationDate,
+                on: slotDay ?? notificationDate,
                 calendar: calendar
               ) else {
             return .missingContext
         }
 
-        let isAlreadyRecorded = try context.fetch(FetchDescriptor<DoseEvent>()).contains { event in
-            event.scheduleID == scheduleID &&
-            event.medicationID == medicationID &&
-            event.scheduledAt.map { abs($0.timeIntervalSince(scheduledAt)) < 60 } == true
+        let dose = ScheduledDose(
+            medicationID: medicationID,
+            scheduleID: scheduleID,
+            date: scheduledAt,
+            quantity: schedule.doseQuantity
+        )
+        let events = try context.fetch(FetchDescriptor<DoseEvent>()).filter { $0.medicationID == medicationID }
+        guard ScheduleEngine.loggedStatus(for: dose, in: events, calendar: calendar) == nil else {
+            return .alreadyRecorded
         }
-        guard !isAlreadyRecorded else { return .alreadyRecorded }
 
         context.insert(
             DoseEvent(
@@ -112,10 +134,46 @@ enum NotificationDoseRecorder {
                 recordedAt: .now,
                 doseQuantity: schedule.doseQuantity,
                 status: status,
-                note: "Logged from reminder"
+                note: DoseEventNote.reminder
             )
         )
         try context.save()
         return .recorded
+    }
+
+    /// A reminder's Taken or Skip, then the plans to replan with, whatever
+    /// the result. A reminder the app can no longer resolve is the one most
+    /// in need of withdrawing: a course's repeating request rings past its
+    /// last day when nothing replanned in its final week, and its Taken
+    /// finds no dose to log. Only a replan stops it. One already logged
+    /// where nothing replans, on the widget, still has a reminder pending.
+    static func respond(
+        status: DoseEventStatus,
+        medicationID: UUID,
+        scheduleID: UUID,
+        notificationDate: Date,
+        slotDay: Date? = nil,
+        in context: ModelContext,
+        now: Date = .now,
+        calendar: Calendar = .autoupdatingCurrent
+    ) throws -> (result: NotificationDoseRecordingResult, plans: [MedicationNotificationPlan]) {
+        let result = try record(
+            status: status,
+            medicationID: medicationID,
+            scheduleID: scheduleID,
+            notificationDate: notificationDate,
+            slotDay: slotDay,
+            in: context,
+            calendar: calendar
+        )
+        let plans = NotificationPlanBuilder.makeAll(
+            medications: try context.fetch(FetchDescriptor<Medication>()),
+            schedules: try context.fetch(FetchDescriptor<DoseSchedule>()),
+            inventoryEvents: try context.fetch(FetchDescriptor<InventoryEvent>()),
+            doseEvents: try context.fetch(FetchDescriptor<DoseEvent>()),
+            now: now,
+            calendar: calendar
+        )
+        return (result, plans)
     }
 }

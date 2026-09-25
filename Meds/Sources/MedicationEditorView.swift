@@ -20,7 +20,23 @@ struct MedicationEditorView: View {
     private let draftIdentification: NDCIdentificationOutcome?
     private let draftImportedDoses: [ImportedDose]
     private let draftCaptureNote: String
-    private let onSaved: (() -> Void)?
+    private let draftLabelQuantity: Double?
+    private let draftLabelQuantityNote: String?
+    /// The draft as it arrived, for which fields its label read.
+    private let reviewedDraft: MedicationDraft
+    /// Called with the medication once it is saved, so the add flow can say
+    /// what went in.
+    private let onSaved: ((Medication) -> Void)?
+    /// Offered a bottle of a medication already tracked, to add to that one
+    /// instead of saving a second. Without it the review offers nothing.
+    private let onAddBottle: ((AddBottleRequest) -> Void)?
+    /// Called after a save that changed what past days were scheduled to hold
+    /// while the forecast was assuming unlogged doses: only a count can say
+    /// what those doses took, so the presenter asks for one.
+    private let onAskForCount: (() -> Void)?
+    /// Called in place of closing the review when it is thrown away, so the
+    /// add flow can move on from the scanner that read it.
+    private let onDiscard: (() -> Void)?
 
     @Query private var allMedications: [Medication]
     @Query private var allSchedules: [DoseSchedule]
@@ -56,6 +72,11 @@ struct MedicationEditorView: View {
     @State private var refillRemindersEnabled: Bool
     @State private var detailedNotifications: Bool
     @State private var editableSchedules: [EditableDoseSchedule]
+    @State private var courseEnds = false
+    @State private var courseLastDay = Date.now
+    /// The course's last day as stored, saved back untouched unless another
+    /// day is picked.
+    @State private var storedCourseEnd: Date?
     @State private var importsDoseHistory = true
     @State private var didLoadExistingSchedules = false
     @State private var showingValidation = false
@@ -63,14 +84,27 @@ struct MedicationEditorView: View {
     @State private var showingDiscardConfirmation = false
     @FocusState private var focusedNameField: NameField?
 
-    init(medication: Medication? = nil, draft: MedicationDraft = MedicationDraft(), onSaved: (() -> Void)? = nil) {
+    init(
+        medication: Medication? = nil,
+        draft: MedicationDraft = MedicationDraft(),
+        onSaved: ((Medication) -> Void)? = nil,
+        onAddBottle: ((AddBottleRequest) -> Void)? = nil,
+        onAskForCount: (() -> Void)? = nil,
+        onDiscard: (() -> Void)? = nil
+    ) {
         self.medication = medication
         self.draftEvidence = draft.evidence
         self.draftSource = medication?.source ?? draft.source
         self.draftIdentification = draft.identification
         self.draftImportedDoses = draft.importedDoses
         self.draftCaptureNote = draft.captureNote
+        self.draftLabelQuantity = draft.labelDispensedQuantity
+        self.draftLabelQuantityNote = draft.labelDispensedNote
+        self.reviewedDraft = draft
         self.onSaved = onSaved
+        self.onAddBottle = onAddBottle
+        self.onAskForCount = onAskForCount
+        self.onDiscard = onDiscard
         let resolvedForm = medication?.form ?? draft.form
         _name = State(initialValue: medication?.name ?? draft.name)
         _nickname = State(initialValue: medication?.nickname ?? draft.nickname)
@@ -80,7 +114,7 @@ struct MedicationEditorView: View {
         _strength = State(initialValue: medication?.strength ?? draft.strength)
         _form = State(initialValue: resolvedForm)
         _directions = State(initialValue: medication?.directions ?? draft.directions)
-        _currentSupplyText = State(initialValue: draft.currentSupply?.medicationQuantityText ?? "")
+        _currentSupplyText = State(initialValue: draft.initialCurrentAmountText)
         _refillsText = State(initialValue: (medication?.refillsRemaining ?? draft.refillsRemaining).map(String.init) ?? "")
         _refillLeadDays = State(initialValue: medication?.refillLeadDays ?? 7)
         let expiration = medication?.expirationDate ?? draft.expirationDate
@@ -147,12 +181,19 @@ struct MedicationEditorView: View {
                 }
                 masksByMinute[minutes, default: 0] |= schedule.weekdayMask
             }
+            if let problem = Self.courseLastDayProblem(courseEnds: courseEnds, lastDay: courseLastDay, stored: storedCourseEnd) {
+                return problem
+            }
         }
         return nil
     }
 
     var body: some View {
         Form {
+            let duplicates = duplicateMatches
+            if !duplicates.isEmpty {
+                duplicateSection(duplicates)
+            }
             if !draftEvidence.isEmpty {
                 scanSummarySection
             } else if draftSource == .appleHealth, !isEditing {
@@ -250,8 +291,11 @@ struct MedicationEditorView: View {
                                 .accessibilityIdentifier("current-supply")
                         }
                         .padding(.vertical, 3)
-                        Text(form.unitName + (Double.medicationQuantity(from: currentSupplyText) == 1 ? "" : "s"))
+                        Text(form.unitText(for: Double.medicationQuantity(from: currentSupplyText) ?? 0))
                             .foregroundStyle(.secondary)
+                    }
+                    if let draftLabelQuantity, let draftLabelQuantityNote {
+                        labelQuantityRow(quantity: draftLabelQuantity, note: draftLabelQuantityNote)
                     }
                 } header: {
                     Text("What you have now")
@@ -279,7 +323,7 @@ struct MedicationEditorView: View {
                             }
                             ScheduleDoseQuantityField(
                                 quantity: $schedule.doseQuantity,
-                                unitName: form.unitName,
+                                form: form,
                                 allowsHalfSteps: form == .tablet || form == .capsule
                             )
                             WeekdayPicker(mask: $schedule.weekdayMask)
@@ -304,21 +348,48 @@ struct MedicationEditorView: View {
                             )
                         )
                     }
+                    Toggle("Course ends", isOn: $courseEnds.animation(.medsSpring))
+                        .accessibilityIdentifier("course-ends")
+                        .accessibilityHint("For a medication taken until a set day, such as an antibiotic")
+                        .onChange(of: courseEnds) { _, isOn in
+                            // From today as it is now: the editor may have
+                            // opened before midnight, and a picker shows a day
+                            // before its range as today while it keeps the old.
+                            if isOn, storedCourseEnd == nil { courseLastDay = .now }
+                        }
+                    if courseEnds {
+                        DatePicker(
+                            "Last day",
+                            selection: $courseLastDay,
+                            in: Self.earliestCourseLastDay(stored: storedCourseEnd)...,
+                            displayedComponents: .date
+                        )
+                        .accessibilityIdentifier("course-last-day")
+                    }
                 }
             } header: {
                 Text("Schedule")
             } footer: {
-                Text(isAsNeeded ? "As-needed forecasts require at least three recent logged doses." : "This schedule drives reminders and the supply forecast. Confirm it against the current label or clinician instructions. Half doses are fine — enter 2.5 for two and a half tablets.")
+                Text(isAsNeeded ? "As-needed forecasts require at least three recent logged doses." : Self.scheduleFooter(courseEnds: courseEnds, storedCourseEnd: storedCourseEnd))
             }
 
-            Section("Reminders") {
+            Section {
                 Toggle("Dose reminders", isOn: $remindersEnabled)
                     .disabled(isAsNeeded)
                 Toggle("Refill reminders", isOn: $refillRemindersEnabled)
                 Toggle("Show medication name", isOn: $detailedNotifications)
                     .disabled((!remindersEnabled || isAsNeeded) && !refillRemindersEnabled)
-                Stepper("Low supply: \(refillLeadDays) days before", value: $refillLeadDays, in: 1...30)
+                Stepper("Low supply: \(refillLeadDays.dayCountText) before", value: $refillLeadDays, in: 1...30)
                     .disabled(!refillRemindersEnabled)
+            } header: {
+                Text("Reminders")
+            } footer: {
+                if let note = SupplyAttention.lengthenedLeadNote(
+                    refillLeadDays: refillLeadDays,
+                    refillsRemaining: Int(refillsText.trimmingCharacters(in: .whitespacesAndNewlines))
+                ) {
+                    Text(note)
+                }
             }
 
             Section {
@@ -397,7 +468,7 @@ struct MedicationEditorView: View {
                     if !isEditing && hasUnsavedRequiredData {
                         showingDiscardConfirmation = true
                     } else {
-                        dismiss()
+                        discard()
                     }
                 }
             }
@@ -423,7 +494,7 @@ struct MedicationEditorView: View {
             isPresented: $showingDiscardConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Discard", role: .destructive) { dismiss() }
+            Button("Discard", role: .destructive) { discard() }
         } message: {
             Text("The information you reviewed or entered will not be saved.")
         }
@@ -432,6 +503,75 @@ struct MedicationEditorView: View {
             reconcileNames(after: oldValue)
         }
         .task { loadExistingSchedulesIfNeeded() }
+    }
+
+    private func discard() {
+        if let onDiscard { onDiscard() } else { dismiss() }
+    }
+
+    /// Worked out from the fields as they stand, so a manual entry meets the
+    /// banner as its name and strength are typed, and a code chosen under Use
+    /// This Product counts once it is chosen. Health drafts are left out: the
+    /// Health list already says which are here, and a Health entry is not a
+    /// bottle to add.
+    private var duplicateMatches: [Medication] {
+        guard !isEditing, draftSource != .appleHealth, onAddBottle != nil else { return [] }
+        let identity = DuplicateMedicationMatcher.Identity(
+            name: name,
+            strength: strength,
+            brandName: brandName,
+            productIdentifier: productIdentifier,
+            productIdentifierType: productIdentifierType,
+            rxNormCode: rxNormCode,
+            nameProvenance: nameProvenance
+        )
+        return DuplicateMedicationMatcher.matches(for: identity, among: allMedications, schedules: allSchedules)
+    }
+
+    /// Above everything else on the screen, because it decides whether the rest
+    /// is needed: a bottle added to a medication already here needs no name,
+    /// schedule or reminders of its own.
+    private func duplicateSection(_ matches: [Medication]) -> some View {
+        Section {
+            ForEach(matches) { match in
+                VStack(alignment: .leading, spacing: 10) {
+                    Label {
+                        Text("Already in Meds Ahead: \(DuplicateMedicationMatcher.description(of: match))")
+                            .font(.subheadline.weight(.semibold))
+                            .fixedSize(horizontal: false, vertical: true)
+                    } icon: {
+                        Image(systemName: "square.stack.3d.up.fill")
+                            .foregroundStyle(.orange)
+                            .accessibilityHidden(true)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("duplicate-banner")
+                    Button {
+                        onAddBottle?(AddBottleRequest(
+                            medication: match,
+                            labelQuantity: draftLabelQuantity,
+                            labelQuantityNote: draftLabelQuantityNote,
+                            labelUpdates: AddBottleRecord.LabelUpdates.reviewed(
+                                draft: reviewedDraft,
+                                refillsText: refillsText,
+                                expirationDate: hasExpirationDate ? expirationDate : nil,
+                                rxNumber: rxNumber
+                            )
+                        ))
+                    } label: {
+                        Text("Add this bottle to \(match.displayName)")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .foregroundStyle(AppTheme.onAccent)
+                    .controlSize(.large)
+                    .accessibilityIdentifier("add-to-existing")
+                }
+                .padding(.vertical, 4)
+            }
+        } footer: {
+            Text("Adding it there keeps one count and one set of reminders. If this bottle is someone else's, review below and tap Add.")
+        }
     }
 
     /// A label prints one of a medication's two names, and a person copying from it
@@ -515,11 +655,15 @@ struct MedicationEditorView: View {
     @ViewBuilder
     private var identificationNote: some View {
         if nameProvenance == .ndc {
+            // A code kept without its package segment looks misread next to the
+            // bottle's; saying why stops someone from "correcting" it.
+            let packageWithheld = productIdentifierType == "NDC" && productIdentifier.split(separator: "-").count == 2
             summaryNote(
                 title: "Identified by its NDC",
                 symbol: "checkmark.seal.fill",
                 tint: AppTheme.accent,
                 message: "The name, strength and form come from the FDA directory entry for the code on this label. Check that they match the bottle."
+                    + (packageWithheld ? " The code’s last digits were read more than one way, so only the product part is kept." : "")
             )
         } else {
             switch draftIdentification {
@@ -528,14 +672,14 @@ struct MedicationEditorView: View {
                     title: "Code read, not used yet",
                     symbol: "questionmark.circle.fill",
                     tint: .orange,
-                    message: "The label prints \(code), which the FDA directory lists as \(product). Nothing else on the label confirmed it, so no field was filled from it. If the bottle agrees, use it under Prescription & package."
+                    message: "The label prints \(code), which the FDA directory lists as \(product). The label did not confirm it, so no field was filled from it. If the bottle agrees, use it under Prescription & package."
                 )
             case let .contradicted(code, product):
                 summaryNote(
                     title: "Code read, but the label disagrees",
                     symbol: "exclamationmark.triangle.fill",
                     tint: .orange,
-                    message: "The label prints \(code), which the FDA directory lists as \(product), but the printed name, strength or form says otherwise. Nothing was filled from the code. Check the bottle before saving."
+                    message: "The label prints \(code), which the FDA directory lists as \(product), but the name, brand, strength, form or release (such as ER or XL) printed on the label says otherwise. Nothing was filled from the code. Check the bottle before saving."
                 )
             case let .unlisted(code):
                 summaryNote(
@@ -580,10 +724,7 @@ struct MedicationEditorView: View {
     /// theirs to change.
     private func applyDirectoryProduct(_ product: NDCProduct, code: NationalDrugCode) {
         withAnimation(.medsSpring) {
-            name = NDCIdentification.displayName(for: product)
-            brandName = product.brandName.isEmpty
-                ? (MedicationBrandIndex.brandName(forGeneric: name) ?? "")
-                : product.brandName
+            (name, brandName) = NDCIdentification.identity(of: product)
             if !brandName.isEmpty { isBrandNameVisible = true }
             if !product.strength.isEmpty { strength = product.strength }
             form = product.form
@@ -593,6 +734,44 @@ struct MedicationEditorView: View {
             nameProvenance = .ndc
         }
         UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+
+    /// The label's count, one tap from Current amount but never in it unasked.
+    private func labelQuantityRow(quantity: Double, note: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 3) {
+                Label(note, systemImage: "doc.text.viewfinder")
+                    .font(.subheadline.weight(.semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("That is the count before any were taken, not what is left. Use it for an unopened bottle; otherwise enter what you count now.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("label-quantity-note")
+            // Once used, the button stays and says so rather than vanishing: at
+            // the largest text sizes the field is scrolled away and this is the
+            // only sign the tap did anything, and a vanishing button would take
+            // VoiceOver's focus with it.
+            let quantityText = quantity.medicationQuantityText
+            let isInUse = Double.medicationQuantity(from: currentSupplyText) == quantity
+            Button {
+                // Written ungrouped, as the field's prefill is, so a label's
+                // 1497.5 cannot be half-edited from "1.497,5" into 1.497.
+                currentSupplyText = SupplyChangeQuantity.text(for: quantity)
+            } label: {
+                // The checkmark sits inline in the text: as a Label's icon it
+                // broke "Using" mid-word at the largest text sizes.
+                Text(isInUse ? "\(Image(systemName: "checkmark")) Using \(quantityText)" : "Use \(quantityText)")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .disabled(isInUse)
+            .accessibilityLabel(isInUse ? "Using \(quantityText) as the current amount" : "Use \(quantityText) as the current amount")
+            .accessibilityIdentifier("use-label-quantity")
+        }
+        .padding(.vertical, 3)
     }
 
     private var healthSummarySection: some View {
@@ -627,7 +806,7 @@ struct MedicationEditorView: View {
     private var importedDosesTitle: String {
         let count = draftImportedDoses.count
         guard let earliest = draftImportedDoses.map(\.date).min() else { return "" }
-        return "Import \(count) dose\(count == 1 ? "" : "s") logged in Health since \(earliest.formatted(date: .abbreviated, time: .omitted))"
+        return "Import \(count.counted("dose", plural: "doses")) logged in Health since \(earliest.formatted(date: .abbreviated, time: .omitted))"
     }
 
     private var hasUnsavedRequiredData: Bool {
@@ -643,7 +822,10 @@ struct MedicationEditorView: View {
 
     private func loadExistingSchedulesIfNeeded() {
         guard let medication, !didLoadExistingSchedules else { return }
-        let existing = allSchedules.filter { $0.medicationID == medication.id }.sorted { $0.minutesAfterMidnight < $1.minutesAfterMidnight }
+        // A course taken up again keeps its ended schedules as history; the
+        // editor shows only the ones an edit changes.
+        let existing = ScheduleReconciler.currentSchedules(allSchedules, medicationID: medication.id)
+            .sorted { $0.minutesAfterMidnight < $1.minutesAfterMidnight }
         if !existing.isEmpty {
             editableSchedules = existing.map {
                 EditableDoseSchedule(
@@ -653,11 +835,88 @@ struct MedicationEditorView: View {
                 )
             }
         }
+        if let end = ScheduleEngine.courseEnd(schedules: existing, medicationID: medication.id) {
+            storedCourseEnd = end
+            courseLastDay = end
+            courseEnds = true
+        }
         didLoadExistingSchedules = true
+    }
+
+    /// The first day the Last day picker offers: today, or a finished
+    /// course's own last day, which a picker starting at today would show as
+    /// today. The days between that one and today stay on offer only because
+    /// a range cannot skip them; `courseLastDayProblem` refuses them.
+    static func earliestCourseLastDay(stored: Date?, now: Date = .now, calendar: Calendar = .autoupdatingCurrent) -> Date {
+        let today = calendar.startOfDay(for: now)
+        guard let stored else { return today }
+        return min(today, calendar.startOfDay(for: stored))
+    }
+
+    /// The end every schedule is saved with. A day left as it was keeps the
+    /// stored moment: read abroad, noon at home can fall on the next day, and
+    /// normalised again there it would move the course's last day with it.
+    static func savedCourseEnd(
+        courseEnds: Bool,
+        lastDay: Date,
+        stored: Date?,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> Date? {
+        guard courseEnds else { return nil }
+        if let stored, calendar.isDate(stored, inSameDayAs: lastDay) { return stored }
+        return ScheduleEngine.normalizedEndDate(forDay: lastDay, calendar: calendar)
+    }
+
+    /// Why the last day cannot be saved, or nil. A day picked must be today
+    /// or later; only a finished course's own last day, left as it was, may
+    /// be past. A day before today saved as new would be a course already
+    /// over, with no reminders at all, or would stretch a finished course
+    /// over days nobody was asked to take a dose on. And the picker cannot
+    /// be trusted to prevent it: a compact picker shows a day before its
+    /// range as the first day it offers while it keeps the earlier one.
+    static func courseLastDayProblem(
+        courseEnds: Bool,
+        lastDay: Date,
+        stored: Date?,
+        now: Date = .now,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> String? {
+        guard courseEnds else { return nil }
+        if let stored, calendar.isDate(stored, inSameDayAs: lastDay) { return nil }
+        let today = calendar.startOfDay(for: now)
+        guard calendar.startOfDay(for: lastDay) < today else { return nil }
+        if let stored, calendar.startOfDay(for: stored) < today {
+            return "Choose today or a later day to start this course again, or \(ForecastEngine.dayText(stored, calendar: calendar)) to keep its last day."
+        }
+        return "Choose today or a later day for the course's last day."
+    }
+
+    /// Under the Schedule section of a scheduled medication.
+    static func scheduleFooter(
+        courseEnds: Bool,
+        storedCourseEnd: Date?,
+        now: Date = .now,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> String {
+        var footer = "This schedule drives reminders and the supply forecast. Confirm it against the current label or clinician instructions. Half doses are fine — enter 2.5 for two and a half tablets."
+        if courseEnds { footer += " Reminders stop after the last day." }
+        // Saving a finished course with a new last day, or none, starts it
+        // again today rather than filling in the days since, so the footer
+        // says so before the person saves. Its last day, not "finished": a
+        // course whose supply ran out first is not called finished anywhere.
+        if let storedCourseEnd, calendar.startOfDay(for: storedCourseEnd) < calendar.startOfDay(for: now) {
+            footer += " This course's last day was \(ForecastEngine.dayText(storedCourseEnd, calendar: calendar))."
+            footer += courseEnds ? " Choosing today or a later day starts it again from today." : " Saved without a last day, it starts again from today."
+        }
+        return footer
     }
 
     private func save() {
         let cleanedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Taken before anything below changes the medication or its schedules.
+        let assumedBefore = medication.map {
+            ForecastEngine.forecast(medication: $0, schedules: allSchedules, inventoryEvents: allInventoryEvents, doseEvents: allDoseEvents).assumedDoses
+        } ?? 0
         let target: Medication
         var inventoryForNotifications = allInventoryEvents
         if let medication {
@@ -722,6 +981,7 @@ struct MedicationEditorView: View {
         target.refillRemindersEnabled = refillRemindersEnabled
         target.detailedNotifications = detailedNotifications
 
+        let courseEnd = Self.savedCourseEnd(courseEnds: courseEnds, lastDay: courseLastDay, stored: storedCourseEnd)
         let scheduleDefinitions: [ScheduleDefinition] = if isAsNeeded {
             []
         } else {
@@ -731,21 +991,32 @@ struct MedicationEditorView: View {
                 return ScheduleDefinition(
                     minutesAfterMidnight: minutes,
                     doseQuantity: schedule.doseQuantity,
-                    weekdayMask: schedule.weekdayMask
+                    weekdayMask: schedule.weekdayMask,
+                    endDate: courseEnd
                 )
             }
         }
+        let existingSchedules = allSchedules.filter { $0.medicationID == target.id }
+        // What the edit changes, as the editor showed it; a reopened course's
+        // ended schedules are history the edit leaves alone.
+        let scheduledBefore = ScheduleReconciler.snapshot(ScheduleReconciler.currentSchedules(existingSchedules, medicationID: target.id))
         let newSchedules = ScheduleReconciler.reconcile(
             medicationID: target.id,
             definitions: scheduleDefinitions,
-            existing: allSchedules.filter { $0.medicationID == target.id },
+            existing: existingSchedules,
             in: modelContext
         )
+        let asksForCount = ScheduleReconciler.asksForCount(assumedDoses: assumedBefore, before: scheduledBefore, after: newSchedules)
 
         do {
             try modelContext.save()
             let medicationsForNotifications = allMedications.filter { $0.id != target.id } + [target]
-            let schedulesForNotifications = allSchedules.filter { $0.medicationID != target.id } + newSchedules
+            // As saved, with any history a course taken up again keeps: the
+            // forecast behind the refill alert weighs those days too.
+            let targetID = target.id
+            let savedSchedules = (try? modelContext.fetch(FetchDescriptor<DoseSchedule>(predicate: #Predicate { $0.medicationID == targetID })))
+                ?? newSchedules
+            let schedulesForNotifications = allSchedules.filter { $0.medicationID != target.id } + savedSchedules
             let notificationPlans = NotificationPlanBuilder.makeAll(
                 medications: medicationsForNotifications,
                 schedules: schedulesForNotifications,
@@ -760,8 +1031,9 @@ struct MedicationEditorView: View {
                 )
             }
             UINotificationFeedbackGenerator().notificationOccurred(.success)
+            if asksForCount { onAskForCount?() }
             if let onSaved {
-                onSaved()
+                onSaved(target)
             } else {
                 dismiss()
             }
@@ -774,6 +1046,39 @@ struct MedicationEditorView: View {
 
     private static func date(minutes: Int) -> Date {
         Calendar.current.date(bySettingHour: minutes / 60, minute: minutes % 60, second: 0, of: .now) ?? .now
+    }
+}
+
+/// A label's quantity is what the bottle held when full, not the amount in it
+/// now. Filled in as the current amount, a bottle two weeks into a twice-daily
+/// fill read 28 doses high, and a count that is too high is the one that lets
+/// someone run out. So a scanned count is offered, never filled in. The words
+/// say "when full" rather than "dispensed" because the parser also reads a
+/// stock bottle's printed count ("120 TABLETS"), which no pharmacy filled.
+extension MedicationDraft {
+    /// The count a scanned label printed, when it printed one, as the number the
+    /// Use button writes into the field. A label can print more decimals than a
+    /// quantity shows ("QTY: 473.176"), and the note, the button's Using state
+    /// and the saved amount must all be the one number the person sees.
+    var labelDispensedQuantity: Double? {
+        guard source == .scanned, let currentSupply, currentSupply.isFinite,
+              let shown = Double.medicationQuantity(from: currentSupply.medicationQuantityText),
+              shown > 0 else { return nil }
+        return shown
+    }
+
+    /// The line under Current amount on a scanned label's review screen.
+    var labelDispensedNote: String? {
+        labelDispensedQuantity.map { "Label says \($0.medicationQuantityText) when full" }
+    }
+
+    /// What Current amount starts as. A scanned draft's number is the label's,
+    /// so that field starts blank. Otherwise it opens as the supply sheets do,
+    /// ungrouped: a region that groups with "." showed 1497.5 as "1.497,5", and
+    /// deleting only the fraction saved 1.497.
+    var initialCurrentAmountText: String {
+        guard source != .scanned else { return "" }
+        return currentSupply.map { SupplyChangeQuantity.text(for: $0) } ?? ""
     }
 }
 
@@ -934,7 +1239,7 @@ private struct WeekdayPicker: View {
                     .frame(maxWidth: .infinity)
                     .frame(minHeight: 44)
                     .background(mask & (1 << index) != 0 ? AppTheme.accent : Color.secondary.opacity(0.12), in: Circle())
-                    .foregroundStyle(mask & (1 << index) != 0 ? .white : .primary)
+                    .foregroundStyle(mask & (1 << index) != 0 ? AppTheme.onAccent : .primary)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(Calendar.current.weekdaySymbols[index])
@@ -945,7 +1250,7 @@ private struct WeekdayPicker: View {
 
 private struct ScheduleDoseQuantityField: View {
     @Binding var quantity: Double
-    let unitName: String
+    let form: MedicationForm
     let allowsHalfSteps: Bool
     @State private var text: String = ""
     @FocusState private var focused: Bool
@@ -977,12 +1282,12 @@ private struct ScheduleDoseQuantityField: View {
                     .focused($focused)
                     .accessibilityIdentifier("dose-quantity")
                     .accessibilityLabel("Amount per dose")
-                    .accessibilityValue("\(quantity.medicationQuantityText) \(unitName)")
+                    .accessibilityValue(form.quantityText(quantity))
                 Stepper(value: $quantity, in: Self.minimumQuantity...999, step: step) {
                     Text("Amount per dose")
                 }
                 .labelsHidden()
-                Text(unitName + (quantity == 1 ? "" : "s"))
+                Text(form.unitText(for: quantity))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
@@ -1037,7 +1342,12 @@ private struct ScheduleDoseQuantityField: View {
 
 struct AddMedicationFlow: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var path: [Step] = []
+    @State private var navigation = Navigation()
+    @State private var bottleRequest: AddBottleRequest?
+    /// The review a bottle request came from, and the medication's name once
+    /// the bottle is in. The flow moves on only when the sheet is gone.
+    @State private var bottleDraft: MedicationDraft?
+    @State private var bottleAddedTo: String?
 
     /// The reviewed draft travels inside the path value rather than in separate
     /// state the destination closure reads later. Two earlier shapes both lost a
@@ -1047,7 +1357,8 @@ struct AddMedicationFlow: View {
     /// editor from a stale draft or reuse the previous view's state outright.
     /// Carrying the draft makes each review screen a distinct destination.
     enum Step: Hashable {
-        case scanner
+        /// Numbered, and never reused within a flow: see `Navigation`.
+        case scanner(Int)
         case editor(MedicationDraft)
         case healthImport
         /// Reviewed from the Health list rather than the scanner: saving returns
@@ -1064,7 +1375,12 @@ struct AddMedicationFlow: View {
     }
 
     var body: some View {
-        NavigationStack(path: $path) {
+        // Read here, in the body, and not inside the destination closure: the
+        // stack builds a destination with the closure from the body's last
+        // run, and a tally read inside it came back as it was then, leaving
+        // the next scanner without the bottle just added.
+        let tally = navigation.tally
+        NavigationStack(path: $navigation.path) {
             ZStack {
                 CanvasBackground()
                 ScrollView {
@@ -1085,7 +1401,7 @@ struct AddMedicationFlow: View {
                         .padding(.vertical, 18)
 
                         Button {
-                            path.append(.scanner)
+                            navigation.scan()
                         } label: {
                             AddOptionCard(
                                 symbol: "camera.viewfinder",
@@ -1098,7 +1414,7 @@ struct AddMedicationFlow: View {
                         .accessibilityIdentifier("scan-label")
 
                         Button {
-                            path.append(.editor(MedicationDraft()))
+                            navigation.path.append(.editor(MedicationDraft()))
                         } label: {
                             AddOptionCard(
                                 symbol: "square.and.pencil",
@@ -1112,7 +1428,7 @@ struct AddMedicationFlow: View {
 
                         if canImportFromHealth {
                             Button {
-                                path.append(.healthImport)
+                                navigation.path.append(.healthImport)
                             } label: {
                                 AddOptionCard(
                                     symbol: "heart.text.square.fill",
@@ -1133,37 +1449,126 @@ struct AddMedicationFlow: View {
             }
 #if DEBUG
             .onAppear {
-                guard ProcessInfo.processInfo.arguments.contains("-simulate-scan-result"),
-                      path.isEmpty else { return }
-                path.append(.editor(MedicationDraft(
-                    name: "Amphetamine",
-                    strength: "20 mg",
-                    form: .tablet,
-                    directions: "Take one tablet by mouth twice daily",
-                    currentSupply: 60,
-                    source: .scanned,
-                    evidence: [ScanEvidence(kind: .text, value: "AMPHETAMINE 20 MG", confidence: 0.9)]
-                )))
+                let arguments = ProcessInfo.processInfo.arguments
+                guard arguments.contains("-simulate-scan-result"),
+                      navigation.path.isEmpty else { return }
+                navigation.path.append(.editor(SimulatedScan.draft(for: SimulatedScan.bottles(from: arguments).first ?? .standard)))
             }
 #endif
             .navigationDestination(for: Step.self) { step in
                 switch step {
-                case .scanner:
-                    ScannerScreen { scannedDraft in
-                        path.append(.editor(scannedDraft))
+                case let .scanner(session):
+                    ScannerScreen(tally: tally, onDone: { dismiss() }) { scannedDraft in
+                        navigation.path.append(.editor(scannedDraft))
                     }
+                    // A new path puts its scanner in the stack's first place,
+                    // and the stack kept the screen already there, state and
+                    // all: the step's number alone left the last bottle's
+                    // evidence behind the next Review button.
+                    .id(session)
                 case let .editor(draft):
-                    MedicationEditorView(draft: draft, onSaved: { dismiss() })
+                    MedicationEditorView(
+                        draft: draft,
+                        onSaved: { medication in finish(.added(medication.displayName), from: draft) },
+                        onAddBottle: { request in
+                            bottleDraft = draft
+                            bottleRequest = request
+                        },
+                        onDiscard: draft.source == .scanned ? { navigation.discard() } : nil
+                    )
                 case .healthImport:
                     if #available(iOS 26.0, *) {
                         HealthImportView { draft in
-                            path.append(.healthReview(draft))
+                            navigation.path.append(.healthReview(draft))
                         }
                     }
                 case let .healthReview(draft):
-                    MedicationEditorView(draft: draft, onSaved: { path.removeLast() })
+                    MedicationEditorView(draft: draft, onSaved: { _ in navigation.path.removeLast() })
                 }
             }
+        }
+        // Presented from here rather than from the review, because the review
+        // leaves the path once the bottle is in: the sheet belongs to a screen
+        // that stays, and the flow moves on only once the sheet has closed.
+        .sheet(item: $bottleRequest, onDismiss: finishAddingBottle) { request in
+            AddBottleSheet(request: request) { medication in
+                bottleAddedTo = medication.displayName
+            }
+        }
+    }
+
+    private func finish(_ outcome: Navigation.Outcome, from draft: MedicationDraft) {
+        if navigation.finish(outcome, from: draft) == .close { dismiss() }
+    }
+
+    private func finishAddingBottle() {
+        defer {
+            bottleDraft = nil
+            bottleAddedTo = nil
+        }
+        guard let bottleAddedTo, let bottleDraft else { return }
+        finish(.addedTo(bottleAddedTo), from: bottleDraft)
+    }
+}
+
+extension AddMedicationFlow {
+    /// The flow's path and tally as plain values, so what one bottle leaves
+    /// behind for the next can be tested without a screen.
+    ///
+    /// A caregiver home from the hospital with a bag of bottles scans them one
+    /// after another, and a flow that closed after every save sent them back
+    /// through Today, Add and Scan for each. A bottle from the scanner now
+    /// returns to a scanner. It must be a new one: the scanner keeps what it
+    /// read in its own state, and a scanner SwiftUI had seen before would hand
+    /// the last bottle's text to the next bottle's review.
+    struct Navigation: Hashable {
+        enum Outcome: Hashable {
+            /// Saved as a new medication, under this name.
+            case added(String)
+            /// Added to a medication already tracked, by that one's name.
+            case addedTo(String)
+        }
+
+        enum Next: Hashable {
+            case scanNext
+            case close
+        }
+
+        var path: [Step] = []
+        private(set) var tally = SetupSessionTally()
+        /// Every scanner shown so far. Its count numbers the next one, so no
+        /// two scanners in a flow are ever the same destination.
+        private(set) var scannersShown = 0
+
+        mutating func scan() {
+            path.append(.scanner(scannersShown))
+            scannersShown += 1
+        }
+
+        /// A bottle from the scanner goes on the tally, and a new scanner
+        /// replaces the whole path, its review and that review's evidence with
+        /// it. Anything entered by hand closes the flow, as it always has.
+        mutating func finish(_ outcome: Outcome, from draft: MedicationDraft) -> Next {
+            guard draft.source == .scanned else { return .close }
+            switch outcome {
+            case let .added(name): tally.recordAdded(name)
+            case let .addedTo(name): tally.recordAddedTo(name)
+            }
+            path = [.scanner(scannersShown)]
+            scannersShown += 1
+            return .scanNext
+        }
+
+        /// A scanned review thrown away is followed by a new scanner too,
+        /// with nothing added to the tally. The scanner it came from still
+        /// holds the discarded bottle's text, and would read the next bottle
+        /// together with it: a Furosemide label set aside as already counted
+        /// named the next bottle after it, and offered to add that bottle's
+        /// count to Furosemide. The back button still returns to that scanner, to
+        /// add another photo of the same label.
+        mutating func discard() {
+            path = [.scanner(scannersShown)]
+            scannersShown += 1
         }
     }
 }
@@ -1200,3 +1605,74 @@ private struct AddOptionCard: View {
         .contentShape(Rectangle())
     }
 }
+
+#if DEBUG
+/// Labels for the UI tests to scan, since the simulator has no camera. Each
+/// `-simulate-scan-name` starts a bottle, and the `-simulate-scan-strength` and
+/// `-simulate-scan-quantity` after it describe that bottle.
+enum SimulatedScan {
+    struct Bottle: Hashable {
+        var name: String
+        var strength = ""
+        var quantity: Double = 0
+
+        static let standard = Bottle(name: "Amphetamine", strength: "20 mg", quantity: 60)
+    }
+
+    static func bottles(from arguments: [String]) -> [Bottle] {
+        var bottles: [Bottle] = []
+        for (key, value) in zip(arguments, arguments.dropFirst()) {
+            switch key {
+            case "-simulate-scan-name":
+                bottles.append(Bottle(name: value))
+            case "-simulate-scan-strength" where !bottles.isEmpty:
+                bottles[bottles.count - 1].strength = value
+            case "-simulate-scan-quantity" where !bottles.isEmpty:
+                bottles[bottles.count - 1].quantity = Double(value) ?? 0
+            default:
+                break
+            }
+        }
+        return bottles
+    }
+
+    /// The review `-simulate-scan-result` opens on, as the scanner hands one over.
+    static func draft(for bottle: Bottle) -> MedicationDraft {
+        MedicationDraft(
+            name: bottle.name,
+            strength: bottle.strength,
+            form: .tablet,
+            directions: "Take one tablet by mouth twice daily",
+            currentSupply: bottle.quantity,
+            source: .scanned,
+            evidence: [ScanEvidence(kind: .text, value: "\(bottle.name) \(bottle.strength)".uppercased(), confidence: 0.9)]
+        )
+    }
+
+    /// Under `-simulate-scanner` the scanner offers a button that reads the
+    /// next bottle's label into its evidence, as a chosen photo would, so the
+    /// review goes through the scanner's own Review.
+    static var isScannerButtonEnabled: Bool {
+        ProcessInfo.processInfo.arguments.contains("-simulate-scanner")
+    }
+
+    static func evidence(for bottle: Bottle) -> [ScanEvidence] {
+        let capture = UUID()
+        let lines = ["\(bottle.name) \(bottle.strength)".uppercased(), "QTY: \(bottle.quantity.medicationQuantityText)"]
+        return lines.enumerated().map { index, line in
+            ScanEvidence(kind: .text, value: line, confidence: 0.95, origin: .photoLibrary, captureID: capture, lineIndex: index)
+        }
+    }
+
+    /// Bottles read so far this launch, so each scanner reads the next one.
+    @MainActor private static var bottlesRead = 0
+
+    @MainActor
+    static func nextEvidence() -> [ScanEvidence] {
+        let bottles = bottles(from: ProcessInfo.processInfo.arguments)
+        guard !bottles.isEmpty else { return evidence(for: .standard) }
+        defer { bottlesRead += 1 }
+        return evidence(for: bottles[bottlesRead % bottles.count])
+    }
+}
+#endif

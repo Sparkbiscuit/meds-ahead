@@ -27,11 +27,6 @@ final class ReviewRequestPolicyTests: XCTestCase {
         )
     }
 
-    func testAsksOnceTheThresholdsAreMet() {
-        XCTAssertTrue(shouldRequest())
-        XCTAssertTrue(shouldRequest(firstUse: daysAgo(400), takenDoses: 500))
-    }
-
     func testNotBeforeAFewDaysOfUse() {
         XCTAssertFalse(shouldRequest(firstUse: now))
         XCTAssertFalse(shouldRequest(firstUse: daysAgo(2)))

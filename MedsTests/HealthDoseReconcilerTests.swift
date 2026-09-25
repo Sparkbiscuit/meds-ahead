@@ -38,12 +38,13 @@ final class HealthDoseReconcilerTests: XCTestCase {
         HealthDoseRecord(sampleID: id, date: date, scheduledDate: scheduled, quantity: quantity, status: status)
     }
 
-    private func plan(_ records: [HealthDoseRecord], existing: [DoseEvent] = []) -> HealthDosePlan {
+    private func plan(_ records: [HealthDoseRecord], existing: [DoseEvent] = [], createdAt: Date = .distantPast) -> HealthDosePlan {
         HealthDoseReconciler.plan(
             records: records,
             existing: existing,
             schedules: schedules,
             medicationID: medicationID,
+            createdAt: createdAt,
             windowStart: windowStart,
             now: now,
             calendar: calendar
@@ -133,6 +134,16 @@ final class HealthDoseReconcilerTests: XCTestCase {
         XCTAssertEqual(plan([record(date(10, 15, 31))], existing: [appLogged]).insertions.count, 1, "outside the window it is a second dose")
     }
 
+    /// A reminder's or the widget's note is the only mark such a dose carries;
+    /// were it ever read as Health's, Health's copy of the dose would be stored
+    /// beside it and taken from the count twice.
+    func testADoseLoggedFromAReminderOrTheWidgetIsNeverDoubledByHealth() {
+        for note in [DoseEventNote.reminder, DoseEventNote.widget] {
+            let logged = DoseEvent(medicationID: medicationID, recordedAt: date(10, 15), doseQuantity: 1, status: .taken, note: note)
+            XCTAssertTrue(plan([record(date(10, 15, 10))], existing: [logged]).isEmpty, note)
+        }
+    }
+
     func testADoseLoggedHereFromHealthDoesNotBlockANewHealthDoseNearIt() {
         let mirrored = DoseEvent(medicationID: medicationID, recordedAt: date(10, 15), doseQuantity: 1, status: .taken,
                                  note: DoseEvent.appleHealthNote, healthSampleID: UUID())
@@ -143,6 +154,35 @@ final class HealthDoseReconcilerTests: XCTestCase {
     func testSkippedInHealthBecomesSkippedHere() throws {
         let plan = plan([record(date(10, 8, 31), scheduled: date(10, 8, 30), status: .skipped)])
         XCTAssertEqual(try XCTUnwrap(plan.insertions.first).status, .skipped)
+    }
+
+    // MARK: - Before the medication existed
+
+    /// The import was declined, or the bottle was scanned and linked to Health
+    /// afterwards: nothing is stored, and the doses from before the medication
+    /// was added were not taken from the count entered now.
+    func testAHealthDoseLoggedBeforeTheMedicationWasAddedNeverChargesTheCount() {
+        let createdAt = date(8, 12)
+        let before = record(date(7, 20, 5), scheduled: date(7, 20))
+        let after = record(date(9, 20, 5), scheduled: date(9, 20))
+        let plan = plan([before, after], createdAt: createdAt)
+        XCTAssertEqual(plan.insertions.map(\.record), [after])
+    }
+
+    func testStoredHistoryFromBeforeTheMedicationIsNeitherStoredAgainNorRemoved() {
+        let createdAt = date(8, 12)
+        let sampleID = UUID()
+        let imported = DoseEvent(medicationID: medicationID, recordedAt: date(7, 20, 5), doseQuantity: 1, status: .taken,
+                                 note: DoseEvent.appleHealthNote, countsTowardSupply: false)
+        let first = plan([record(date(7, 20, 5), id: sampleID)], existing: [imported], createdAt: createdAt)
+        XCTAssertTrue(first.insertions.isEmpty)
+        XCTAssertTrue(first.deletions.isEmpty)
+        XCTAssertEqual(first.adoptions, [.init(eventID: imported.id, sampleID: sampleID, status: .taken)],
+                       "recognised as Health's sample, so an undo in Health still reaches it")
+
+        imported.healthSampleID = sampleID
+        XCTAssertTrue(plan([record(date(7, 20, 5), id: sampleID)], existing: [imported], createdAt: createdAt).isEmpty,
+                      "and the next pass has nothing to do")
     }
 
     // MARK: - Undo

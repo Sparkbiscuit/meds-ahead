@@ -63,8 +63,9 @@ enum HealthDoseReconciler {
     /// An as-needed dose logged in both places within this interval is one dose.
     static let sameDoseWindow: TimeInterval = 30 * 60
     /// How far a Health reminder slot may sit from this app's schedule and
-    /// still be the same slot.
-    static let slotTolerance: TimeInterval = 2 * 60 * 60
+    /// still be the same slot: the engine's reach for any dose logged outside
+    /// a slot, so a Health dose and a Take Now dose are matched alike.
+    static let slotTolerance: TimeInterval = ScheduleEngine.nearbySlotTolerance
     /// A dose imported before samples carried identifiers is recognised by its
     /// time, which was Health's time.
     static let importedDoseTolerance: TimeInterval = 60
@@ -74,6 +75,7 @@ enum HealthDoseReconciler {
         existing: [DoseEvent],
         schedules: [DoseSchedule],
         medicationID: UUID,
+        createdAt: Date = .distantPast,
         windowStart: Date,
         now: Date = .now,
         calendar: Calendar = .autoupdatingCurrent
@@ -112,6 +114,13 @@ enum HealthDoseReconciler {
                 continue
             }
 
+            // A dose from before the medication existed here was not taken from
+            // the count this app keeps. The import that comes with a medication
+            // stores that history as non-counting; with the import declined, or
+            // a bottle scanned and linked to Health afterwards, there is nothing
+            // to adopt, and storing the dose now would charge it to the count.
+            guard record.date >= createdAt else { continue }
+
             var slot: ScheduledDose?
             if let scheduledDate = record.scheduledDate {
                 slot = ScheduleEngine.nearestScheduledDose(
@@ -121,7 +130,7 @@ enum HealthDoseReconciler {
                     tolerance: slotTolerance,
                     calendar: calendar
                 )
-                if let slot, ScheduleEngine.loggedStatus(for: slot, in: events) != nil {
+                if let slot, ScheduleEngine.loggedStatus(for: slot, in: events, now: now, calendar: calendar) != nil {
                     // The person logged this slot here already; Health's copy is
                     // the same dose.
                     continue

@@ -78,10 +78,16 @@ struct RootView: View {
             MedicationListPDFRenderer.removePreviousExport()
 #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("-seed-demo-data") {
+                let staleCount = ProcessInfo.processInfo.arguments.contains("-seed-stale-count")
                 try? DemoData.seed(
                     in: modelContext,
-                    backdatingSchedulesByDays: ProcessInfo.processInfo.arguments.contains("-seed-missed-doses") ? 3 : 0
+                    backdatingSchedulesByDays: staleCount ? 16 : ProcessInfo.processInfo.arguments.contains("-seed-missed-doses") ? 3 : 0,
+                    countedWhenSchedulesStart: staleCount
                 )
+            }
+            if ProcessInfo.processInfo.arguments.contains("-seed-course") {
+                let finished = ProcessInfo.processInfo.arguments.contains("-seed-finished-course")
+                try? DemoData.seedCourse(in: modelContext, lastDayInDays: finished ? -1 : 3)
             }
 #endif
             await syncHealthDoses()
@@ -103,10 +109,14 @@ struct RootView: View {
 
     /// Doses logged in Health since the last look, before the forecast that
     /// depends on them is replanned. Nothing happens on a device without Health,
-    /// with no linked medication, or in a UI test.
+    /// with no linked medication, in a UI test, or in the unit tests' host.
     private func syncHealthDoses() async {
 #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("-ui-testing") { return }
+        // The unit tests run inside this app. A launch-time pass here shares
+        // HealthDoseSync's in-flight guard with the pass a test starts, so the
+        // test could join this one and read its outcome instead of its own.
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil { return }
 #endif
         if #available(iOS 26.0, *) {
             _ = await HealthDoseSync.run(in: modelContext)

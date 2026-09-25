@@ -69,17 +69,35 @@ enum MedicationListDocument {
         if !medication.strength.isEmpty { subtitleParts.append(medication.strength) }
         subtitleParts.append(medication.form.displayName)
 
+        // A course taken up again keeps its ended schedules as history; the
+        // sheet lists the times it is taken on now.
+        let current = ScheduleReconciler.currentSchedules(schedules, medicationID: medication.id, now: now, calendar: calendar)
+        let courseEnd = ScheduleEngine.courseEnd(schedules: current, medicationID: medication.id)
         let scheduleLines: [String]
         if medication.isAsNeeded {
             scheduleLines = ["Taken as needed"]
-        } else if schedules.isEmpty {
+        } else if current.isEmpty {
             scheduleLines = ["No schedule entered"]
+        } else if let courseEnd, ScheduleEngine.isCourseFinished(schedules: current, medicationID: medication.id, now: now, calendar: calendar) {
+            // Times printed for a course that is over read as doses still taken.
+            let ranOutFirst = FinishedCourseNotice.ranOutFirst(
+                medication: medication,
+                schedules: allSchedules,
+                inventoryEvents: inventoryEvents,
+                doseEvents: doseEvents,
+                end: courseEnd,
+                now: now,
+                calendar: calendar
+            )
+            let ended = FinishedCourseNotice.endedText(day: dayText(courseEnd, calendar: calendar), ranOutFirst: ranOutFirst)
+            scheduleLines = [ranOutFirst ? "\(ended) · \(FinishedCourseNotice.ranOutNote)" : ended]
         } else {
-            scheduleLines = schedules
+            let until = courseEnd.map { " · until \(dayText($0, calendar: calendar))" } ?? ""
+            scheduleLines = current
                 .sorted { $0.minutesAfterMidnight < $1.minutesAfterMidnight }
                 .map { schedule in
-                    let quantity = "\(schedule.doseQuantity.medicationQuantityText) \(medication.form.unitName)\(schedule.doseQuantity == 1 ? "" : "s")"
-                    return "\(timeText(minutes: schedule.minutesAfterMidnight, calendar: calendar)) — \(quantity) · \(weekdaySummary(mask: schedule.weekdayMask, calendar: calendar))"
+                    let quantity = medication.form.quantityText(schedule.doseQuantity)
+                    return "\(timeText(minutes: schedule.minutesAfterMidnight, calendar: calendar)) — \(quantity) · \(weekdaySummary(mask: schedule.weekdayMask, calendar: calendar))\(until)"
                 }
         }
 
@@ -91,9 +109,33 @@ enum MedicationListDocument {
             now: now,
             calendar: calendar
         )
-        let onHand = "\(forecast.currentSupply.medicationQuantityText) \(medication.form.unitName)\(forecast.currentSupply == 1 ? "" : "s") on hand"
+        let onHand = "\(medication.form.quantityText(forecast.currentSupply)) \(SupplyAttention.quantityWords(for: forecast))"
         let supplyLine: String
-        if let date = forecast.depletionDate, forecast.currentSupply > 0 {
+        // A count needed carries today as its run-out date. Printed, that
+        // would tell a pharmacist the supply is gone when nobody knows.
+        if let reason = SupplyAttention.countNeededReason(for: forecast) {
+            supplyLine = "\(onHand) · count needed: \(reason)"
+        } else if forecast.courseCovered, let end = forecast.courseEndDate {
+            // Enough for the course is its own answer: no run-out to print, and
+            // no refill for a pharmacist to plan.
+            let covered = "enough to finish the course on \(dayText(end, calendar: calendar))"
+            if let reason = SupplyAttention.assumedDosesReason(for: forecast) {
+                let assumption = forecast.assumedDoses == 1 ? "if it was taken" : "if they were taken"
+                supplyLine = "\(onHand) · \(reason) · \(covered) \(assumption)"
+            } else {
+                supplyLine = "\(onHand) · \(covered)"
+            }
+        } else if let reason = SupplyAttention.assumedDosesReason(for: forecast) {
+            // The date already takes out doses nobody logged. Printed without
+            // them, "30 on record" beside a date four days out tells the reader
+            // one of the two is wrong.
+            if let date = forecast.depletionDate, forecast.currentSupply > 0 {
+                let assumption = forecast.assumedDoses == 1 ? "if it was taken" : "if they were taken"
+                supplyLine = "\(onHand) · \(reason) · runs out around \(date.formatted(date: .abbreviated, time: .omitted)) \(assumption)"
+            } else {
+                supplyLine = "\(onHand) · \(reason)"
+            }
+        } else if let date = forecast.depletionDate, forecast.currentSupply > 0 {
             supplyLine = "\(onHand) · runs out around \(date.formatted(date: .abbreviated, time: .omitted))"
         } else {
             supplyLine = onHand
@@ -101,7 +143,7 @@ enum MedicationListDocument {
 
         var detailParts: [String] = []
         if let refills = medication.refillsRemaining {
-            detailParts.append("\(refills) refill\(refills == 1 ? "" : "s") remaining")
+            detailParts.append("\(refills.counted("refill", plural: "refills")) remaining")
         }
         if let expiration = medication.expirationDate {
             detailParts.append("Package expires \(expiration.formatted(date: .abbreviated, time: .omitted))")
@@ -140,7 +182,7 @@ enum MedicationListDocument {
         let taken = recent.filter { $0.status == .taken }.count
         let skipped = recent.filter { $0.status == .skipped }.count
         guard taken + skipped > 0 else { return "No doses logged in the last 30 days" }
-        var line = "\(taken) dose\(taken == 1 ? "" : "s") logged in the last 30 days"
+        var line = "\(taken.counted("dose", plural: "doses")) logged in the last 30 days"
         if skipped > 0 { line += ", \(skipped) skipped" }
         if medication.createdAt > start {
             line += " (added \(medication.createdAt.formatted(date: .abbreviated, time: .omitted)))"
@@ -156,6 +198,12 @@ enum MedicationListDocument {
         let ordered = (0..<7).map { (first + $0) % 7 }.filter { mask & (1 << $0) != 0 }
         guard !ordered.isEmpty else { return "No days selected" }
         return ordered.map { calendar.shortWeekdaySymbols[$0] }.joined(separator: ", ")
+    }
+
+    /// A course's day as the rest of the sheet prints a date, in the
+    /// calendar the list was made with.
+    private static func dayText(_ date: Date, calendar: Calendar) -> String {
+        date.formatted(Date.FormatStyle(date: .abbreviated, time: .omitted, calendar: calendar, timeZone: calendar.timeZone))
     }
 
     private static func timeText(minutes: Int, calendar: Calendar) -> String {

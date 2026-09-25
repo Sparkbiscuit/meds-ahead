@@ -32,14 +32,27 @@ struct TodayView: View {
     @Environment(\.requestReview) private var requestReview
     @State private var savingDoseIDs: Set<String> = []
     @State private var showingSaveError = false
+    @State private var showingAlreadyLogged = false
+    @State private var alreadyLoggedMessage = ""
     @State private var showingLogAllConfirmation = false
     /// Set aside for the rest of the day rather than forever: someone who tracks
     /// supply without logging every dose should not be nagged permanently, and
     /// someone who simply has not caught up yet should be asked again tomorrow.
-    @AppStorage("missedDosesSetAsideOn") private var missedDosesSetAsideOn = ""
+    @AppStorage(TodayView.missedDosesSetAsideKey) private var missedDosesSetAsideOn = ""
+    /// Finished courses whose card was set aside, one per course.
+    @AppStorage(FinishedCourseNotice.setAsideKey) private var finishedCoursesSetAside = ""
+    @State private var showingArchiveError = false
+    @AppStorage(QuickCountPrompt.setAsideKey) private var quickCountSetAside = Data()
+    @AppStorage(QuickCountPrompt.tapKey) private var quickCountTapped = Data()
+    /// The card asks the reminder's question, so it follows the reminder's
+    /// switch in Settings.
+    @AppStorage(NotificationPlanOptions.weeklyCountCheckKey) private var weeklyCountCheck = true
+    @State private var countRequest: CountCorrection.Request?
+    @State private var showingCountSaveError = false
     let onAdd: () -> Void
 
     private static let missedDoseLookbackDays = 2
+    static let missedDosesSetAsideKey = "missedDosesSetAsideOn"
     private static let missedDoseRowLimit = 3
 
     private var activeMedications: [Medication] {
@@ -100,8 +113,15 @@ struct TodayView: View {
                 LazyVStack(alignment: .leading, spacing: 18) {
                     header(now: now)
                     notificationBanner
+                    plannedThroughNotice(now: now)
                     pickupsCard(now: now)
+                    // Catching up before counting: a dose logged after a
+                    // count comes off the number the count set. The two
+                    // stay together, since the count's card points at the
+                    // missed doses above it; archiving can wait below them.
                     missedDosesCard(now: now)
+                    quickCountCard(now: now)
+                    finishedCourseCards(now: now)
                     if activeMedications.isEmpty {
                         EmptyStateCard(
                             symbol: "viewfinder",
@@ -150,6 +170,55 @@ struct TodayView: View {
         } message: {
             Text("This dose wasn't logged. Try again.")
         }
+        .alert("Already Logged", isPresented: $showingAlreadyLogged) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(alreadyLoggedMessage)
+        }
+        .alert("Couldn't Archive", isPresented: $showingArchiveError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Nothing was changed. Try again.")
+        }
+        .sheet(item: $countRequest) { request in
+            CorrectCountSheet(request: request) { showingCountSaveError = true }
+        }
+        .alert("Couldn't Save Count", isPresented: $showingCountSaveError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Your count wasn't saved. Try again.")
+        }
+    }
+
+    /// The weekly count check's question, here for as long as it stands: a
+    /// count moves the last count's date and the card goes with it.
+    @ViewBuilder
+    private func quickCountCard(now: Date) -> some View {
+        if weeklyCountCheck, let prompt = QuickCountPrompt.make(
+            medications: medications,
+            schedules: schedules,
+            inventoryEvents: inventoryEvents,
+            doseEvents: doseEvents,
+            setAside: QuickCountPrompt.decodeSetAside(quickCountSetAside),
+            tapped: QuickCountPrompt.decodeTap(quickCountTapped),
+            now: now
+        ) {
+            // The doses the missed-doses card lists, as it lists them.
+            let missed = missedDosesSetAsideOn == dayKey(now) ? [] : missedDoses(now: now)
+            QuickCountCard(
+                prompt: prompt,
+                catchUpNote: QuickCountPrompt.catchUpNote(for: prompt.medicationID, missedDoseMedicationIDs: missed.map(\.0.id)),
+                onCount: {
+                    guard let medication = medications.first(where: { $0.id == prompt.medicationID }) else { return }
+                    countRequest = CountCorrection.Request(medication: medication, forecast: prompt.forecast)
+                },
+                onNotNow: {
+                    quickCountSetAside = QuickCountPrompt.encodeSetAside(
+                        QuickCountPrompt.settingAside(prompt.medicationID, at: .now, in: QuickCountPrompt.decodeSetAside(quickCountSetAside))
+                    )
+                }
+            )
+        }
     }
 
     /// The day's doses under the person each is for, when the household names
@@ -175,19 +244,60 @@ struct TodayView: View {
         let inProgress = activeMedications
             .filter { $0.refillStatus != .none }
             .sorted { ($0.refillStatusDate ?? .distantFuture) < ($1.refillStatusDate ?? .distantFuture) }
+            .map { medication in
+                let forecast = ForecastEngine.forecast(
+                    medication: medication,
+                    schedules: schedules,
+                    inventoryEvents: inventoryEvents,
+                    doseEvents: doseEvents,
+                    now: now
+                )
+                return (medication, forecast, SupplyAttention(medication: medication, forecast: forecast, now: now).needsAttention)
+            }
+        // A refill that has run late, or supply that has run too low to wait
+        // for it, is not "on its way" as far as anyone should be told.
+        let needingAttention = inProgress.filter { $0.2 }
         if !inProgress.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
-                Label(inProgress.count == 1 ? "A refill is on its way" : "\(inProgress.count) refills are on their way", systemImage: "bag.fill")
-                    .font(.headline)
-                ForEach(inProgress) { medication in
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Group {
+                    if !needingAttention.isEmpty {
+                        Label(
+                            Self.refillAttentionTitle(
+                                refillsToCheck: needingAttention.filter { !$0.1.needsCount }.count,
+                                countsNeeded: needingAttention.filter { $0.1.needsCount }.count
+                            ),
+                            systemImage: "exclamationmark.circle.fill"
+                        )
+                        .foregroundStyle(.orange)
+                    } else {
+                        Label(inProgress.count == 1 ? "A refill is on its way" : "\(inProgress.count) refills are on their way", systemImage: "bag.fill")
+                    }
+                }
+                .font(.headline)
+                ForEach(inProgress, id: \.0.id) { medication, forecast, needsAttention in
+                    // Side by side at the largest sizes, the name and the status
+                    // column squeezed each other until words broke mid-word,
+                    // the warning among them; stacked, as the missed-dose rows
+                    // and Supply's rows are, each keeps the card's width.
+                    let stacked = dynamicTypeSize.isAccessibilitySize
+                    let rowLayout = stacked
+                        ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+                        : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 8))
+                    rowLayout {
                         Text(medication.displayName)
                             .font(.subheadline.weight(.semibold))
-                        Spacer(minLength: 8)
-                        Text(RefillStatusText.line(for: medication, now: now) ?? "")
-                            .font(.subheadline)
-                            .foregroundStyle(medication.refillStatus == .ready ? AppTheme.accent : .secondary)
-                            .multilineTextAlignment(.trailing)
+                        if !stacked { Spacer(minLength: 8) }
+                        VStack(alignment: stacked ? .leading : .trailing, spacing: 2) {
+                            if needsAttention {
+                                Text(SupplyAttention.line(for: forecast))
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.orange)
+                            }
+                            Text(RefillStatusText.line(for: medication, now: now) ?? "")
+                                .font(.subheadline)
+                                .foregroundStyle(medication.refillStatus == .ready && !needsAttention ? AppTheme.accent : .secondary)
+                        }
+                        .multilineTextAlignment(stacked ? .leading : .trailing)
                     }
                     .accessibilityElement(children: .combine)
                 }
@@ -220,6 +330,35 @@ struct TodayView: View {
                 },
                 onRetry: { Task { await replanNotifications() } }
             )
+        }
+    }
+
+    /// Reminders for a course or a schedule starting soon are planned a day
+    /// at a time, and only as far as the cap allows. When that runs out
+    /// within a few days, the way to keep them coming is to open the app.
+    @ViewBuilder
+    private func plannedThroughNotice(now: Date) -> some View {
+        if let day = NotificationHealth.shared.plannedThroughNotice(now: now) {
+            // At the largest sizes the symbol sits above the words, as on the
+            // quick count, so the message keeps the card's width.
+            let layout = dynamicTypeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+                : AnyLayout(HStackLayout(alignment: .top, spacing: 12))
+            layout {
+                Image(systemName: "calendar.badge.clock")
+                    .font(.title3)
+                    .foregroundStyle(.orange)
+                    .accessibilityHidden(true)
+                Text("Reminders are planned through \(day.formatted(.dateTime.weekday(.wide).month(.wide).day())). Open Meds Ahead before then to keep them coming.")
+                    .font(.subheadline)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .cardSurface()
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("planned-through-notice")
         }
     }
 
@@ -287,6 +426,7 @@ struct TodayView: View {
                                 .accessibilityLabel("Skip \(medication.displayName) from \(missedDoseLabel(dose.date))")
                             Button("Taken") { record(dose, for: medication, status: .taken) }
                                 .buttonStyle(.borderedProminent)
+                                .foregroundStyle(AppTheme.onAccent)
                                 .frame(minHeight: 44)
                                 .accessibilityLabel("Mark \(medication.displayName) from \(missedDoseLabel(dose.date)) taken")
                         }
@@ -296,19 +436,129 @@ struct TodayView: View {
                 }
 
                 if missed.count > shown.count {
-                    Text("\(missed.count - shown.count) more are waiting in each medication's history.")
+                    Text(Self.moreMissedText(missed.count - shown.count))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
+                // Named for what it sets aside: Today can show three Not Now
+                // buttons, and a hint is not read when hints are off.
                 Button("Not Now") { missedDosesSetAsideOn = dayKey(now) }
                     .font(.subheadline)
+                    .accessibilityLabel("Not now, missed doses")
                     .accessibilityHint("Hides these until tomorrow")
             }
             .padding(18)
             .cardSurface()
         }
+    }
+
+    /// A course that finished in the last few days, with the archive the
+    /// detail screen's menu offers. Set aside, it stays on Today and Supply
+    /// as it is.
+    @ViewBuilder
+    private func finishedCourseCards(now: Date) -> some View {
+        let items = FinishedCourseNotice.items(
+            medications: activeMedications,
+            schedules: schedules,
+            inventoryEvents: inventoryEvents,
+            doseEvents: doseEvents,
+            setAside: FinishedCourseNotice.setAside(in: finishedCoursesSetAside),
+            now: now
+        )
+        ForEach(items) { item in
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    // Above the title at the largest sizes: beside it, the
+                    // medication's name broke mid-word.
+                    Group {
+                        if dynamicTypeSize.isAccessibilitySize {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Image(systemName: "checkmark.circle")
+                                    .accessibilityHidden(true)
+                                Text(FinishedCourseNotice.title(for: item))
+                            }
+                        } else {
+                            Label(FinishedCourseNotice.title(for: item), systemImage: "checkmark.circle")
+                        }
+                    }
+                    .font(.headline)
+                    .fixedSize(horizontal: false, vertical: true)
+                    Text("Archive it to take it off Today and Supply. Its history is kept, and you can restore it from Medications.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .accessibilityElement(children: .combine)
+                let buttonLayout = dynamicTypeSize.isAccessibilitySize
+                    ? AnyLayout(VStackLayout(spacing: 10))
+                    : AnyLayout(HStackLayout(spacing: 10))
+                buttonLayout {
+                    Button {
+                        finishedCoursesSetAside = FinishedCourseNotice.adding(
+                            FinishedCourseNotice.key(medicationID: item.medicationID, end: item.end),
+                            to: finishedCoursesSetAside
+                        )
+                    } label: {
+                        Text("Not Now").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .accessibilityLabel("Keep \(item.displayName) for now")
+                    .accessibilityHint("Keeps \(item.displayName) as it is")
+                    .accessibilityIdentifier("finished-course-not-now")
+                    Button {
+                        archive(item)
+                    } label: {
+                        Text("Archive").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .foregroundStyle(AppTheme.onAccent)
+                    .controlSize(.large)
+                    .accessibilityLabel("Archive \(item.displayName)")
+                    .accessibilityIdentifier("finished-course-archive")
+                }
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .cardSurface()
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("finished-course-card")
+        }
+    }
+
+    private func archive(_ item: FinishedCourseNotice.Item) {
+        guard let medication = medications.first(where: { $0.id == item.medicationID }) else { return }
+        do {
+            try FinishedCourseNotice.archive(medication, in: modelContext)
+            Task { await replanNotifications() }
+        } catch {
+            modelContext.rollback()
+            showingArchiveError = true
+        }
+    }
+
+    /// The line under the missed doses the card has no room to list.
+    static func moreMissedText(_ count: Int) -> String {
+        "\(count.counted("more is", plural: "more are")) waiting in each medication's history."
+    }
+
+    /// The refill card's heading when something on it needs someone, in the
+    /// words of the reason. A count needed is not a refill gone wrong: the
+    /// refill may be right on time while nobody knows what is left to wait
+    /// with, and "A refill needs checking" points at the pharmacy when what
+    /// is needed is a count at home.
+    static func refillAttentionTitle(refillsToCheck: Int, countsNeeded: Int) -> String {
+        var parts: [String] = []
+        if refillsToCheck > 0 {
+            parts.append(refillsToCheck == 1 ? "a refill needs checking" : "\(refillsToCheck) refills need checking")
+        }
+        if countsNeeded > 0 {
+            parts.append(countsNeeded == 1 ? "a count is needed" : "\(countsNeeded) counts are needed")
+        }
+        let title = parts.joined(separator: " and ")
+        return title.prefix(1).uppercased() + title.dropFirst()
     }
 
     private func header(now: Date) -> some View {
@@ -420,18 +670,25 @@ struct TodayView: View {
         defer { savingDoseIDs.subtract(pending.map(\.1.id)) }
 
         var newEvents: [DoseEvent] = []
-        for (medication, dose) in pending {
-            let event = DoseEvent(
-                medicationID: medication.id,
-                scheduleID: dose.scheduleID,
-                scheduledAt: dose.date,
-                doseQuantity: dose.quantity,
-                status: .taken
-            )
-            modelContext.insert(event)
-            newEvents.append(event)
-        }
         do {
+            for (medication, dose) in pending {
+                // A dose the widget logged may still look due in these arrays.
+                guard try !DoseLogGuard.isLogged(dose, in: modelContext) else { continue }
+                let event = DoseEvent(
+                    medicationID: medication.id,
+                    scheduleID: dose.scheduleID,
+                    scheduledAt: dose.date,
+                    doseQuantity: dose.quantity,
+                    status: .taken
+                )
+                modelContext.insert(event)
+                newEvents.append(event)
+            }
+            guard !newEvents.isEmpty else {
+                alreadyLoggedMessage = "The widget or a reminder has already logged these doses. Nothing more was recorded."
+                showingAlreadyLogged = true
+                return
+            }
             try modelContext.save()
             let newIDs = Set(newEvents.map(\.id))
             let plans = NotificationPlanBuilder.makeAll(
@@ -456,15 +713,23 @@ struct TodayView: View {
     private func record(_ dose: ScheduledDose, for medication: Medication, status: DoseEventStatus) {
         guard self.status(for: dose) == nil, !savingDoseIDs.contains(dose.id) else { return }
         savingDoseIDs.insert(dose.id)
-        let event = DoseEvent(
-            medicationID: medication.id,
-            scheduleID: dose.scheduleID,
-            scheduledAt: dose.date,
-            doseQuantity: dose.quantity,
-            status: status
-        )
-        modelContext.insert(event)
+        defer { savingDoseIDs.remove(dose.id) }
         do {
+            // The widget may have logged this dose where these arrays cannot see it
+            // yet. The card still offers it, so a tap that writes nothing says why.
+            guard try !DoseLogGuard.isLogged(dose, in: modelContext) else {
+                alreadyLoggedMessage = "The widget or a reminder has already logged this dose. Nothing more was recorded."
+                showingAlreadyLogged = true
+                return
+            }
+            let event = DoseEvent(
+                medicationID: medication.id,
+                scheduleID: dose.scheduleID,
+                scheduledAt: dose.date,
+                doseQuantity: dose.quantity,
+                status: status
+            )
+            modelContext.insert(event)
             try modelContext.save()
             let plans = NotificationPlanBuilder.makeAll(
                 medications: medications,
@@ -479,7 +744,6 @@ struct TodayView: View {
             modelContext.rollback()
             showingSaveError = true
         }
-        savingDoseIDs.remove(dose.id)
     }
 
     /// A dose just logged is the moment the app has been useful. The policy
@@ -569,6 +833,7 @@ private struct DoseCard: View {
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
+                    .foregroundStyle(AppTheme.onAccent)
                     .controlSize(.large)
                     .accessibilityLabel("Mark \(medication.displayName) taken")
                 }
@@ -622,7 +887,7 @@ private struct DoseCard: View {
     }
 
     private var doseLine: String {
-        let quantity = "\(dose.quantity.medicationQuantityText) \(medication.form.unitName)\(dose.quantity == 1 ? "" : "s")"
+        let quantity = medication.form.quantityText(dose.quantity)
         return medication.strength.isEmpty ? quantity : "\(quantity) · \(medication.strength)"
     }
 }

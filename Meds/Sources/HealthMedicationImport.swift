@@ -28,6 +28,11 @@ struct HealthMedicationSummary: Hashable, Sendable, Identifiable {
     /// Every RxNorm coding Health carries for the medication; the sync matches
     /// on any of them.
     var rxNormCodes: Set<String> = []
+    /// The release the products under `rxNormCode` share, when the bundled
+    /// tables know them. Looked up as the medication is read, because finding
+    /// a code's products reads the whole RxNorm table, and the review list
+    /// must not do that on the main actor each time it draws.
+    var codedRelease: ReleaseForm?
 }
 
 /// Turns a Health medication into a draft for the review screen.
@@ -50,7 +55,14 @@ enum HealthMedicationMapper {
         draft.strength = ScanParser.normalizedStrength(text) ?? ""
         let bracketedBrand = text.firstMatch(of: bracketedBrandPattern).map { String($0.1).trimmingCharacters(in: .whitespaces) }
         let cleaned = cleanedName(from: text)
-        let identity = resolvedIdentity(cleaned, bracketedBrand: bracketedBrand)
+        let nameWords = Set(cleaned.lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init))
+        var release = ReleaseForm.evidence(in: text, namedBy: nameWords)
+        // A name that states no release takes the one its code names: an entry
+        // reading "Tacrolimus 1 mg" and coded as Astagraf XL is not Prograf.
+        if release.stated.isEmpty, let coded = summary.codedRelease, coded.isModified {
+            release.stated = [coded]
+        }
+        let identity = resolvedIdentity(cleaned, bracketedBrand: bracketedBrand, release: release)
         draft.name = identity.name
         draft.brandName = identity.brand
         draft.form = form(for: summary.form) ?? ScanParser.inferForm(from: text)
@@ -64,9 +76,25 @@ enum HealthMedicationMapper {
         return draft
     }
 
+    /// The release of the products an RxNorm code names, when they all agree
+    /// and the bundled tables know them.
+    static func release(
+        ofRxNormCode code: String,
+        rxNormTable: RxNormTable = .shared,
+        directory: NDCDirectory = .shared
+    ) -> ReleaseForm? {
+        let releases = Set(rxNormTable.productKeys(for: code).compactMap { directory.product(forKey: $0)?.comparableRelease })
+        return releases.count == 1 ? releases.first : nil
+    }
+
+    /// RxNorm's names lead an extended-release product with its duration:
+    /// "24 HR tacrolimus 1 MG Extended Release Oral Capsule".
+    private static let leadingDurationPattern = /(?i)^\s*(?:12|24)\s*HR\b/
+
     /// The name with its strength, form and route wording set aside.
     static func cleanedName(from displayText: String) -> String {
-        var cleaned = displayText.replacing(bracketedBrandPattern, with: " ")
+        var cleaned = displayText.replacing(leadingDurationPattern, with: " ")
+        cleaned = cleaned.replacing(bracketedBrandPattern, with: " ")
         cleaned = cleaned.replacing(strengthPattern, with: " ")
         cleaned = cleaned.replacing(formAndRoutePattern, with: " ")
         cleaned = cleaned.replacingOccurrences(of: "  ", with: " ")
@@ -80,13 +108,39 @@ enum HealthMedicationMapper {
     /// sertraline beside it rather than stand alone as the generic. A name neither
     /// knows is kept exactly as the person typed it: it is their word for their
     /// medication, not a reading to gate.
-    static func resolvedIdentity(_ cleaned: String, bracketedBrand: String?) -> (name: String, brand: String) {
-        if let pair = MedicationBrandIndex.resolve(cleaned) {
+    ///
+    /// The release words are set aside with the form, so the one the text
+    /// states comes in separately: "Tacrolimus ER" in Health is not Prograf,
+    /// and keeps its ER when the table's brand is withheld for that reason.
+    static func resolvedIdentity(
+        _ cleaned: String,
+        bracketedBrand: String?,
+        release: ReleaseForm.Evidence = .init()
+    ) -> (name: String, brand: String) {
+        let identity = tableIdentity(cleaned, bracketedBrand: bracketedBrand, release: release)
+        // A release the entry states stays with it for any drug, not only one
+        // the table would lend another release's brand: without its letters
+        // "Nifedipine ER" reads as the immediate-release nifedipine on file.
+        guard let stated = release.modified,
+              MedicationBrandIndex.release(ofName: identity.name, brand: identity.brand) != stated else { return identity }
+        return (ReleaseForm.name(identity.name, keeping: release.printedLetters(for: stated)), identity.brand)
+    }
+
+    private static func tableIdentity(
+        _ cleaned: String,
+        bracketedBrand: String?,
+        release: ReleaseForm.Evidence
+    ) -> (name: String, brand: String) {
+        let letters = release.modified.map(release.printedLetters(for:))
+        if let pair = MedicationBrandIndex.resolve(letters.map { ReleaseForm.name(cleaned, keeping: $0) } ?? cleaned, release: release.modified) {
             return (MedicationBrandIndex.displayName(forGeneric: pair.generic), pair.brand)
+        }
+        if let letters, bracketedBrand == nil, let pair = MedicationBrandIndex.resolve(cleaned) {
+            return (ReleaseForm.name(MedicationBrandIndex.displayName(forGeneric: pair.generic), keeping: letters), "")
         }
         if let match = MedicationVocabulary.exactMatch(for: cleaned) {
             let generic = MedicationBrandIndex.displayName(forGeneric: match)
-            return (generic, bracketedBrand ?? MedicationBrandIndex.brandName(forGeneric: match) ?? "")
+            return (generic, bracketedBrand ?? MedicationBrandIndex.brandName(forGeneric: match, release: release.modified) ?? "")
         }
         if let bracketedBrand, let pair = MedicationBrandIndex.resolve(bracketedBrand) {
             return (MedicationBrandIndex.displayName(forGeneric: pair.generic), pair.brand)
@@ -131,8 +185,17 @@ enum HealthMedicationMapper {
         }
         let keys = Set([draft.name, draft.brandName].map(key).filter { $0.count >= 4 })
         guard !keys.isEmpty else { return nil }
+        // Astagraf XL and Prograf share the name tacrolimus, and are not one
+        // medication: a name only matches within one release, with a name that
+        // states none read as the table's reference product.
+        let release = MedicationBrandIndex.release(ofName: draft.name, brand: draft.brandName) ?? .immediate
         return active.first { medication in
-            !keys.isDisjoint(with: [key(medication.name), key(medication.brandName), key(medication.nickname)])
+            // Codes on both sides that name different clinical drugs are two
+            // medications, whatever their names say; the codes that agree were
+            // matched above.
+            guard draftCodes.isEmpty || medication.healthMatchingCodes.isEmpty else { return false }
+            return !keys.isDisjoint(with: [key(medication.name), key(medication.brandName), key(medication.nickname)])
+                && (MedicationBrandIndex.release(ofName: medication.name, brand: medication.brandName) ?? .immediate) == release
         }
     }
 
@@ -176,6 +239,7 @@ enum HealthMedicationImporter {
         for (index, medication) in medications.enumerated() {
             var summary = summary(index: index, medication)
             summary.recentTakenDoses = (try? await recentTakenDoses(for: medication.medication, in: store)) ?? []
+            summary.codedRelease = summary.rxNormCode.flatMap { HealthMedicationMapper.release(ofRxNormCode: $0) }
             summaries.append(summary)
         }
         return summaries
@@ -298,6 +362,14 @@ enum HealthMedicationImporter {
 /// dose events come under the same grant; the dose-event type is never requested
 /// on its own, which HealthKit refuses with an exception. Still read-only: a
 /// dose logged here is never written to Health.
+/// A medication as Health shares it, reduced to what the sync needs: an
+/// identity to match on, and a handle to ask for its doses with.
+struct HealthSharedMedication: Hashable, Sendable {
+    let id: String
+    let rxNormCodes: Set<String>
+    let isArchived: Bool
+}
+
 @available(iOS 26.0, *)
 enum HealthDoseSync {
     static let lastCheckKey = "healthDoseSync.lastCheck"
@@ -308,6 +380,31 @@ enum HealthDoseSync {
         var adopted = 0
         var updated = 0
         var removed = 0
+
+        /// Whether the pass changed a dose on record here. Reminders are
+        /// planned from those doses, so a pass that did is followed by a
+        /// replan wherever it runs, or a follow-up asks about a dose this
+        /// phone now has logged.
+        var changedDoses: Bool { inserted + adopted + updated + removed > 0 }
+    }
+
+    /// Where the shared medications and their doses come from: Health in the
+    /// app, plain values in tests, so the rules that insert and delete
+    /// supply-changing doses can be checked without HealthKit.
+    struct Source {
+        var isAvailable: @Sendable () -> Bool
+        var sharedMedications: @Sendable () async throws -> [HealthSharedMedication]
+        var doseRecords: @Sendable (_ medicationID: String, _ from: Date, _ to: Date) async throws -> [HealthDoseRecord]
+
+        @MainActor
+        static var health: Source {
+            let live = LiveHealthSource()
+            return Source(
+                isAvailable: { HealthMedicationImporter.isAvailable },
+                sharedMedications: { try await live.sharedMedications() },
+                doseRecords: { try await live.doseRecords(for: $0, from: $1, to: $2) }
+            )
+        }
     }
 
     /// The window checked on every pass: the same thirty days the as-needed
@@ -315,42 +412,62 @@ enum HealthDoseSync {
     /// dose still matters to the estimate.
     static let windowDays = 30
 
+    /// The pass under way, if any. Launch, returning to the foreground and Check
+    /// Now can all ask at once, and two passes that each read the ledger before
+    /// either wrote to it would store every new Health dose twice.
     @MainActor
-    static func run(in context: ModelContext, now: Date = .now) async -> Outcome? {
-        guard HealthMedicationImporter.isAvailable else { return nil }
+    private static var inFlight: Task<Outcome?, Never>?
+
+    @MainActor
+    static func run(in context: ModelContext, now: Date = .now, source: Source? = nil) async -> Outcome? {
+        if let inFlight { return await inFlight.value }
+        let source = source ?? .health
+        let task = Task { @MainActor in
+            await pass(in: context, now: now, source: source)
+        }
+        inFlight = task
+        defer { inFlight = nil }
+        return await task.value
+    }
+
+    @MainActor
+    private static func pass(in context: ModelContext, now: Date, source: Source) async -> Outcome? {
+        guard source.isAvailable() else { return nil }
         let medications = (try? context.fetch(FetchDescriptor<Medication>())) ?? []
         let linked = medications.filter { !$0.isArchived && !$0.healthMatchingCodes.isEmpty }
         guard !linked.isEmpty else { return nil }
-        let store = HKHealthStore()
-        guard let shared = try? await HKUserAnnotatedMedicationQueryDescriptor().result(for: store),
+        guard let shared = try? await source.sharedMedications(),
               let windowStart = Calendar.autoupdatingCurrent.date(byAdding: .day, value: -windowDays, to: now) else {
             return nil
         }
 
         var outcome = Outcome()
         let schedules = (try? context.fetch(FetchDescriptor<DoseSchedule>())) ?? []
-        let doseEvents = (try? context.fetch(FetchDescriptor<DoseEvent>())) ?? []
-        let table = RxNormTable.shared
-        for annotated in shared {
-            // Both sides are widened to the clinical drug, so a generic bottle
-            // scanned here and the brand chosen in Health read as one medication.
-            let codes = expanded(HealthMedicationImporter.rxNormCodes(of: annotated.medication), table: table)
-            let matches = linked.filter { !codes.isDisjoint(with: expanded($0.healthMatchingCodes, table: table)) }
-            // Two medications here with one identity in Health — the same drug for
-            // two people — cannot be told apart, so neither is touched.
-            guard matches.count == 1, let medication = matches.first else { continue }
+        for (medication, entries) in groups(of: shared, matching: linked, table: .shared) {
             outcome.linkedMedications += 1
-            let records = (try? await HealthMedicationImporter.doseRecords(
-                for: annotated.medication,
-                in: store,
-                from: windowStart,
-                to: now
-            )) ?? []
+            // A query that fails says nothing about what Health holds. Taken for
+            // "no doses", it deleted every mirrored dose in the window as undone
+            // in Health, and the next good pass stored them again as new doses
+            // that charged the count.
+            var records: [HealthDoseRecord] = []
+            var queryFailed = false
+            for entry in entries {
+                guard let theirs = try? await source.doseRecords(entry.id, windowStart, now) else {
+                    queryFailed = true
+                    break
+                }
+                records += theirs
+            }
+            if queryFailed { continue }
+            // Read after the queries, not before them: what the ledger holds by
+            // the time the plan is applied is what the plan must be made from.
+            let doseEvents = (try? context.fetch(FetchDescriptor<DoseEvent>())) ?? []
             let plan = HealthDoseReconciler.plan(
                 records: records,
                 existing: doseEvents,
                 schedules: schedules,
                 medicationID: medication.id,
+                createdAt: medication.createdAt,
                 windowStart: windowStart,
                 now: now
             )
@@ -366,6 +483,33 @@ enum HealthDoseSync {
         codes.union(codes.map { table.clinicalDrugCode(for: $0) })
     }
 
+    /// The Health entries that describe each medication here. Both sides are
+    /// widened to the clinical drug, so a generic bottle scanned here and the
+    /// brand chosen in Health read as one medication; and when Health holds two
+    /// entries for it, the brand archived after a switch to the generic, say,
+    /// they are planned together as one history. Planned one at a time, each
+    /// pass deleted the other entry's mirrored doses as undone in Health, and
+    /// the count swung with every foreground. An entry that describes two
+    /// medications here, the same drug for two people, cannot be told apart
+    /// and touches neither.
+    @MainActor
+    static func groups(
+        of shared: [HealthSharedMedication],
+        matching linked: [Medication],
+        table: RxNormTable
+    ) -> [(medication: Medication, entries: [HealthSharedMedication])] {
+        var byMedication: [UUID: [HealthSharedMedication]] = [:]
+        for entry in shared {
+            let codes = expanded(entry.rxNormCodes, table: table)
+            let matches = linked.filter { !codes.isDisjoint(with: expanded($0.healthMatchingCodes, table: table)) }
+            guard matches.count == 1, let medication = matches.first else { continue }
+            byMedication[medication.id, default: []].append(entry)
+        }
+        return linked.compactMap { medication in
+            byMedication[medication.id].map { (medication, $0) }
+        }
+    }
+
     @MainActor
     private static func apply(
         _ plan: HealthDosePlan,
@@ -374,7 +518,12 @@ enum HealthDoseSync {
         in context: ModelContext,
         outcome: inout Outcome
     ) {
-        for insertion in plan.insertions {
+        // A sample stored between the plan and its application is not stored
+        // again; `healthSampleID` is not unique in the store, so it is kept
+        // unique here.
+        var stored = Set(existing.compactMap(\.healthSampleID))
+        for insertion in plan.insertions where !stored.contains(insertion.record.sampleID) {
+            stored.insert(insertion.record.sampleID)
             // A dose logged after the medication existed here was taken from the
             // count this app is keeping, so it counts toward the supply.
             context.insert(DoseEvent(
@@ -407,5 +556,35 @@ enum HealthDoseSync {
             outcome.removed += 1
         }
         if !plan.isEmpty { medication.updatedAt = .now }
+    }
+}
+
+/// The HealthKit side of the sync, kept in this file with the rest of the
+/// HealthKit types. Concepts are held between the two calls so the dose query
+/// can name the one it is for.
+@available(iOS 26.0, *)
+@MainActor
+private final class LiveHealthSource {
+    private let store = HKHealthStore()
+    private var concepts: [String: HKMedicationConcept] = [:]
+
+    func sharedMedications() async throws -> [HealthSharedMedication] {
+        let shared = try await HKUserAnnotatedMedicationQueryDescriptor().result(for: store)
+        concepts = [:]
+        return shared.enumerated().map { index, annotated in
+            let concept = annotated.medication
+            let id = String(index)
+            concepts[id] = concept
+            return HealthSharedMedication(
+                id: id,
+                rxNormCodes: HealthMedicationImporter.rxNormCodes(of: concept),
+                isArchived: annotated.isArchived
+            )
+        }
+    }
+
+    func doseRecords(for id: String, from start: Date, to end: Date) async throws -> [HealthDoseRecord] {
+        guard let concept = concepts[id] else { return [] }
+        return try await HealthMedicationImporter.doseRecords(for: concept, in: store, from: start, to: end)
     }
 }

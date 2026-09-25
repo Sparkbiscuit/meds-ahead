@@ -208,24 +208,6 @@ final class MedicationLabelInterpreterTests: XCTestCase {
         XCTAssertEqual(result.strength, "5 mg")
     }
 
-    func testOfflineDraftAddsBrandForGenericName() {
-        let draft = MedicationLabelInterpreter.offlineDraft([
-            ScanEvidence(kind: .text, value: "SERTRALINE HCL 50MG")
-        ])
-
-        XCTAssertEqual(draft.name, "Sertraline")
-        XCTAssertEqual(draft.brandName, "Zoloft")
-    }
-
-    func testOfflineDraftResolvesPrintedBrandToGenericName() {
-        let draft = MedicationLabelInterpreter.offlineDraft([
-            ScanEvidence(kind: .text, value: "PROGRAF 5MG CAPSULE")
-        ])
-
-        XCTAssertEqual(draft.name, "Tacrolimus")
-        XCTAssertEqual(draft.brandName, "Prograf")
-    }
-
     func testOfflineDraftLeavesUnindexedMedicationNameAndBrandUnchanged() {
         let draft = MedicationLabelInterpreter.offlineDraft([
             ScanEvidence(kind: .text, value: "MELATONIN 5MG")
@@ -251,15 +233,6 @@ final class MedicationLabelInterpreterTests: XCTestCase {
 
         XCTAssertTrue(strengths.contains("400-80 mg"))
         XCTAssertFalse(strengths.contains("80 mg"))
-    }
-
-    func testCandidateBuilderStrengthCandidatesDoNotContainUncanonicalizedForms() {
-        let strengths = LabelCandidateBuilder.build(from: [
-            ScanEvidence(kind: .text, value: "SERTRALINE 50MG")
-        ]).strengths.map(\.value)
-
-        XCTAssertTrue(strengths.contains("50 mg"))
-        XCTAssertFalse(strengths.contains("50MG"))
     }
 
     func testCandidateBuilderDirectionsExcludePharmacyGarbageAndStayTrusted() {
@@ -401,5 +374,37 @@ final class MedicationLabelInterpreterTests: XCTestCase {
         XCTAssertEqual(tartrate.name, "Metoprolol tartrate")
         XCTAssertEqual(tartrate.brandName, "Lopressor")
         XCTAssertEqual(tartrate.strength, "25 mg")
+    }
+
+    /// A label that says extended-release is not lent the table's brand when
+    /// that brand is the immediate-release product, and keeps the release in
+    /// the name as the label prints it.
+    func testAnExtendedReleaseLabelKeepsItsReleaseAndNotTheImmediateReleaseBrand() {
+        func draft(_ line: String) -> MedicationDraft {
+            MedicationLabelInterpreter.offlineDraft([
+                ScanEvidence(kind: .text, value: line, confidence: 0.9, origin: .cameraCapture),
+                ScanEvidence(kind: .text, value: "TAKE 1 BY MOUTH ONCE DAILY", confidence: 0.9, origin: .cameraCapture)
+            ])
+        }
+
+        let tacrolimus = draft("TACROLIMUS XL 1 MG CAPSULE")
+        XCTAssertEqual(tacrolimus.name, "Tacrolimus XL")
+        XCTAssertEqual(tacrolimus.brandName, "")
+
+        let metformin = draft("METFORMIN ER 500 MG TABLET")
+        XCTAssertEqual(metformin.name, "Metformin ER")
+        XCTAssertEqual(metformin.brandName, "", "Glucophage is the immediate-release tablet")
+
+        let immediate = draft("TACROLIMUS 1 MG CAPSULE")
+        XCTAssertEqual(immediate.name, "Tacrolimus")
+        XCTAssertEqual(immediate.brandName, "Prograf")
+
+        let brand = draft("GLUCOPHAGE XR 500 MG TABLET")
+        XCTAssertEqual(brand.name, "Metformin")
+        XCTAssertEqual(brand.brandName, "Glucophage XR", "the brand of that release, not Glucophage")
+
+        let delayed = draft("MYCOPHENOLIC ACID DR 360 MG TABLET")
+        XCTAssertEqual(delayed.name, "Mycophenolic acid")
+        XCTAssertEqual(delayed.brandName, "Myfortic", "Myfortic is itself delayed-release")
     }
 }

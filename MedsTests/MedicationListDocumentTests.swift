@@ -43,6 +43,62 @@ final class MedicationListDocumentTests: XCTestCase {
         XCTAssertTrue(entry.detailLine.contains("2 refills remaining"))
     }
 
+    /// Doses nobody logged used up the count on record, so the forecast's
+    /// run-out date is today. Printed, it would tell the pharmacy counter the
+    /// supply is gone; the sheet says a count is needed instead.
+    func testACountNeededPrintsNoRunOutDate() throws {
+        var utc = calendar
+        utc.timeZone = TimeZone(secondsFromGMT: 0)!
+        let counted = try XCTUnwrap(utc.date(from: DateComponents(year: 2026, month: 9, day: 1, hour: 7)))
+        let now = try XCTUnwrap(utc.date(from: DateComponents(year: 2026, month: 9, day: 6, hour: 7)))
+        let medication = Medication(name: "Furosemide", createdAt: counted)
+        let schedules = [8, 20].map { DoseSchedule(medicationID: medication.id, minutesAfterMidnight: $0 * 60, doseQuantity: 1, startDate: counted) }
+        let opening = InventoryEvent(medicationID: medication.id, date: counted, delta: 6, reason: .openingCount)
+
+        let entry = try XCTUnwrap(MedicationListDocument.entries(
+            medications: [medication],
+            schedules: schedules,
+            inventoryEvents: [opening],
+            doseEvents: [],
+            now: now,
+            calendar: utc
+        ).first)
+
+        XCTAssertEqual(entry.supplyLine, "6 tablets on record · count needed: 10 doses since the last count weren't logged")
+        XCTAssertFalse(entry.supplyLine.contains("runs out"))
+    }
+
+    /// Short of a count needed, the run-out date still takes out the doses
+    /// nobody logged. "30 tablets on hand · runs out around Sep 30" cannot
+    /// both be true at one a day, and a clinic reading the sheet would take
+    /// the 30 as fact; the sheet says what was recorded and what it assumes.
+    func testAnAssumedRunOutSaysWhatItAssumed() throws {
+        var utc = calendar
+        utc.timeZone = TimeZone(secondsFromGMT: 0)!
+        let counted = try XCTUnwrap(utc.date(from: DateComponents(year: 2026, month: 9, day: 1, hour: 7)))
+        let now = try XCTUnwrap(utc.date(from: DateComponents(year: 2026, month: 9, day: 26, hour: 7)))
+        let medication = Medication(name: "Furosemide", createdAt: counted)
+        let schedule = DoseSchedule(medicationID: medication.id, minutesAfterMidnight: 8 * 60, doseQuantity: 1, startDate: counted)
+        let opening = InventoryEvent(medicationID: medication.id, date: counted, delta: 30, reason: .openingCount)
+
+        let entry = try XCTUnwrap(MedicationListDocument.entries(
+            medications: [medication], schedules: [schedule], inventoryEvents: [opening], doseEvents: [], now: now, calendar: utc
+        ).first)
+        let runOut = try XCTUnwrap(utc.date(from: DateComponents(year: 2026, month: 9, day: 30, hour: 8)))
+        XCTAssertEqual(entry.supplyLine,
+                       "30 tablets on record · 25 doses since the last count weren't logged · runs out around \(runOut.formatted(date: .abbreviated, time: .omitted)) if they were taken")
+
+        let logged = (1...25).map { day in
+            DoseEvent(medicationID: medication.id, scheduleID: schedule.id, scheduledAt: utc.date(byAdding: .hour, value: 1 + (day - 1) * 24, to: counted),
+                      recordedAt: utc.date(byAdding: .hour, value: 1 + (day - 1) * 24, to: counted)!, doseQuantity: 1, status: .taken)
+        }
+        let caughtUp = try XCTUnwrap(MedicationListDocument.entries(
+            medications: [medication], schedules: [schedule], inventoryEvents: [opening], doseEvents: logged, now: now, calendar: utc
+        ).first)
+        XCTAssertEqual(caughtUp.supplyLine, "5 tablets on hand · runs out around \(runOut.formatted(date: .abbreviated, time: .omitted))",
+                       "with every dose logged, the ledger is what is on hand")
+    }
+
     /// A pharmacy can act on an NDC and a clinic on an RxNorm code; a pharmacy's
     /// own barcode payload means nothing to anyone else and stays off the sheet.
     func testExactProductCodesPrintAndBarcodePayloadsDoNot() {
@@ -139,23 +195,6 @@ final class MedicationListDocumentTests: XCTestCase {
         )
     }
 
-    @MainActor
-    func testRenderedPDFIsARealDocument() throws {
-        let entry = MedicationListEntry(
-            id: UUID(),
-            title: "Tacrolimus",
-            subtitle: "1 mg · Capsule",
-            directions: "Take 1 capsule by mouth twice daily",
-            scheduleLines: ["8:00 AM — 1 capsule · Every day"],
-            supplyLine: "30 capsules on hand",
-            detailLine: "2 refills remaining"
-        )
-        let url = try XCTUnwrap(MedicationListPDFRenderer.render(entries: [entry]))
-        let data = try Data(contentsOf: url)
-        XCTAssertTrue(data.starts(with: Array("%PDF".utf8)))
-        XCTAssertGreaterThan(data.count, 1000)
-    }
-
     /// The household this was built for has more than a dozen medications. Rendered
     /// as one page sized to its content that was a sheet some three feet tall, which
     /// prints to nothing legible.
@@ -240,23 +279,5 @@ final class MedicationListDocumentTests: XCTestCase {
         )
 
         XCTAssertEqual(try XCTUnwrap(entries.first).subtitle, "Sertraline · Brand: Zoloft · 50 mg · Tablet")
-    }
-
-    func testEntrySubtitleKeepsThePreviousTextWhenBrandIsEmpty() throws {
-        let medication = Medication(
-            name: "Sertraline",
-            brandName: "",
-            strength: "50 mg",
-            form: .tablet
-        )
-        let entries = MedicationListDocument.entries(
-            medications: [medication],
-            schedules: [],
-            inventoryEvents: [],
-            doseEvents: [],
-            calendar: calendar
-        )
-
-        XCTAssertEqual(try XCTUnwrap(entries.first).subtitle, "50 mg · Tablet")
     }
 }

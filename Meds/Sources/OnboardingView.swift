@@ -87,6 +87,7 @@ struct OnboardingView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
+                .foregroundStyle(AppTheme.onAccent)
                 .controlSize(.extraLarge)
                 .padding(.horizontal, 22)
                 .padding(.bottom, 20)

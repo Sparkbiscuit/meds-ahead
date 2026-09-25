@@ -1,20 +1,71 @@
 import SwiftUI
 
 struct SupplyGauge: View {
-    let daysRemaining: Int?
-    let leadDays: Int
-    var size: CGFloat = 46
+    /// A course the supply sees through, or one already over. Nothing runs
+    /// out either way, so the ring reads complete: no day count, and never
+    /// the question mark of a forecast that could not be made.
+    enum Course: Equatable {
+        case covered
+        case finished
+        /// Over, but its supply ran out before its last day. Over all the
+        /// same, so it reads complete, without the tick that says finished.
+        case ranOutFirst
 
-    private var progress: Double {
-        guard let daysRemaining else { return 0.18 }
-        return min(1, max(0.06, Double(daysRemaining) / Double(max(leadDays * 3, 21))))
+        init?(_ forecast: SupplyForecast, ranOutFirst: Bool = false) {
+            if forecast.courseFinished {
+                self = ranOutFirst ? .ranOutFirst : .finished
+            } else if forecast.courseCovered {
+                self = .covered
+            } else {
+                return nil
+            }
+        }
     }
 
-    private var color: Color {
+    let daysRemaining: Int?
+    let leadDays: Int
+    /// The forecast's zero days are where its assumed doses ran out, not a
+    /// runway: the ring asks for a count instead of reading empty and red.
+    var needsCount = false
+    var course: Course? = nil
+    var size: CGFloat = 46
+
+    /// The day count the ring prints, if any.
+    var shownDays: Int? { needsCount || course != nil ? nil : daysRemaining }
+
+    /// Whether the ring only says what the words beside it say first: a
+    /// count needed and a course are what the title or summary it sits
+    /// next to opens with, so VoiceOver passes over it then.
+    var repeatsItsSummary: Bool { needsCount || course != nil }
+
+    private var progress: Double {
+        if course != nil { return 1 }
+        guard let shownDays else { return 0.18 }
+        return min(1, max(0.06, Double(shownDays) / Double(max(leadDays * 3, 21))))
+    }
+
+    var color: Color {
+        if needsCount { return .orange }
+        switch course {
+        case .covered: return AppTheme.accent
+        case .finished, .ranOutFirst: return .secondary
+        case nil: break
+        }
         guard let daysRemaining else { return .secondary }
         if daysRemaining <= 0 { return .red }
         if daysRemaining <= leadDays { return .orange }
         return AppTheme.accent
+    }
+
+    var accessibilityText: String {
+        if needsCount { return "Count needed" }
+        switch course {
+        case .covered: return "Enough to finish the course"
+        case .finished: return "Course finished"
+        case .ranOutFirst: return "Course over"
+        case nil: break
+        }
+        return daysRemaining.map { "\($0.dayCountText) of supply remaining" } ?? "Supply forecast unavailable"
     }
 
     var body: some View {
@@ -24,19 +75,27 @@ struct SupplyGauge: View {
                 .trim(from: 0, to: progress)
                 .stroke(color, style: StrokeStyle(lineWidth: 5, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-            if let daysRemaining {
-                Text("\(daysRemaining)")
+            if let shownDays {
+                Text("\(shownDays)")
                     .font(.caption.weight(.bold))
                     .contentTransition(.numericText())
+            } else if course == .ranOutFirst {
+                Image(systemName: "calendar")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(color)
+            } else if course != nil {
+                Image(systemName: "checkmark")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(color)
             } else {
                 Image(systemName: "questionmark")
                     .font(.caption.weight(.bold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(needsCount ? AnyShapeStyle(color) : AnyShapeStyle(.secondary))
             }
         }
         .frame(width: size, height: size)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(daysRemaining.map { "\($0) days of supply remaining" } ?? "Supply forecast unavailable")
+        .accessibilityLabel(accessibilityText)
     }
 }
 
@@ -72,6 +131,7 @@ struct EmptyStateCard: View {
             if let actionTitle, let action {
                 Button(actionTitle, action: action)
                     .buttonStyle(.borderedProminent)
+                    .foregroundStyle(AppTheme.onAccent)
                     .controlSize(.large)
             }
         }
@@ -144,7 +204,7 @@ struct NotificationHealthBanner: View {
         case .unasked:
             "Your schedules are saved, but no reminder can be delivered until you allow notifications."
         case let .partlyScheduled(failed):
-            "\(failed) reminder\(failed == 1 ? "" : "s") couldn't be scheduled with iOS. Your medications and history are unaffected."
+            "\(failed.counted("reminder", plural: "reminders")) couldn't be scheduled with iOS. Your medications and history are unaffected."
         case .fine:
             ""
         }

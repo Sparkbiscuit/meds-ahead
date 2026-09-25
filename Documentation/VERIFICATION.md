@@ -1,5 +1,811 @@
 # Verification record
 
+## September 25, 2026 — 1.2 "First Days Home": courses, reminders by date, and a dozen bottles at once
+
+1.2 is version 1.2, build 8, on the local branch `feature/first-days-home`;
+nothing is pushed or submitted. It is built on 1.1.1 and carries all of it,
+the entries below included: `fix/1.1.1-supply-accuracy` was merged in three
+times as it moved (`1615af7`, `d6167fe`, and the merge of its final paperwork
+at `07fd388`).
+
+It is for the first days after a hospital discharge, when a caregiver comes
+home with a bag of new bottles, several of them courses that end on a given
+day, and has to set them all up at once and then keep them straight. 1.1 made
+each bottle a separate trip through Add, could not say a medication stops, so
+a ten-day antibiotic's reminders never did, and gave no way to see how a
+run-out date was worked out or to be asked for a count before a date went
+stale. The designs are in `ARCHITECTURE.md` under "Dated reminders, follow-ups
+and the weekly count check", "Courses", "Why this date?", "The quick count",
+"Scanning a dozen bottles" and "The same bottle twice"; `PRODUCT.md` has the
+feature list and the course forecast rules.
+
+### What was built
+
+- **Courses** (`dc2fe60`, `60b457a`, `ec43393`, `66750c1`, `f1dbe66`,
+  `1c876b2`, `5f5690b`, `dba2ca2`, `a656180`, `962b9eb`). A last day in the
+  editor, applied to every schedule and stored as noon so a trip under twelve
+  hours cannot move it. The forecast says whether the supply finishes the
+  course, and a finished course warns about nothing. Today offers to archive
+  one for three days, never for a course whose supply ran out first, which is
+  described by its last day on every surface rather than called finished.
+  Taking a finished course up again starts new schedules from today.
+- **Reminders by date** (`914e840`, `f694b33`, `cc72e6a`, `8f6e001`,
+  `ff67481`). A schedule that starts or ends within the week is planned one
+  day at a time, so a course's reminders stop after its last day; the ongoing
+  medications keep their repeating requests, and a time the two share rings
+  twice. A dated reminder's Taken logs the day it names, wherever the phone
+  is. Today says when the reminders planned so far will run out.
+- **Follow-ups** (`cf683ae`, `fcd292a`), off until chosen: a second reminder
+  30 minutes after a dose not logged on this phone, worded to check first, and
+  withdrawn by the widget's Taken.
+- **The weekly count check and the quick count** (`63e2edd`, `4d87b43`,
+  `f7e74ad`, `d74c199`, `54c6ad4`). One question a week, at 10:00, about the
+  one medication a count would help most, in a reminder and as a card on
+  Today, which asks for missed doses to be logged first.
+- **Why this date?** (`f5f2ded`, `3d84c50`, `585ba35`, `706e078`, `63ea10f`).
+  The forecast's own steps as a short ledger that adds up, from the detail
+  screen or a Supply row.
+- **Save and Scan Next** (`89633fd`, `62c9d78`, `0daf608`, `28a0f49`). After
+  Add, a new scanner for the next bottle, and a tally bar of the bottles
+  saved.
+- **The same bottle twice** (`71623c6`, `24ba3a2`, `6388921`, `572347c`,
+  `588f31a`). "Already in Meds Ahead" on the review screen, and a bottle added
+  to the medication as a refill; Prograf and Astagraf XL are never taken for
+  each other.
+
+No `@Model` changed: `Shared/Models.swift` is as 1.1 shipped it, the course's
+last day is the `DoseSchedule.endDate` that has existed since 1.0, and the new
+state is in plain structs and the app's own `UserDefaults`. The ledger is
+append-only as before: adding a bottle records a refill, and archiving a
+finished course records nothing.
+
+### How it was built and reviewed
+
+Five lanes, in two waves, each built in its own worktree against its own
+simulators: the forecast engine and courses' arithmetic, reminder planning,
+and the scanning setup first; then the course screens and the "Why this date?"
+and quick-count work on top of them. Each lane went to a separate reviewer
+whose job was to break it. A finding was fixed only once it had been
+reproduced and had survived an attempt to refute it, and each fix came with a
+test. The lanes were merged, with 1.1.1, into `feature/first-days-home`
+(`d6167fe`), where an integration pass ran both suites, found no merge
+breakage, and looked at Today in light, dark and Accessibility XXXL with every
+new card at once; that moved the finished-course card below the quick count,
+whose "above" had pointed past it (`0b5fc0c`), and named a course that ran out
+before its last day by that day rather than as finished (`962b9eb`).
+
+Then the whole 1.2 diff went to five reviewers at once, on reminders, courses,
+setup, the tests and the screens. Twenty-three findings survived refutation.
+Twenty-one commits, `f81518b` to `84c5243`, fix twenty-two of them, each code
+change with its own test, and half of the twenty-third: the one exception to
+consolidating same-time reminders is now written down in `ARCHITECTURE.md`,
+and its line in `AGENTS.md` is left for Nick below. Among the fixes: a refill
+alert now outranks follow-ups under the sixty-request cap; a dose logged early
+is left out of its dated reminder; the count check is planned before it falls
+due and never past a course's end; a reminder's Taken that finds nothing to
+log still replans; a course supplied to the tablet stays covered once its last
+dose goes unlogged; and a tracked medication's stored code matches only a
+product it describes. Three fixes differ from what the reviewer suggested,
+because the suggestion broke an existing test or case; the commits say how.
+
+This entry's pass merged 1.1.1's final paperwork, which merged cleanly and
+changed documentation only (`07fd388`), set the version to 1.2 (8) in every
+configuration of the app and the widget (`faa8ffe`), built Release, and ran
+both suites whole on both runtimes. That run found one UI test failing on iOS
+26.5 for a reason in the test, fixed in `522debf` (see Results).
+
+### Verified only in the simulator
+
+- Every reminder rule is proved on the planner's plain values:
+  `DatedReminderPlanningTests`, `FollowUpReminderTests` (including every five
+  minutes of both clock changes in New York, London, Lord Howe and Santiago),
+  `CountCheckPolicyTests`, `NotificationContentTests` and
+  `NotificationActionsTests`, which plans in Sydney and answers in Los
+  Angeles. No 1.2 reminder has rung on a phone. How a one-shot calendar
+  trigger behaves across a clock change is inferred from `Calendar`'s
+  matching.
+- The widget's withdrawal of a follow-up calls `UNUserNotificationCenter` from
+  the widget extension; tested only through the rule it applies.
+- Courses, the finished-course card and the course's words on every surface,
+  by unit tests and by UI tests over fictional seeded courses (`-seed-course`,
+  `-seed-finished-course`), with screenshots in light, dark and Accessibility
+  XXXL.
+- Save and Scan Next, the tally and "Already in Meds Ahead", by UI tests with
+  the simulated scanner and typed NDCs; the Prograf and Astagraf XL rule also
+  against the shipped directory and RxNorm table. No camera and no real
+  bottle.
+- "Why this date?": every line, plural and state in `WhyThisDateLedgerTests`,
+  and its steps summing to the ledger's raw balance in
+  `ForecastBreakdownTests`.
+
+### Still open, for a phone
+
+The "1.2 gates" device script in `RELEASE_CHECKLIST.md`, about three hours
+over three days after five minutes of setup a week ahead: a fictional course
+ending tomorrow whose reminders must stop after its last day, with Taken and
+Skip from the Lock Screen on its dated reminders; follow-ups, including none
+after a dose is logged and the widget's Taken withdrawing one; the weekly
+count check at 10:00 and the quick count; twelve bottles in one session and a
+second bottle of one as a refill; "Why this date?" against a counted bottle;
+the widgets with a course; VoiceOver on the new screens; and the same on an
+iPhone running iOS 27. Two things the script does not try, and only unit tests
+cover: a follow-up on the night the clocks go back (in the United States, next
+on November 1), and a dated reminder answered after the phone's time zone
+changes. At Accessibility XXXL the scanner's progress pills overlap the frame
+in the simulator, older than 1.2; it needs a look on a phone.
+
+### Decisions left for Nick
+
+- `AGENTS.md` says notification planning consolidates same-time slots; a
+  course's dated reminder at a time an ongoing medication shares rings beside
+  it, on purpose, and only `ARCHITECTURE.md` says so. The rule's wording is
+  yours to change.
+- Reminders a week ahead stop if the app is not opened for a week while a
+  course or a later start is dated. Today warns from three days before; one
+  more request, on the last planned day, could say "Open Meds Ahead to keep
+  reminders coming". Not built.
+- Follow-ups are planned a day ahead, so they stop after a day with no app
+  opened and no Lock Screen action, and a dose logged in Apple Health is not
+  seen until the app next syncs, so its follow-up can still ring.
+- The ledger takes a dose off the supply when it is logged, so a dose from
+  before a count logged after it comes off twice. The quick count asks for
+  missed doses first; the detail screen, a late reminder action, or a
+  missed-doses card set aside for the day do not. A real fix changes the
+  ledger for every forecast.
+- A course's noon end holds for time-zone changes under twelve hours;
+  `ScheduleEngine.isActive` comparing calendar days would hold for any, but
+  changes the rule for every screen.
+- Turning on Course ends starts the Last day picker on today, so saving
+  without choosing makes a course that ends today.
+- Switching a course with ended history to as-needed deletes its current
+  schedules, and editing a finished course's times without taking it up again
+  rewrites its ended schedules in place. The ledger is untouched.
+- The quick count's Count Now opens prefilled when no dose is assumed, so one
+  tap records a count nobody made and rests the card for a week. Not Now hides
+  the card rather than moving on; a medication that needs a count is never
+  rested. Tapping a count check while a sheet or a pushed screen is open only
+  switches the tab.
+- A Health review gets no "Already in Meds Ahead" banner. A bottle added as a
+  refill makes Add Refill suggest that bottle's amount next time, and never
+  counts down refills left. The tally lists names newest first.
+- A scanned extended-release bottle whose code was not used and whose brand
+  was not read still matches an uncoded immediate-release entry by name and
+  strength; the banner shows the tracked medication's brand, and only offers.
+- `testAnExtendedReleaseBottleIsNotOfferedAsTheImmediateReleaseOne` still
+  fails now and then in a full iOS 26.5 run and passes alone (see Results).
+  Current amount was there but could not be tapped, and after the second swipe
+  it was gone: one swipe carried it past the part of the form that could be
+  tapped, as happens when a keyboard shortens it. Putting the typed code's
+  keyboard away before scrolling, as `522debf` does for the course test, would
+  likely settle it; the test was left as the lane hardened it.
+
+### Results
+
+All on the code at `522debf` (this entry's documentation commit changes no
+code), iPhone 17 Pro simulators, Xcode 27.0 (27A266a), the test command in
+`AGENTS.md`:
+
+- **iOS 26.5 (23F77):** unit tests 643/643 (472 at 1.1.1's `4728d73`; 1.2 adds
+  171), UI tests 29/29 (16 at `4728d73`; 1.2 adds 13).
+- **iOS 27.0 (24A434):** unit tests 643/643, UI tests 29/29.
+- **Before `522debf`.** Right after the merge (`07fd388`), unit tests 643/643
+  on iOS 26.5. At `faa8ffe`, iOS 27.0 passed unit 643/643 and UI 29/29, and
+  iOS 26.5 passed unit 643/643 and UI 27/29. The two failures:
+  - `testTurningOnACourseInTheEditorShowsItsLastDay`,
+    `MedsUITests/MedsUITests.swift:975`: "XCTAssertFalse failed - the calendar
+    did not close". It failed alone as well, three runs in five on iOS 26.5
+    with its steps unchanged. `522debf` fixes the test, which then passed ten
+    runs in a row on iOS 26.5 and five on iOS 27.0.
+  - `testAnExtendedReleaseBottleIsNotOfferedAsTheImmediateReleaseOne`,
+    `MedsUITests/MedsUITests.swift:787`: "XCTAssertTrue failed - Current
+    amount cannot be reached". Re-run alone on iOS 26.5 it passed (108
+    seconds), and it passed in every other full run, on both runtimes.
+- **Release builds:** Release for the generic iOS Simulator and for a generic
+  iOS device, unsigned (`CODE_SIGNING_ALLOWED=NO`), both succeed with no
+  warnings, and the app and the widget extension both carry 1.2 (8). Release
+  defines no `DEBUG` condition (`SWIFT_ACTIVE_COMPILATION_CONDITIONS` is set
+  only in the project's Debug configuration); every launch argument the tests
+  use, the new `-seed-course`, `-seed-finished-course`,
+  `-force-planned-through-notice`, `-simulate-scanner` and `-simulate-scan-*`
+  included, is read inside `#if DEBUG`, as is `MedsAppDelegate`'s UI-testing
+  cleanup; and neither Release binary contains any seed, simulate, force or
+  UI-testing argument. The two onboarding arguments remain only as strings
+  compared against an empty list in Release, as in 1.1. The test builds print
+  only Xcode's no-AppIntents metadata-skip message.
+
+## September 25, 2026 — 1.1.1: small print on iOS 27, and release as identity
+
+Two lanes merged into 1.1.1 after the paperwork in the entry below (`9630c3e`):
+`lane/ios27` (`98e5c0a`) and `lane/identity` (`4728d73`). It is still version
+1.1.1, build 7, on the local branch `fix/1.1.1-supply-accuracy`; nothing is
+pushed or submitted. The first lane answers the entry below's "iOS 27"
+section, which left three rendered-label OCR tests failing on iOS 27 and two
+Xcode 27 warnings alone; that section stays as the record of what was found.
+It also judged retuning the second look a change to make with a phone in hand;
+it was made in the simulator instead, so the phone steps below are the check
+that judgment asked for. The second lane closes a hole the first found in the gate: Prograf and Astagraf XL
+are tacrolimus 1 mg capsules from one labeler, one digit apart, and small print
+swaps 1 and 7, so a misread code on a Prograf bottle was accepted as the
+extended-release product, which is taken once a day instead of twice. The
+designs are in `ARCHITECTURE.md` under "Exact identification" (the four
+passes, the guess bar, the package digits, release as identity), "Autofill
+posture", the brand table under "Data model", "Apple Health import" and
+"RxNorm".
+
+### What changed: small print on iOS 27
+
+- **Why anything had to.** Vision offers only text-recognition revision 3 on
+  iOS 26.5 and 27.0, so there is no revision to pin; the model under it
+  changed. Over about 140 crops, scales and filters of the shaken Tecfidera
+  line, iOS 27 never put the right code first and listed it among its top ten
+  guesses in about one look in seven; iOS 26.5 read it first in about one in
+  three. Language correction, the language list, gamma, threshold, morphology
+  and sharpening changed that only by chance.
+- **Tiles find the line, the zoom reads it** (`e7cb9cb`, `ef0d58e`). A tile
+  read 12-point "-02" as "-07" on iOS 27 where the zoom read it right, so the
+  zoom's reading leads; the tile's goes forward beside it when it carries a
+  code the zoom did not read.
+- **A search of Vision's lower-ranked guesses** (`e7cb9cb`, `a054abf`,
+  `0b0512c`, `55c664e`, `531b74e`), on stills only and only when nothing read,
+  a barcode included, is a listed code the label accepts: at most two lines, at
+  seven text heights, the top ten guesses of each. A guess is admitted only
+  when the label names its product exactly and fits none of the labeler's
+  other products as well, and it enters the evidence as its code alone. A
+  label that says only "TACROLIMUS 1 MG CAPSULE" takes a guess at neither
+  Prograf nor Astagraf XL; WELLBUTRIN XL takes none at Wellbutrin SR.
+- **Both readings of a code line survive the merge** (`6077ac1`). The merge
+  used to keep whichever of "NDC 54405-005-02" and "NDC 64406-006-02" Vision
+  scored higher, choosing a product by OCR confidence.
+- **A package read two ways is left off** (`4620b28`). The medication keeps
+  the two-segment product NDC, "64406-0006", and the review screen's note says
+  why; a barcode, agreeing readings, or Use This Product on a typed code keep
+  the full one.
+- **The name on a delayed-release label** (`b182aa2`). "X DR 240 MG CAPSULE"
+  left the name blank, the trailing DR read as "Drive"; found on an iOS 27
+  capture of a Tecfidera label whose code was rightly refused.
+- **Words, layout, warnings** (`46c6b31`, `c32bf82`, `4fbf1bb`, `65cd1f3`,
+  `b9d2e58`). The detail screen reads "10 days before, because no refills are
+  left" when the prescriber's lead applies, and the editor's Reminders section
+  says why; at the accessibility sizes each detail line stacks its value under
+  its label. Today's refill card heading names the reason, "A count is needed"
+  or "A refill needs checking" or both. Trip Check marks a count needed with
+  the orange mark every other screen uses. The two Xcode 27 warnings are gone:
+  the model request uses `GenerationOptions(samplingMode:)`, back-deployed to
+  iOS 26, with the same greedy, zero-temperature, 96-token setting, and
+  `SettingsView` imports SwiftData.
+
+### What changed: release as identity
+
+- **The directory records release** (`57ced61`, `3b1f206`). The snapshot was
+  regenerated from the FDA's `ndctext.zip` (`product.txt` dated September 24,
+  downloaded September 25) and reads "FDA NDC Directory snapshot 2026-09-25":
+  112,571 products, 559 added since September 11, 234 delisted by the FDA and 7
+  renamed or reordered, with no pinned test value changed. A sixth column
+  holds the release, "er" for 5,142 products, "dr" for 1,856, and empty for
+  the 105,573 that claim neither; the tool reads it from the FDA's dosage
+  form, else a release phrase in the names, else release letters after the
+  first word of an oral tablet's or capsule's brand or generic name. The two
+  repackager rows of extended-release metformin that the FDA files as plain
+  TABLET (50090-6515, 71610-0613) are "er" from their generic name. The
+  resource is 7.7 MB, 1.6 MB compressed.
+- **A release suffix keeps its own brand** (`0e1e702`). "Tacrolimus XL" no
+  longer records Prograf, nor "Metformin ER" Glucophage; "Metoprolol succinate
+  ER" still gets Toprol XL.
+- **The gate** (`45163c1`, `c038c33`, `9e2e14d`). A release the label states
+  against the product's refuses a code, a DR label excepted against a listing
+  that claims none, since Tecfidera is filed as a plain capsule. A printed
+  code for an extended- or delayed-release product needs the label to back
+  the release up. A brand of another of the labeler's products of the drug,
+  printed on the label, refuses a branded code whose brand is not there, both
+  ways. A dosing interval ("every 12 hours") is never release evidence, and
+  extended-release letters wrapped onto the next line count. The brand the
+  table lends a bare name is held back wherever the release is in doubt, the
+  language model's pass included.
+- **Apple Health** (`9abf6c8`, `159946a`). "Already in Meds Ahead" matches
+  names only within one release; an entry's stated release stays in its name
+  for any drug; an entry that states none takes it from its RxNorm code; and
+  codes naming different clinical drugs are never joined by name.
+
+No `@Model` changed: `Shared/Models.swift` is as 1.1 shipped it, so there is
+no migration to verify. A stored NDC can now be the product form, a value in
+the existing string field. The ledger is untouched.
+
+### How it was built and reviewed
+
+Each lane was built in its own worktree against its own simulators, then given
+to a separate reviewer who tried to break it: four findings on the iOS 27 lane
+and six on the identity lane, every one reproduced and fixed with a test, none
+judged wrong. The iOS 27 lane left one hole open for a decision: a 0469-0677
+top reading on a Prograf bottle was accepted as Astagraf XL on a TACROLIMUS
+label and on a PROGRAF one. The identity lane closed it: the first is now "not
+used yet" (`testALabelThatDoesNotSayExtendedReleaseCannotFillAnExtendedReleaseCode`),
+the second refused (`testAPrografLabelRefusesAMisreadAstagrafCode`), without
+refusing a store brand that prints "compare to" a reference brand
+(`testABrandVariantOrAStoreBrandIsNotAnotherProduct`). The merged branch was
+then run whole on both runtimes, below.
+
+### Verified only in the simulator
+
+- Every rendered-label test in `LabelPhotoRecognitionTests` pushes a drawn
+  label through the real Vision requests, on iOS 26.5 and on iOS 27.0. The
+  shaken line resolves Tecfidera 240 mg on both, from the zoom on iOS 26.5 and
+  from a vouched guess on iOS 27; a tacrolimus label gets nothing from a
+  0469-0677 guess unless it prints ASTAGRAF XL; a code missing from the
+  directory fills nothing from a guess and the name still comes from the
+  label. These are drawn labels, not a camera's frames.
+- The release rules are proved on label text through `NDCIdentification`, and
+  against the shipped directory and RxNorm table in
+  `NDCDirectoryBundleTests`; no real Prograf, Astagraf XL or other
+  extended-release bottle has been scanned.
+- The detail card's stacking at Accessibility XXXL, by UI test; the Health
+  "Already in Meds Ahead" rules, as values through `HealthMedicationMapper`,
+  not through Health's picker.
+
+### Still open, for a phone
+
+Steps 14 to 16 under "1.1.1 gates" in `RELEASE_CHECKLIST.md`, about 35
+minutes, after the September 24–25 script: a Prograf or generic tacrolimus
+capsule bottle for the 1-to-7 swap in real small print, where a 0469-0677
+reading must never fill Astagraf XL; an extended-release bottle, filled only as
+its own release; and on an iPhone running iOS 27, the shaken-line and
+small-print reading on real bottles, a label whose code is not in the
+directory, a TACROLIMUS-only label, and how long the search of guesses takes on
+the phone (about 5 seconds in the simulator, run synchronously on a background
+queue with no cancellation).
+
+### Decisions left for Nick
+
+- A DR label does not refuse a listing that claims no release, because the FDA
+  files Tecfidera as a plain capsule; the same rule lets a DR label accept a
+  one-digit misread onto an immediate-release sibling at the same strength and
+  form.
+- A barcode needs no release backing, as it needs no corroboration: an ER
+  barcode fills when the label never prints ER, though a label that
+  contradicts it still refuses it.
+- Extended releases share one value, so generic letters do not tell
+  bupropion SR from XL or diltiazem CD from LA; only a printed brand does.
+- Sibling brands come only from the code's own labeler, and so do a guess's
+  rivals; a directory-wide rule would refuse every drug that has generics.
+- About 52 OTC extended- or delayed-release listings whose brand is only the
+  drug and its strength ("Aspirin 81 mg") now fill from a printed code only
+  when the label prints the release. Barcodes are unaffected.
+- The FDA's package file is not bundled, so a printed package segment is
+  never checked, only left off when read two ways. Bundling it needs a
+  download and a tool change, no model change.
+- Only a trailing DR is set aside from an unconfirmed name; "Metoprolol
+  Succinate Er" keeps its letters. The two repackager metformin rows display
+  as "Metformin er".
+- `GenerationOptions(samplingMode:)` comes from the iOS 27 SDK, so this branch
+  most likely needs Xcode 27 to build, while `AGENTS.md` still names Xcode
+  26.6. Not tried: Xcode 26 is not on this Mac.
+
+### Results
+
+All on the code at `4728d73`, iPhone 17 Pro simulators, Xcode 27.0 (27A266a),
+the test command in `AGENTS.md`:
+
+- **iOS 26.5 (23F77):** unit tests 472/472 (416 at `9630c3e`; the iOS 27
+  lane added 15 and the identity lane 41), UI tests 16/16 (14 before; one
+  from each lane). `LabelPhotoRecognitionTests`, the rendered labels through
+  real Vision, 15/15.
+- **iOS 27.0 (24A434):** unit tests 472/472, UI tests 16/16, and
+  `LabelPhotoRecognitionTests` 15/15: the three OCR tests that failed here at
+  `a564dd6` now pass, and no test is skipped or runtime-gated to get there.
+- **Release builds:** Release for the generic iOS Simulator and for a
+  generic iOS device, unsigned (`CODE_SIGNING_ALLOWED=NO`), both succeed with
+  no warnings; the app and the widget extension carry 1.1.1 (7), and the
+  bundled directory's header reads 2026-09-25. The test builds print only
+  Xcode's no-AppIntents metadata-skip message for the app target.
+- **`Tools/build_ndc_directory.py --self-test`** passes, and the bundled file
+  counts 5,142 "er" and 1,856 "dr" of 112,571 rows.
+
+## September 24–25, 2026 — 1.1.1: the count, the date and the warning
+
+1.1.1 is version 1.1.1, build 7, on the local branch
+`fix/1.1.1-supply-accuracy`; nothing is pushed or submitted. It carries the
+September 21 fixes below and, from the evening of September 24, a pass over
+the three things a supply manager promises: what is on hand, when it runs out,
+and a warning in time. In 1.1 each could go wrong quietly. A refill marked
+requested silenced every low-supply warning for good, even at zero. A
+delivered warning was swept out of Notification Center by the next launch or
+the next Lock Screen Taken. Each day nobody logged pushed the run-out date a
+day later, so the refill alert keyed to it could move forever. A scanned
+label's full-bottle count went in as the amount on hand. A medication added in
+the afternoon showed that morning's dose as overdue and let Mark All charge
+it. A dose the widget had logged might be logged again from a Today that had
+not caught up. The designs are in `ARCHITECTURE.md` under "Supply attention",
+"Unlogged doses and the run-out date", the first-day paragraph, the widgets
+and "Words and numbers kept exact"; `PRODUCT.md` has the forecast semantics.
+
+### What changed
+
+- **One attention rule** (`ecabd37`, `5ceecd6`, `eed620e`). `SupplyAttention`
+  decides for Supply, Today, the detail card, the runs-out widget and the
+  planner. A refill in progress pauses the warning only while fewer than two
+  days have passed since its date, more than two days are left, something is
+  on hand, and it is due before the run-out day; a refill check asks "Is the
+  refill in hand?" at 9:00 on the morning the pause ends. A changed refill
+  status starts from today, because the old status's date started a pause
+  that had already ended.
+- **Delivered alerts stay while true** (`c769df1`, `27ef244`). Refill alerts
+  are kept by medication while the supply needs attention, refill checks while
+  the refill is in progress, expiration alerts while the same date is on file.
+- **Unlogged doses are assumed taken** (`b5f79e1`, `9d130dc`, `f6750cc`,
+  `9b1c0b9`), from the last count or a refill onto an empty ledger, with no
+  look-back limit and every dose counted once. When the assumptions use up
+  the ledger the forecast reads "Count needed" (`53273ed`), and every surface
+  that shows or acts on a forecast says so rather than "Out of supply". The
+  number beside an assumed forecast reads "on record" (`588ad49`). A count is
+  always recorded, and the count sheet opens empty while doses are assumed
+  (`9672665`, `cb294de`); a restore, and a schedule edit that rewrites the
+  amounts behind assumed doses (`e1829a6`), ask for one.
+- **The first-day rule** (`72a3758`, `ff31f36`): no slot before a schedule's
+  save time less the thirty-minute due window, which is now one constant.
+- **Logging** (`f2da6ed`, `f125b99`, `58e2a1c`, `3b7caae`, `d1804d9`,
+  `8f1b677`). The supply sheets read the number as typed and refuse a grouped
+  one; the editor's Current amount opens ungrouped. Today, Mark All and Take
+  Now ask the store before writing a scheduled dose and say "Already Logged"
+  when a tap writes nothing; the widget's Taken refuses a slot the engine no
+  longer offers.
+- **Scanned counts** (`54e7313`, `5fdd72c`, `7c6019e`, `3ab5904`): Current
+  amount starts blank on a scanned label, with "Label says N when full" and a
+  Use N button.
+- **Words** (`dedfb5e`, `47a5315`, `a9c052a`, `4a9bbf9`): the stored dose notes
+  pinned by a test; plurals written out in `Shared/QuantityText.swift`; Today's
+  refill rows stacked at the accessibility sizes, where "Count needed" broke
+  mid-word; a Supply row says "Count needed" to VoiceOver once, not three
+  times.
+- **Housekeeping** (`18af21b`, `760eb66`, `aef511f`, `c448870`, `a564dd6`). The
+  unit-test host no longer starts a Health sync at launch, which made
+  `testAFailedQueryLeavesTheLedgerUntouched` fail now and then; Health's slot
+  tolerance comes from the engine; two tests that passed without checking
+  their claims now check them; the version is 1.1.1 (7) for the app and the
+  widget; and the editor's accessibility audit lowers the keyboard first
+  (iOS 27, below).
+
+No `@Model` changed: `Shared/Models.swift` is as 1.1 shipped it, so there is no
+migration to verify. The ledger stays append-only: the forecast writes
+nothing, and a confirmed count is a new zero correction, not an edit.
+
+### How it was built and reviewed
+
+- **Four lanes.** Attention, engine, logging and scan guard were built in
+  separate worktrees from `43d9668`, each against its own simulator clone and
+  each with tests for its own behaviour, then merged (`b07b57e`, `da432e6`,
+  `889e88b`, `ba433c3`). Interfaces one lane needed from another were written
+  down rather than guessed: the engine lane's `needsCount` had no consumer when
+  it merged, its notes said the widget would call it "Out of supply", and the
+  attention lane's said Supply would read "Act soon · around" today;
+  `53273ed` is that consumer.
+- **Adversarial review, per lane and again on the merge.** A separate
+  reviewer tried to break each lane, and the merged branch was reviewed again
+  by area: alerts, the engine, supply, the UI and the tests themselves.
+  Findings were reproduced with probes (throwaway tests, a benchmark,
+  screenshots) before they were fixed, and every one that stood was fixed,
+  with a test wherever a test can see it; the layout fix was checked on
+  screenshots. Among them: retention by exact identifier still lost a
+  delivered warning when a skip moved the run-out day; a refill due after
+  the run-out day still quieted the warning; the Use button stayed "Use
+  473.18" after writing 473.18; a stale Take Now wrote nothing while a second
+  dose was due; one tap on a prefilled count cleared every assumed dose; a
+  taper over ten unlogged days moved the run-out date from 4 days to 19 when 9
+  was right; and Today's refill rows broke words at the largest text size.
+- **Refutation.** Findings that did not stand were written down with the
+  reason rather than dropped. The engine review proposed moving a schedule's
+  start date when a time is edited on its first day; its own scenario edits on
+  the second day, where the change does nothing, and elsewhere it would hide a
+  real unlogged dose, so the case is recorded as the first-day rule's one
+  trade-off instead. Probes that modelled the engine without the new count
+  event, or expected 1.1's day-late alert, "fail" by design.
+- **Mutation checks.** With the old exact-identifier retention and the
+  three-condition pause put back, 12 of the attention lane's new assertions
+  failed; the scanned-count tests failed against the old code; the restore
+  UI test failed with the restore prompt removed; and `aef511f` rewrote two
+  tests that passed without checking what they claimed.
+
+### Verified only in the simulator
+
+- Everything in the results below. The attention rule, the refill check and
+  retention were checked through `NotificationPlanner` and
+  `NotificationService.deliveredIdentifiersToRemove` as values; no alert was
+  delivered to a real Notification Center and none was acted on from a Lock
+  Screen.
+- `DoseLogGuard` was proved with two SwiftData containers on one store file in
+  one process, not with the widget extension writing from its own.
+- The widget's slot check is tested through `ScheduleEngine.hasSlot`;
+  `LogNextDoseIntent.perform` still has no test of its own.
+- On the demo store, a refill request dated three days back showed "Act soon"
+  above the "was expected" line on Supply and "A refill needs checking" on
+  Today. Today's refill card was checked on screenshots at the largest
+  accessibility size and at the default; the scanned label's count row at
+  the largest size by UI test.
+- 1b never reproduced in the simulator, before or after the sheets were made
+  text-backed; the change is defensive.
+
+### Still open, for a phone
+
+The numbered device script under "1.1.1 gates" in `RELEASE_CHECKLIST.md`,
+about 75 minutes: 1b (a typed number with the keyboard up, then Add Refill
+and Save Count); 1h (Today open, a widget Taken, back to Today, and whether
+the dose is offered again); Taken and Skip from a locked phone; a delivered
+refill alert surviving a Lock Screen Taken; the store's move on the update
+from 1.0, with history intact; real retail and hospital-pharmacy vials and a
+box barcode, with the "Use N" note; the Health import and dose sync on a fresh
+install; a medication added after 08:30 offering no 08:00 dose; a refill dated
+three days back on Supply, Today and the widget; "Count needed" after days of
+not logging; and a VoiceOver pass on the changed screens.
+
+### iOS 27
+
+The iOS 27.0 simulator (24A434, iPhone 17 Pro) ran the same suites with Xcode
+27.0 (27A266a); iOS 26.5 passes everything.
+
+- **`testMedicationEditorAccessibilityAudit` failed every run** with
+  "Potentially inaccessible text", naming no element. The keyboard was still
+  up when the audit ran, on both runtimes, since tapping the title after the
+  last field never lowered it; dragged away first, the audit passes on iOS 27
+  with nothing reported. The audit was reading the keyboard, not the editor.
+  Fixed in the test (`a564dd6`), which now lowers the keyboard, checks that it
+  is gone, and audits with the same four checks; it passes on both runtimes.
+- **Three rendered-label OCR tests fail, the same way on every run.** They
+  came with the NDC second look on September 21 and had only run on iOS 26.5;
+  the lanes changed only a report string in that code, so the difference is
+  the runtime's text recognition. Nothing wrong is filled in any of them:
+  - `testAMotionBlurredCodeLineIsReadOnTheSecondLook`: iOS 27 reads the
+    shaken line as `54405-005-02` and `54405-005-22` in every pass, the first,
+    the zoomed and the tiled, and never as `64406-006-02`. Neither code is
+    listed, so the outcome is "unlisted", the code is kept as the product
+    code and fills nothing. The name field is blank too, but that is the
+    parser's answer to the same text on any runtime; on iOS 26.5 the code
+    resolves and the name comes from it. Four assertions.
+  - `testASoftFocusedFaintCodeLineIsFoundByTheTiledPass`: iOS 27's first pass
+    already reads the faint line and resolves Tecfidera 240 mg, so the tiled
+    pass the test is about never runs. The identification assertions pass;
+    only the test's premise, that the first pass misses the line, fails.
+  - `testTheTiledFallbackFindsTheSmallestPrintAnywhereInTheFrame`: the tiled
+    pass on its own reads 12-point `64406-006-02` as `64406-006-07`. The
+    directory is keyed by product, so the pipeline would still identify
+    Tecfidera 240 mg capsules with the label's corroboration, but would store
+    the package digits as read, `64406-0006-07`.
+
+  Not changed. Whether an iPhone on iOS 27 reads these frames the same way
+  is untested, and tuning the second look for another recognizer is a scanner
+  change to make with a device in hand, not in a release whose subject is the
+  count. The tests stay as written, so the difference stays visible.
+- **Two compiler warnings** in the Release build, on lines older than 1.1.1:
+  `GenerationOptions(sampling:temperature:maximumResponseTokens:)` is
+  deprecated (`MedicationLabelInterpreter.swift:148`, August 24), and
+  `SettingsView.swift:17` holds a `ModelContext` in a file that does not import
+  SwiftData (September 12). Not changed here.
+
+### Results
+
+All on the code at `a564dd6`, iPhone 17 Pro simulators, Xcode 27.0, the
+test command in `AGENTS.md`:
+
+- **iOS 26.5:** unit tests 416/416 (336 at the start of September 24, after
+  the test read below; the lanes and the review added 80), UI tests 14/14
+  (10 before; 4 added).
+- **iOS 27.0:** unit tests 413/416. The three failures are the OCR tests
+  above: `testAMotionBlurredCodeLineIsReadOnTheSecondLook`
+  (`LabelPhotoRecognitionTests.swift:161`, `:162`, `:163`, `:165`),
+  `testASoftFocusedFaintCodeLineIsFoundByTheTiledPass` (`:185`) and
+  `testTheTiledFallbackFindsTheSmallestPrintAnywhereInTheFrame` (`:253`), six
+  assertions in all, identical on three runs. UI tests 14/14; 13/14 at
+  `c448870`, before the audit test lowered the keyboard.
+- **Release builds:** the iOS Simulator and a generic iOS device (unsigned)
+  both succeed, and the built app and widget extension both carry 1.1.1 (7).
+
+## September 24, 2026 — every unit test read, and the ones that add nothing removed
+
+Each of the 373 unit tests was read against one question: would the suite
+lose anything if this test went? 37 went. No production code changed, and
+nothing that guards a rule in `AGENTS.md` was removed: the ledger, the
+as-needed window, slot identity, the store move, the notification cap, the
+two name gates, the NDC gate and the Health mirror keep every test they had.
+The rendered-label OCR tests stay whole, because recognition is not monotonic
+in print size.
+
+- **Repeats (31).** Each of these makes only assertions that a test which stays
+  already makes on the same path. The three OCR-garbage sigs are still
+  rejected in the directions-gate test. `SERTRALINE HCL 50MG G1`,
+  the ambiguous label-furniture draft and the two-product NDC pair were each
+  asserted twice. The plain sertraline label duplicated the risedronate test,
+  and the valganciclovir and printed-brand drafts duplicated the brand and
+  vocabulary tests. The vocabulary repairs are still made against the shipped
+  list, and a single-entry PDF still opens as a one-page document. The rest
+  were similar pairs in the scan preview, interpreter, NDC, RxNorm, take-now,
+  review-prompt and list-document tests.
+- **Mirrors (4).** These restated an implementation rather than checking a
+  behaviour: the Health-form switch, the scan frame's inset formula, and 24
+  brand-table rows copied from the file, plus a brand-to-generic lookup the
+  resolution tests already make. The table's integrity test, its resolution
+  tests and the deliberate blanks stay.
+- **Could not fail (2).** An unbaselined `measure` block, and a palette test
+  that passed as long as two of eight names differed in colour.
+
+### Results
+
+- Unit tests 336/336 and UI tests 10/10 on the iPhone 17 Pro simulator.
+
+## September 21, 2026 — 1.1.1: the supply-accuracy fixes from the post-1.1 brief
+
+An unattended session on the branch `fix/1.1.1-supply-accuracy`, working
+through section 1 of `handoff/POST-1.1-BRIEF.md`: every item that could be
+fixed and proven without a physical iPhone. Nothing is pushed; the branch is
+local. Xcode 27.0 with the iOS 26.5 simulator runs the test command in
+`AGENTS.md` unchanged.
+
+### Fixed, with a test each
+
+- **1a. Health doses from before a medication existed.**
+  `HealthDoseReconciler.plan` takes the medication's `createdAt` and skips any
+  Health record dated before it, after the stored-sample and adoption checks
+  so history the import stored as non-counting is adopted (and so reachable by
+  an undo in Health) but never stored again as counting. `HealthDoseSync`
+  passes `medication.createdAt`. Two reconciler tests, and a sync test against
+  an in-memory store.
+- **1c. Slot identity after a time edit or a time-zone change.**
+  `ScheduleEngine.loggedEvent` / `loggedStatus` match a log to a slot by
+  schedule and calendar day, not by minute. For a past slot only, a log within
+  twelve hours also counts, which is what a time-zone change does to an
+  absolute time; today's slot never takes that fallback, because the same
+  distance describes yesterday's dose after a time edit of more than twelve
+  hours, and today's dose must never read as taken when it was not. The price,
+  recorded in the engine's comment and the test: after such an edit, an
+  unlogged day next to a logged one can read as logged on the missed-doses
+  card and the calendar. `NotificationDoseRecorder` and `AdherenceSummary` now
+  ask the engine instead of keeping their own 60-second copies. Tests in
+  `ScheduleEngineTests` (edit, eastward and westward zone changes, and the
+  today guard), `ScheduleReconcilerTests` (through `reconcile`) and
+  `NotificationActionsTests` (a reminder for the edited time does not log the
+  dose again).
+- **1d. A failed Health query, and deleting a mirrored dose.** A dose query
+  that throws now skips that medication for the pass instead of reading as
+  "no doses". The activity row's menu no longer offers Delete on a
+  Health-mirrored dose; it says to undo it in Health, which the next sync
+  mirrors. Sync test: a failed query leaves the ledger untouched.
+- **1e. Two Health entries for one medication.** `HealthDoseSync.groups`
+  gathers the shared Health entries by the medication they describe here and
+  plans once per medication over the union of their records; an entry that
+  describes two medications here still touches neither. Sync test: two
+  entries, one archived, are stable across two passes.
+- **1f. The store move is atomic.** `StoreLocation.migrate` copies all three
+  files under a `.moving` name, checks the main file's and the log's sizes
+  against the originals, renames the sidecars into place and the main file
+  last, and discards whatever an interrupted attempt left before starting.
+  Tests: an interrupted attempt is retried from the intact legacy store, and
+  an empty (checkpointed) write-ahead log still travels.
+- **1g. Overlapping syncs.** `HealthDoseSync.run` is single-flight: a caller
+  that arrives while a pass is under way awaits that pass's outcome. `apply`
+  also skips any sample identifier already stored. Sync test: two overlapping
+  runs insert once.
+- **1i. Dose reminders past the cap.** `NotificationPlanner.plan` returns the
+  kept requests and the number of dose reminders that did not fit;
+  `NotificationService` reports that number to `NotificationHealth` with the
+  refused requests, so Today's banner says some reminders were not set.
+  Planner test: 66 weekly dose requests report 6 dropped; 48 report none.
+- **1j. A huge as-needed count.** The as-needed forecast returns the existing
+  "extends beyond the forecast window" result when the estimate passes the
+  three-year horizon, before `Int(_:)` could trap. Forecast test with a supply
+  of 1e20.
+
+### The Health sync is now testable
+
+`HealthDoseSync.run` takes a `Source` of three closures (availability, the
+shared medications as `HealthSharedMedication` values, and dose records by
+entry), with `.health` the live one; `LiveHealthSource` keeps the HealthKit
+types inside `HealthMedicationImport.swift`. `MedsTests/HealthDoseSyncTests`
+runs the pass against an in-memory `ModelContainer` for 1a, 1d, 1e and 1g.
+
+### 1b, checked in the simulator: it does not reproduce there
+
+The UI test the brief asked for, `testRefillAndCountSheetsRecordTheTypedNumber`
+(seeded Furosemide, 28 on hand; Add Refill typed 90 with the keyboard still
+up, then Correct Count typed 100), passes on the iOS 26.5 simulator: 118 on
+hand, then 100. So `TextField(value:format:)` commits as typed there. The
+sheet's code is unchanged; the test stays as the guard. The brief's device
+repro is still the deciding check, since the August 30 failure was on a phone.
+Identifiers `supply-actions` and `supply-quantity` were added for the test.
+
+### Section 4, contrast: fixed, and measured rather than audited
+
+- **What changed.** `AppTheme.onAccent` (white in the light appearance, black
+  in the dark, where the accent is light) and `AppTheme.onWarning` (black, for
+  the orange missed-day fill). The dose calendar draws complete days with
+  `onAccent` text and missed days with `onWarning` text and a dashed outline,
+  and with Differentiate Without Color on, each logged state also carries a
+  glyph (checkmark, minus, xmark, exclamationmark), in the cells and the legend.
+  The editor's selected weekday letters use `onAccent`. All ten
+  `.borderedProminent` buttons get `.foregroundStyle(AppTheme.onAccent)` after
+  the style (inside the label the style's white wins), so their labels are
+  black on the dark-appearance accent; in the light appearance nothing changes.
+- **Measured from simulator screenshots (iPhone 17 Pro, iOS 26.2, dark),**
+  WCAG relative luminance over the element's pixels: the Taken button's label
+  1.61:1 before, 12.8:1 after; a missed calendar day 8.2:1; a plain day 12.9:1;
+  the log-all button's accent text on its tinted capsule 6.5:1 (unchanged);
+  Skip 6.3:1 (unchanged). Light appearance checked by eye: white on the deep
+  accent as before.
+- **Why there is no `.contrast` audit test.** The brief asked for one, and it
+  was tried on Today, the detail screen and the editor in the dark appearance
+  (forced with a debug launch flag, since `-AppleInterfaceStyle Dark` is not
+  honoured). The audit's verdicts did not follow the pixels: it failed the
+  log-all button's text node whatever colour it was drawn in (6.5:1 as accent,
+  10.6:1 drawn white), failed the detail header's "20 mg" secondary text
+  measured at 8.0:1, and on Today its verdicts on the glass prominent buttons
+  changed from run to run. It also reports every element that has scrolled
+  under the tab bar. So the test, the flag and a `Spacer`/label experiment
+  were all removed again, and the measurements above stand as the check.
+  The App Store "Sufficient Contrast" declaration should rest on a hands-on
+  Accessibility Inspector pass on a phone, not on this audit.
+
+### Why the NDC is not read every time: measured
+
+Nick's question was whether the small NDC print is scanned at too little
+detail. The still pipeline was pushed through rendered labels at camera size
+(3,024 by 4,032, the code line at 28 to 80 pixels of font size, black and
+grey, regular and light, dot-matrix at 2 to 4 pixel dots) and at
+video-frame size (1,080 by 1,440, the code line at 10 to 24 pixels), with
+Gaussian blur, noise and motion blur laid over them, all through the real
+Vision requests in the simulator. What it showed:
+
+- **Detail is not the limit.** Every sharp case resolved the exact product,
+  down to a 10-pixel line on the video-sized frame and a 28-pixel line on the
+  camera-sized one, dot-matrix included. Clean small print is read.
+- **Blur is.** A 28- to 40-pixel line stops resolving at a Gaussian radius of
+  4 to 6 pixels or a motion radius of 6 to 8; a 56-pixel line survives twice
+  that. On a phone that is focus and shake, not pixels: the main camera
+  cannot focus closer than about twenty centimetres, and holding a vial
+  close enough to read a two-millimetre line by eye is closer than that.
+  Pinching to zoom does not change the focus distance. This fits the
+  September 12 bottles, which "failed even zoomed in" with no code-bearing
+  line in the evidence at all.
+- **A blurred line is misread, not missed.** In every failing case the
+  first pass returned a well-formed code with wrong digits (a 6 read as a 5,
+  a 4 as a 0): `54405-005-02`, `04800-006-00`, and once `64406-005-02`, which
+  is a listed Biogen product (Tysabri) rather than the Tecfidera on the
+  label. The identification gate refused each of these, as designed
+  (`contradicted` or `unlisted`, nothing filled), so the failure mode is
+  "no identification", never a wrong one. But because a code had been read,
+  the pipeline's second look never ran, and in two of the three motion-blur
+  cases the second look reads the same line right.
+
+**Changed, with tests.** `StillImageRecognizer` now takes its second look
+(the zoomed, correction-off reading of every code-shaped line) whether or
+not the first pass read a code, tiles the frame at full resolution whenever
+nothing read so far names a listed product, and sends every distinct code
+forward rather than letting the first reading stand alone. The gate,
+`NDCIdentification.identify`, sets aside the products the label contradicts
+before judging ambiguity: two codes naming two products used to resolve to
+nothing; now the one the label vouches for wins, two the label cannot choose
+between are still ambiguous, and when every one is contradicted the first
+is reported as such. `NDCIdentificationTests` covers the four cases;
+`LabelPhotoRecognitionTests` pins a motion-blurred line (radius 7: the first
+pass reads `54405-005-02`, unlisted; the second look reads `64406-006-02`;
+Tecfidera resolves) and a soft-focused faint line the tiles find (Gaussian
+radius 5). Both were stable across repeated runs; heavier blur (motion 8,
+Gaussian 6) still fails, and no change to reading can fix a line the camera
+did not resolve.
+
+**What would help on the phone, not done here.** Guidance about distance:
+when the capture's code line reads as unlisted or contradicted, say "move
+the phone back a little and hold still" rather than "hold the NDC line in
+frame"; a sharpness check on the capture (variance of the Laplacian over
+the frame) could trigger the same hint. The Review capture's pixel size and
+lens are still unread on a device, and the capture note exists for that.
+
+### Not done
+
+- 1b's fix (a text-backed field), pending the device repro above.
+- 1h (the widget's Taken reaching Today) needs the device check first.
+- Sections 2, 3, 5 and 6 of the brief (6's injection is done as part of 1).
+- The hands-on VoiceOver pass and the accessibility declaration (section 2).
+
+### Results
+
+- Unit tests 370/370 on the iPhone 17 Pro simulator (354 before the session;
+  16 added). UI tests 9/9 before the new one, then the new one 1/1.
+
 ## September 13, 2026 — the cleanup pass before the 1.1 archive
 
 Nick asked for a pass over the codebase before uploading everything built so

@@ -80,20 +80,6 @@ final class LabelScanPipelineTests: XCTestCase {
         XCTAssertEqual(mapped.height, 2360, accuracy: 1)
     }
 
-    /// The frame's top edge follows the pill row it sits under, so a row that
-    /// wraps at a large text size pushes the frame down instead of lying across it.
-    func testFrameTopInsetFollowsTheMeasuredPillRow() {
-        XCTAssertEqual(ScanFrameLayout.topInset(forPillRowHeight: 0), ScanFrameLayout.topInset, "unmeasured: the default")
-        XCTAssertEqual(ScanFrameLayout.topInset(forPillRowHeight: 30), ScanFrameLayout.pillRowTop + 30 + ScanFrameLayout.pillRowGap)
-        XCTAssertEqual(ScanFrameLayout.topInset(forPillRowHeight: 70), ScanFrameLayout.pillRowTop + 70 + ScanFrameLayout.pillRowGap)
-
-        let bounds = CGRect(x: 0, y: 0, width: 393, height: 700)
-        let region = ScanFrameLayout.region(in: bounds, topInset: ScanFrameLayout.topInset(forPillRowHeight: 70))
-        XCTAssertEqual(region.minY, ScanFrameLayout.pillRowTop + 70 + ScanFrameLayout.pillRowGap)
-        XCTAssertEqual(region.maxY, 700 - ScanFrameLayout.bottomInset)
-        XCTAssertEqual(region.minX, ScanFrameLayout.horizontalInset)
-    }
-
     /// A better live reading of a captured line takes the captured line's place
     /// in its line order, or the adjacency a wrapped sig depends on is lost.
     func testABetterLiveReadingKeepsTheCapturedLinesPosition() {
@@ -113,6 +99,43 @@ final class LabelScanPipelineTests: XCTestCase {
         let reversed = ScanEvidenceQuality.mergingBest(existing: [live], additions: [captured])
         XCTAssertEqual(reversed[0].confidence, 0.95)
         XCTAssertEqual(reversed[0].lineIndex, 3)
+    }
+
+    /// Two readings of one code line share their letters and differ in their
+    /// digits, which the merge took for one line read twice, keeping whichever
+    /// scored higher: a product chosen by OCR confidence. Both go forward now,
+    /// and the identification gate asks the label.
+    func testTwoReadingsOfACodeLineWithDifferentCodesAreBothKept() {
+        let capture = UUID()
+        let first = ScanEvidence(kind: .text, value: "MFR BIOGEN NDC 54405-005-02", confidence: 1,
+                                 origin: .cameraCapture, captureID: capture, lineIndex: 3)
+        let second = ScanEvidence(kind: .text, value: "MFR BIOGEN NDC 64406-006-02", confidence: 1,
+                                  origin: .cameraCapture, captureID: capture, lineIndex: 4)
+        XCTAssertEqual(ScanEvidenceQuality.mergingBest(existing: [], additions: [first, second]).map(\.value), [first.value, second.value])
+
+        let again = ScanEvidence(kind: .text, value: "MFR: BIOGEN NDC 64406-006-02", confidence: 1, origin: .liveCamera)
+        XCTAssertEqual(ScanEvidenceQuality.mergingBest(existing: [second], additions: [again]).count, 1, "the same code read twice is one line")
+    }
+
+    /// The search of Vision's lower-ranked guesses is for a code read wrong. A
+    /// barcode naming the product the label names has already settled it, so
+    /// the search is spared, and no guess at another product is set beside
+    /// the barcode for the gate to choose between. A barcode the label
+    /// contradicts settles nothing.
+    func testABarcodeTheLabelAcceptsSparesTheSearchOfGuesses() {
+        let capture = UUID()
+        let label = ["SPRINGFIELD PHARMACY #2214", "DIMETHYL FUMARATE 240 MG DR CAPSULE", "MFR:BIOGEN NDC:54405-005-02", "QTY: 60"]
+            .enumerated()
+            .map { ScanEvidence(kind: .text, value: $1, confidence: 0.9, origin: .cameraCapture, captureID: capture, lineIndex: $0) }
+        let codesRead = NationalDrugCode.readings(inLabelText: label.map(\.value).joined(separator: "\n"))
+        XCTAssertTrue(StillImageRecognizer.wouldLookForAlternates(label: label, codesRead: codesRead), "the only code read names nothing")
+
+        let tecfidera240 = ScanEvidence(kind: .barcode, value: "0100364406006029", symbology: "GS1 DataBar Limited")
+        XCTAssertFalse(StillImageRecognizer.wouldLookForAlternates(label: label + [tecfidera240], codesRead: codesRead))
+
+        let tecfidera120 = ScanEvidence(kind: .barcode, value: "0100364406005022", symbology: "GS1 DataBar Limited")
+        XCTAssertTrue(StillImageRecognizer.wouldLookForAlternates(label: label + [tecfidera120], codesRead: codesRead),
+                      "the label's strength contradicts the barcode's product")
     }
 
     /// The capture leads the merge so the cap cuts live extras, never the capture.

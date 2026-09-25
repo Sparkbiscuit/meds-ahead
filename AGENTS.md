@@ -1,7 +1,7 @@
 # AGENTS.md
 
 Meds Ahead — iPhone medication supply manager. SwiftUI, SwiftData, iOS 18.0
-floor, Xcode 26.6. On-device scanning (VisionKit/Vision), local notifications,
+floor, Xcode 27.0 (the iOS 27 SDK). On-device scanning (VisionKit/Vision), local notifications,
 StoreKit tips, optional weak-linked FoundationModels. No account, no analytics,
 no cloud, no network lookups.
 
@@ -44,7 +44,11 @@ Violating any of these is a defect, regardless of what the task asked for.
 - **Medication names are gated twice**: vocabulary-confirmed, or
   `strengthAnchored`. A merely name-shaped line is dropped on purpose.
 - **Notification planning is global** and consolidates same-time slots across
-  medications. Never schedule per-medication requests.
+  medications. Never schedule per-medication requests. The one exception is
+  deliberate: a schedule that starts or ends within the week gets dated
+  one-shot requests, so on a shared time it rings beside the steady
+  schedules' repeating request rather than silencing it. Reminders may ring
+  too long; they must never go quiet.
 - **An NDC never fills a field on its own word.** A code read by OCR must be
   corroborated by the label; a code from any source is refused when the label
   contradicts it; a refused code stays visible as the product code and fills
@@ -73,6 +77,10 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   xcodebuild -project Meds.xcodeproj -scheme Meds \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' test
 ```
+
+Before a release, run it on iOS 27 as well (`name=iPhone 18 Pro,OS=27.0`):
+Vision reads small print differently there, and the rendered-label tests are
+the ones that notice.
 
 Report pass/fail counts, then per failure the test name, file, line, and
 assertion. Never paste a raw xcodebuild log. A build failure means tests never

@@ -1,7 +1,7 @@
 import Foundation
 
-/// One product from the FDA National Drug Code Directory, reduced to the four
-/// facts a label review needs.
+/// One product from the FDA National Drug Code Directory, reduced to the facts
+/// a label review needs.
 struct NDCProduct: Hashable, Sendable {
     /// Labeler (5) and product (4) digits of the code.
     let productKey: String
@@ -14,6 +14,25 @@ struct NDCProduct: Hashable, Sendable {
     /// `800-160 mg`, `15 mg/5 mL`. Empty when the listing carries no usable strength.
     let strength: String
     let form: MedicationForm
+    /// What the listing claims about release: its dosage form ("CAPSULE,
+    /// EXTENDED RELEASE"), else its names. Nil for a row written without the
+    /// column, where only release letters in the brand ("Astagraf XL") say it.
+    ///
+    /// Immediate means only that the listing claims nothing else. The FDA
+    /// files some delayed-release products as plain capsules, Tecfidera among
+    /// them, so an immediate listing is not proof against delayed release.
+    let release: ReleaseForm?
+
+    /// The release, where it is what tells two products of one drug apart: a
+    /// tablet, capsule or oral liquid. A patch is extended-release by nature,
+    /// and a label for a patch or an injection seldom prints a release, so
+    /// asking one to would only refuse codes it names correctly.
+    var comparableRelease: ReleaseForm? {
+        switch form {
+        case .tablet, .capsule, .liquid: release
+        default: nil
+        }
+    }
 }
 
 /// The FDA National Drug Code Directory, trimmed to what a label needs and
@@ -115,6 +134,43 @@ struct NDCDirectory: Sendable {
         return nil
     }
 
+    /// Every product listed under one five-digit labeler code, in key order. A
+    /// labeler numbers its line in sequence, so these are the codes a misread
+    /// product segment lands on.
+    func products(withLabeler labeler: String) -> [NDCProduct] {
+        rows(withLabeler: labeler).compactMap { index in
+            parseRow(at: offsets[index], key: String(format: "%09u", keys[index]))
+        }
+    }
+
+    /// The labeler's products listed under one generic name: the other
+    /// strengths, forms and releases of the drug a code names, and the brands
+    /// they go by. Rows under other names are passed over without being read,
+    /// because a repackager lists thousands.
+    func products(withLabeler labeler: String, genericName: String) -> [NDCProduct] {
+        let name = Array(genericName.utf8)
+        return rows(withLabeler: labeler).compactMap { index in
+            let start = offsets[index] + 10
+            let end = start + name.count
+            guard end < bytes.count, bytes[end] == 0x09, bytes[start..<end].elementsEqual(name) else { return nil }
+            return parseRow(at: offsets[index], key: String(format: "%09u", keys[index]))
+        }
+    }
+
+    private func rows(withLabeler labeler: String) -> Range<Int> {
+        guard labeler.count == 5, let numeric = UInt32(labeler) else { return 0..<0 }
+        let first = numeric * 10_000
+        var low = 0
+        var high = keys.count
+        while low < high {
+            let middle = (low + high) / 2
+            if keys[middle] < first { low = middle + 1 } else { high = middle }
+        }
+        var end = low
+        while end < keys.count, keys[end] < first + 10_000 { end += 1 }
+        return low..<end
+    }
+
     private func parseRow(at offset: Int, key: String) -> NDCProduct? {
         var lineEnd = offset
         while lineEnd < bytes.count, bytes[lineEnd] != 0x0A { lineEnd += 1 }
@@ -126,7 +182,8 @@ struct NDCDirectory: Sendable {
             genericName: fields[1],
             brandName: fields[2],
             strength: fields[3],
-            form: MedicationForm(rawValue: fields[4]) ?? .other
+            form: MedicationForm(rawValue: fields[4]) ?? .other,
+            release: fields.count >= 6 ? ReleaseForm(directoryValue: fields[5]) : ReleaseForm.named(in: fields[2])
         )
     }
 }
