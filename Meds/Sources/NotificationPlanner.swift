@@ -493,8 +493,11 @@ enum NotificationPlanner {
         }
         // Repeating dose requests first: they keep ringing whether or not the
         // app is opened again. Then the dated ones, soonest first, then the
-        // follow-ups, which only ever repeat a question already asked.
-        let doseRequests = notifications + dated + followUps
+        // refill, expiration and count alerts, and the follow-ups last. A
+        // follow-up only repeats a question already asked, while a refill
+        // alert is the only low-supply warning there is, and one whose moment
+        // passes while it is crowded out is never announced again.
+        let doseRequests = notifications + dated
         let droppedDated = dated.dropFirst(max(0, maximumScheduledRequests - notifications.count))
         let reportBefore = now.addingTimeInterval(droppedDoseReportWindow)
         var plannedThrough = datedPastHorizon ? horizon.last : nil
@@ -503,7 +506,7 @@ enum NotificationPlanner {
             plannedThrough = min(plannedThrough ?? lastWholeDay, lastWholeDay)
         }
         return NotificationPlanOutcome(
-            notifications: Array((doseRequests + refillNotifications).prefix(maximumScheduledRequests)),
+            notifications: Array((doseRequests + refillNotifications + followUps).prefix(maximumScheduledRequests)),
             droppedDoseReminders: max(0, notifications.count - maximumScheduledRequests)
                 + droppedDated.filter { ($0.slotDate ?? .distantFuture) < reportBefore }.count,
             retainedIdentifiers: retainedIdentifiers,

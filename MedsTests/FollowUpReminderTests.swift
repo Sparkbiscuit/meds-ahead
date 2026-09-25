@@ -91,19 +91,28 @@ final class FollowUpReminderTests: XCTestCase {
         XCTAssertEqual(NotificationService.deliveredIdentifiersToRemove(delivered: [rang], outcome: turnedOff), [rang])
     }
 
-    func testFollowUpsComeAfterDatedRemindersAndBeforeRefillAlerts() throws {
-        func plans(weekly: Int) -> [MedicationNotificationPlan] {
+    func testFollowUpsComeAfterDatedRemindersAndRefillAlerts() throws {
+        func plans(weekly: Int, refillsRemaining: Int? = nil) -> [MedicationNotificationPlan] {
             (0..<weekly).map { plan(name: "Weekly \($0)", schedules: [schedule(6 * 60 + $0, mask: 1 << 1)]) }
                 + [plan(name: "Course", schedules: [schedule(9 * 60, start: at(1), end: at(16))])]
                 + [MedicationNotificationPlan(
                     medicationID: UUID(), displayName: "Refill", form: .tablet, isAsNeeded: false, isArchived: false,
                     doseRemindersEnabled: true, refillRemindersEnabled: true, detailedNotifications: false, refillLeadDays: 7,
-                    refillsRemaining: nil, depletionDate: at(20), schedules: []
+                    refillsRemaining: refillsRemaining, depletionDate: at(20), schedules: []
                 )]
         }
         let roomy = NotificationPlanner.plan(for: plans(weekly: 50), now: now, calendar: calendar, options: on).notifications
         XCTAssertEqual(roomy.count, 59)
-        XCTAssertEqual(roomy.suffix(9).map(\.kind), [.dose, .dose, .dose, .dose, .dose, .dose, .dose, .followUp, .refill])
+        XCTAssertEqual(roomy.suffix(9).map(\.kind), [.dose, .dose, .dose, .dose, .dose, .dose, .dose, .refill, .followUp])
+
+        // One place left: the renewal alert due at 09:00 today takes it. Once
+        // that moment passes it is never announced again, while the
+        // follow-up only repeats the 09:00 reminder already planned.
+        let oneLeft = NotificationPlanner.plan(for: plans(weekly: 52, refillsRemaining: 0), now: now, calendar: calendar, options: on)
+        XCTAssertEqual(oneLeft.notifications.count, NotificationPlanner.maximumScheduledRequests)
+        let renewal = try XCTUnwrap(oneLeft.notifications.first { $0.kind == .refill }, "the renewal alert was pushed out by a follow-up")
+        XCTAssertEqual(renewal.trigger, .date(at(10, 9)))
+        XCTAssertFalse(oneLeft.notifications.contains { $0.kind == .followUp })
 
         let full = NotificationPlanner.plan(for: plans(weekly: 53), now: now, calendar: calendar, options: on)
         XCTAssertEqual(full.notifications.count, NotificationPlanner.maximumScheduledRequests)
