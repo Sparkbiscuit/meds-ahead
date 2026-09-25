@@ -715,8 +715,9 @@ enum SupplyChangeQuantity {
         let value: Double
         if text == Self.text(for: prefilled, locale: locale) {
             // The prefilled text is rounded to two places. Left untouched it stands
-            // for the exact number it was made from, so saving an unchanged count
-            // records no correction.
+            // for the exact number it was made from, so an unchanged count is
+            // recorded as a zero correction ("Count confirmed") rather than as
+            // the rounding's difference.
             value = prefilled
         } else {
             // A second decimal separator is a slipped key, not a number: the
