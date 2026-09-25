@@ -62,7 +62,7 @@ final class PrescriptionLabelEndToEndTests: XCTestCase {
 
     /// "DR" on the product line is the delayed-release form. The address test
     /// read it as "Drive", and the name of every delayed-release label came out
-    /// blank, a transplant patient's mycophenolic acid among them.
+    /// blank, mycophenolic acid's among them.
     func testADelayedReleaseProductLineKeepsItsName() {
         let draft = MedicationLabelInterpreter.offlineDraft(evidence([
             "RIVERSIDE PHARMACY", "RX# 5521093", "PEMBERTON, ELLIS",
