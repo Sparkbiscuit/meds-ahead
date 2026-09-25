@@ -111,6 +111,63 @@ final class FollowUpReminderTests: XCTestCase {
         XCTAssertEqual(full.droppedDoseReminders, 0, "a follow-up repeats a question already asked")
     }
 
+    // MARK: - When the clocks change
+
+    /// When a one-shot request rings: the first moment after it was planned
+    /// that the clock shows its time. Its trigger names no zone, so the time
+    /// is all iOS has, and on the night the clocks go back it takes the first
+    /// of the two.
+    private func ringsAt(_ followUp: PlannedNotification, plannedAt now: Date, calendar: Calendar) throws -> Date {
+        guard case let .date(moment) = followUp.trigger else { throw XCTSkip("not a one-shot") }
+        let components = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: moment)
+        return try XCTUnwrap(calendar.nextDate(after: now, matching: components, matchingPolicy: .nextTime, repeatedTimePolicy: .first))
+    }
+
+    func testAFollowUpOnTheNightTheClocksGoBackComesAfterItsDose() throws {
+        var newYork = Calendar(identifier: .gregorian)
+        newYork.timeZone = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        let plannedAt = try XCTUnwrap(newYork.date(from: DateComponents(year: 2026, month: 11, day: 1, hour: 0, minute: 10)))
+        let night = plan(name: "Night", schedules: [schedule(60 + 30)])
+        let followUp = try XCTUnwrap(NotificationPlanner.plan(for: [night], now: plannedAt, calendar: newYork, options: on)
+            .notifications.first { $0.identifier == "meds.group.followup.20261101.0130" })
+        let slot = try XCTUnwrap(followUp.slotDate)
+
+        let rings = try ringsAt(followUp, plannedAt: plannedAt, calendar: newYork)
+        XCTAssertGreaterThanOrEqual(rings, slot.addingTimeInterval(ScheduleEngine.dueWindow), "never before the dose it asks about")
+        XCTAssertEqual(newYork.dateComponents([.hour, .minute], from: rings), DateComponents(hour: 2, minute: 0), "02:00 on the clock")
+    }
+
+    /// Every dose time through each kind of clock change: Lord Howe's
+    /// half-hour one, and Santiago's at midnight. A follow-up rings at least
+    /// half an hour after its dose, and within an hour and a half.
+    func testEveryFollowUpOnADaylightSavingDayRingsAfterItsDose() throws {
+        let days: [(String, Int, Int)] = [
+            ("America/New_York", 3, 8), ("America/New_York", 11, 1),
+            ("Europe/London", 3, 29), ("Europe/London", 10, 25),
+            ("Australia/Lord_Howe", 4, 5), ("Australia/Lord_Howe", 10, 4),
+            ("America/Santiago", 4, 5), ("America/Santiago", 9, 6)
+        ]
+        var checked = 0
+        for (zone, month, day) in days {
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = try XCTUnwrap(TimeZone(identifier: zone))
+            let plannedAt = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: month, day: day)))
+            for minutes in stride(from: 0, to: 24 * 60, by: 5) {
+                let outcome = NotificationPlanner.plan(for: [plan(name: "Dose", schedules: [schedule(minutes)])],
+                                                       now: plannedAt, calendar: calendar, options: on)
+                for followUp in outcome.notifications where followUp.kind == .followUp {
+                    let slot = try XCTUnwrap(followUp.slotDate)
+                    let rings = try ringsAt(followUp, plannedAt: plannedAt, calendar: calendar)
+                    let label = "\(zone) \(month)/\(day) \(minutes / 60):\(minutes % 60)"
+                    XCTAssertGreaterThanOrEqual(rings, slot.addingTimeInterval(ScheduleEngine.dueWindow), label)
+                    XCTAssertLessThanOrEqual(rings, slot.addingTimeInterval(ScheduleEngine.dueWindow + 60 * 60), label)
+                    checked += 1
+                }
+            }
+        }
+        XCTAssertGreaterThan(checked, 2_000)
+    }
+
     // MARK: - The widget
 
     func testTheWidgetWithdrawsAFollowUpOnlyOnceEveryDoseInItIsLogged() {

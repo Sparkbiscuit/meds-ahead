@@ -260,7 +260,7 @@ enum NotificationPlanner {
                         }
                     }
                     guard options.followUpReminders else { continue }
-                    if slot.addingTimeInterval(ScheduleEngine.dueWindow) > now {
+                    if followUpMoment(after: slot, calendar: calendar) > now {
                         if slot < now.addingTimeInterval(followUpLookahead) {
                             followUpSlots[slot, default: []].insert(member)
                         }
@@ -704,13 +704,35 @@ enum NotificationPlanner {
             kind: .followUp,
             title: title,
             body: body,
-            trigger: .date(slot.addingTimeInterval(ScheduleEngine.dueWindow)),
+            trigger: .date(followUpMoment(after: slot, calendar: calendar)),
             medicationID: only?.medicationID,
             scheduleID: only?.scheduleID,
             groupedDoseCount: ordered.count,
             slotDate: slot,
             memberScheduleIDs: ordered.map(\.scheduleID)
         )
+    }
+
+    /// Half an hour after the dose on the clock, and never less than half an
+    /// hour after it. A one-shot request rings when the clock shows its time,
+    /// and on the night the clocks go back a 01:30 dose plus thirty minutes
+    /// is the second 01:00 of the night: asked for 01:00, iOS rings at the
+    /// first, before the dose. The clock time is built from the day's
+    /// components because, for a time the clocks skip, that moves it forward
+    /// by the gap, where setting the hour on a day can land on the next day.
+    private static func followUpMoment(after slot: Date, calendar: Calendar) -> Date {
+        let elapsed = slot.addingTimeInterval(ScheduleEngine.dueWindow)
+        let parts = calendar.dateComponents([.hour, .minute], from: slot)
+        let minutes = (parts.hour ?? 0) * 60 + (parts.minute ?? 0) + Int(ScheduleEngine.dueWindow / 60)
+        let minutesPerDay = 24 * 60
+        guard let day = calendar.date(byAdding: .day, value: minutes / minutesPerDay, to: calendar.startOfDay(for: slot)) else {
+            return elapsed
+        }
+        var onTheClock = calendar.dateComponents([.year, .month, .day], from: day)
+        onTheClock.hour = minutes % minutesPerDay / 60
+        onTheClock.minute = minutes % 60
+        guard let clockMoment = calendar.date(from: onTheClock) else { return elapsed }
+        return max(clockMoment, elapsed)
     }
 
     private static func timeLabel(hour: Int, minute: Int, calendar: Calendar) -> String {
