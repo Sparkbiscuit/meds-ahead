@@ -939,11 +939,12 @@ final class MedsUITests: XCTestCase {
         name.tap()
         // Return puts the keyboard away, so the next field is not under it.
         name.typeText("Course Test\n")
-        let supply = app.textFields["current-supply"]
-        XCTAssertTrue(reveal(supply, in: app, limit: 6), "Current amount cannot be reached")
-        supply.tap()
-        supply.typeText("30")
 
+        // The last day is chosen before the amount is typed, while no
+        // keyboard is up. The number pad has no Return, and opening the
+        // calendar over it puts it away: the form slides down under the
+        // calendar as it goes, and on iOS 26.5 the calendar could come to
+        // rest over the navigation bar, where the tap that closes it lands.
         let courseEnds = app.switches["course-ends"]
         XCTAssertTrue(reveal(courseEnds, in: app, limit: 10), "Course ends cannot be reached")
         XCTAssertEqual(courseEnds.value as? String, "0", "a new medication is not a course until someone says so")
@@ -974,6 +975,15 @@ final class MedsUITests: XCTestCase {
         }
         XCTAssertFalse(calendarOpen.exists, "the calendar did not close")
         XCTAssertEqual(Self.shownDay(of: picker), tomorrow.formatted(date: .abbreviated, time: .omitted))
+
+        // Back to the top: swiped down to, Current amount can stop under the
+        // navigation bar, where a tap reaches the bar and not the field.
+        reveal(name, in: app, swipingDown: true)
+        app.swipeDown()
+        let supply = app.textFields["current-supply"]
+        XCTAssertTrue(reveal(supply, in: app, limit: 6), "Current amount cannot be reached")
+        supply.tap()
+        supply.typeText("30")
 
         app.buttons["save-medication"].tap()
         answerNotificationPermissionIfAsked()
