@@ -23,6 +23,10 @@ struct MedicationEditorView: View {
     private let draftLabelQuantity: Double?
     private let draftLabelQuantityNote: String?
     private let onSaved: (() -> Void)?
+    /// Called after a save that changed what past days were scheduled to hold
+    /// while the forecast was assuming unlogged doses: only a count can say
+    /// what those doses took, so the presenter asks for one.
+    private let onAskForCount: (() -> Void)?
 
     @Query private var allMedications: [Medication]
     @Query private var allSchedules: [DoseSchedule]
@@ -65,7 +69,7 @@ struct MedicationEditorView: View {
     @State private var showingDiscardConfirmation = false
     @FocusState private var focusedNameField: NameField?
 
-    init(medication: Medication? = nil, draft: MedicationDraft = MedicationDraft(), onSaved: (() -> Void)? = nil) {
+    init(medication: Medication? = nil, draft: MedicationDraft = MedicationDraft(), onSaved: (() -> Void)? = nil, onAskForCount: (() -> Void)? = nil) {
         self.medication = medication
         self.draftEvidence = draft.evidence
         self.draftSource = medication?.source ?? draft.source
@@ -75,6 +79,7 @@ struct MedicationEditorView: View {
         self.draftLabelQuantity = draft.labelDispensedQuantity
         self.draftLabelQuantityNote = draft.labelDispensedNote
         self.onSaved = onSaved
+        self.onAskForCount = onAskForCount
         let resolvedForm = medication?.form ?? draft.form
         _name = State(initialValue: medication?.name ?? draft.name)
         _nickname = State(initialValue: medication?.nickname ?? draft.nickname)
@@ -703,6 +708,10 @@ struct MedicationEditorView: View {
 
     private func save() {
         let cleanedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Taken before anything below changes the medication or its schedules.
+        let assumedBefore = medication.map {
+            ForecastEngine.forecast(medication: $0, schedules: allSchedules, inventoryEvents: allInventoryEvents, doseEvents: allDoseEvents).assumedDoses
+        } ?? 0
         let target: Medication
         var inventoryForNotifications = allInventoryEvents
         if let medication {
@@ -780,12 +789,15 @@ struct MedicationEditorView: View {
                 )
             }
         }
+        let existingSchedules = allSchedules.filter { $0.medicationID == target.id }
+        let scheduledBefore = ScheduleReconciler.snapshot(existingSchedules)
         let newSchedules = ScheduleReconciler.reconcile(
             medicationID: target.id,
             definitions: scheduleDefinitions,
-            existing: allSchedules.filter { $0.medicationID == target.id },
+            existing: existingSchedules,
             in: modelContext
         )
+        let asksForCount = ScheduleReconciler.asksForCount(assumedDoses: assumedBefore, before: scheduledBefore, after: newSchedules)
 
         do {
             try modelContext.save()
@@ -805,6 +817,7 @@ struct MedicationEditorView: View {
                 )
             }
             UINotificationFeedbackGenerator().notificationOccurred(.success)
+            if asksForCount { onAskForCount?() }
             if let onSaved {
                 onSaved()
             } else {

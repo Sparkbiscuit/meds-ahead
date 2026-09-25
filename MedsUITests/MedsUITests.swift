@@ -405,4 +405,48 @@ final class MedsUITests: XCTestCase {
         XCTAssertEqual(row.label.components(separatedBy: "Count needed").count - 1, 1, row.label)
         XCTAssertTrue(row.label.contains("on record"), row.label)
     }
+
+    /// Every dose for sixteen days went unlogged, and the forecast is assuming
+    /// them. Dropping a dose time rewrites what those days held, so the edit
+    /// asks for a count, on an empty field, and the count is what the forecast
+    /// then goes by.
+    func testAScheduleEditOverUnloggedDosesAsksForACount() {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-ui-testing",
+            "-skip-onboarding",
+            "-seed-demo-data",
+            "-seed-stale-count",
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryL"
+        ]
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["Supply"].tap()
+        let row = app.staticTexts["Furosemide"]
+        XCTAssertTrue(row.waitForExistence(timeout: 3))
+        row.tap()
+        XCTAssertTrue(app.buttons["Medication actions"].waitForExistence(timeout: 3))
+        app.buttons["Medication actions"].tap()
+        XCTAssertTrue(app.buttons["Edit Medication"].waitForExistence(timeout: 3))
+        app.buttons["Edit Medication"].tap()
+        let remove = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Remove ")).firstMatch
+        for _ in 0..<6 where !(remove.exists && remove.isHittable) {
+            app.swipeUp()
+        }
+        XCTAssertTrue(remove.isHittable)
+        remove.tap()
+        app.navigationBars["Edit Medication"].buttons["Save"].tap()
+
+        XCTAssertTrue(app.navigationBars["Correct Current Count"].waitForExistence(timeout: 5), "the edit asks what is on hand")
+        XCTAssertFalse(app.buttons["Save Count"].isEnabled, "nothing is filled in to confirm with one tap")
+        let quantity = app.textFields["supply-quantity"]
+        XCTAssertEqual((quantity.value as? String) ?? "", quantity.placeholderValue ?? "", "the field opens empty")
+        quantity.tap()
+        quantity.typeText("20")
+        XCTAssertTrue(app.buttons["Save Count"].isEnabled)
+        app.buttons["Save Count"].tap()
+        XCTAssertTrue(app.staticTexts["20 on hand"].waitForExistence(timeout: 3))
+    }
 }

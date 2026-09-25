@@ -13,6 +13,10 @@ struct MedicationDetailView: View {
     @State private var showingEditor = false
     @State private var showingRefill = false
     @State private var showingCountCorrection = false
+    /// The editor changed what past days were scheduled to hold while doses
+    /// were being assumed, so Correct Count opens once the editor has closed,
+    /// and opens empty whatever the forecast now assumes.
+    @State private var askingCountAfterEdit = false
     @State private var refillStatusToSet: RefillStatus?
     @State private var showingDeleteConfirmation = false
     @State private var showingSaveError = false
@@ -106,8 +110,10 @@ struct MedicationDetailView: View {
                 .accessibilityLabel("Medication actions")
             }
         }
-        .sheet(isPresented: $showingEditor) {
-            NavigationStack { MedicationEditorView(medication: medication) }
+        .sheet(isPresented: $showingEditor, onDismiss: {
+            if askingCountAfterEdit { showingCountCorrection = true }
+        }) {
+            NavigationStack { MedicationEditorView(medication: medication, onAskForCount: { askingCountAfterEdit = true }) }
         }
         .sheet(isPresented: $showingRefill) {
             SupplyChangeSheet(
@@ -131,12 +137,14 @@ struct MedicationDetailView: View {
                 }
             }
         }
-        .sheet(isPresented: $showingCountCorrection) {
+        .sheet(isPresented: $showingCountCorrection, onDismiss: { askingCountAfterEdit = false }) {
             SupplyChangeSheet(
                 title: "Correct Current Count",
-                message: "Count everything on hand, including doses already placed in pill organizers.",
+                message: askingCountAfterEdit
+                    ? "The schedule changed while some doses since the last count weren't logged, so what is left can't be worked out. Count everything on hand, including doses already placed in pill organizers."
+                    : "Count everything on hand, including doses already placed in pill organizers.",
                 form: medication.form,
-                initialValue: SupplyChangeQuantity.countPrefill(for: forecast),
+                initialValue: askingCountAfterEdit ? nil : SupplyChangeQuantity.countPrefill(for: forecast),
                 actionTitle: "Save Count"
             ) { actualCount, note in
                 let difference = ForecastEngine.correctionDelta(
