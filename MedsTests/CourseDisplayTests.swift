@@ -526,6 +526,24 @@ final class CourseDisplayTests: XCTestCase {
                        [counted.medication.id])
     }
 
+    /// Every dose taken, the last one with Take Now an hour before it was
+    /// due, so it was logged outside any slot. The course still finished.
+    func testALastDoseLoggedEarlyOutsideItsSlotStillFinishesTheCourse() throws {
+        let given = course(count: 20, through: 10, loggedThrough: september(10, 9))
+        let takeNow = DoseEvent(medicationID: given.medication.id, recordedAt: september(10, 19), doseQuantity: 1, status: .taken)
+        let taken = Course(medication: given.medication, schedules: given.schedules, inventory: given.inventory, doses: given.doses + [takeNow])
+        XCTAssertTrue(forecast(taken, now: september(10, 21)).courseCovered, "the last evening")
+
+        let nextMorning = september(11, 9)
+        let over = forecast(taken, now: nextMorning)
+        let ranOut = FinishedCourseNotice.ranOutFirst(medication: taken.medication, forecast: over, schedules: taken.schedules,
+                                                      inventoryEvents: taken.inventory, doseEvents: taken.doses, now: nextMorning, calendar: calendar)
+        XCTAssertFalse(ranOut)
+        XCTAssertEqual(MedicationDetailView.forecastTitle(for: over, ranOutFirst: ranOut, calendar: calendar), "Course finished Sep 10")
+        XCTAssertEqual(FinishedCourseNotice.items(medications: [taken.medication], schedules: taken.schedules, inventoryEvents: taken.inventory,
+                                                  doseEvents: taken.doses, setAside: [], now: nextMorning, calendar: calendar).count, 1)
+    }
+
     // MARK: - Runs-out widget
 
     func testTheWidgetSaysACourseIsCoveredAndLeavesAFinishedOneOff() throws {

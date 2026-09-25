@@ -79,12 +79,19 @@ enum FinishedCourseNotice {
     ) -> Bool {
         let lastMoment = ScheduleEngine.courseLastMoment(end, calendar: calendar)
         let inventory = inventoryEvents.filter { $0.medicationID == medication.id && $0.date <= lastMoment }
+        let lastMorningStart = calendar.startOfDay(for: end)
+        // A log outside every slot made on the last day (Take Now an hour
+        // before the last dose) comes off the ledger's supply, but a forecast
+        // made that morning cannot yet match it to the dose it stands for,
+        // so that dose was charged twice and a course seen through ran out.
+        // Left out, its dose is one still to come against the supply held
+        // that morning. A log naming its slot is matched whenever it was made.
         let lastMorning = ForecastEngine.forecast(
             medication: medication,
             schedules: schedules,
             inventoryEvents: inventory,
-            doseEvents: doseEvents,
-            now: calendar.startOfDay(for: end),
+            doseEvents: doseEvents.filter { $0.scheduleID != nil || $0.recordedAt < lastMorningStart },
+            now: lastMorningStart,
             calendar: calendar
         )
         guard lastMorning.courseCovered else { return true }
