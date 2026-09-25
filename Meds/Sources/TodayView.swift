@@ -175,19 +175,46 @@ struct TodayView: View {
         let inProgress = activeMedications
             .filter { $0.refillStatus != .none }
             .sorted { ($0.refillStatusDate ?? .distantFuture) < ($1.refillStatusDate ?? .distantFuture) }
+            .map { medication in
+                let forecast = ForecastEngine.forecast(
+                    medication: medication,
+                    schedules: schedules,
+                    inventoryEvents: inventoryEvents,
+                    doseEvents: doseEvents,
+                    now: now
+                )
+                return (medication, forecast, SupplyAttention(medication: medication, forecast: forecast, now: now).needsAttention)
+            }
+        // A refill that has run late, or supply that has run too low to wait
+        // for it, is not "on its way" as far as anyone should be told.
+        let needingAttention = inProgress.filter { $0.2 }.count
         if !inProgress.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
-                Label(inProgress.count == 1 ? "A refill is on its way" : "\(inProgress.count) refills are on their way", systemImage: "bag.fill")
-                    .font(.headline)
-                ForEach(inProgress) { medication in
+                Group {
+                    if needingAttention > 0 {
+                        Label(needingAttention == 1 ? "A refill needs checking" : "\(needingAttention) refills need checking", systemImage: "exclamationmark.circle.fill")
+                            .foregroundStyle(.orange)
+                    } else {
+                        Label(inProgress.count == 1 ? "A refill is on its way" : "\(inProgress.count) refills are on their way", systemImage: "bag.fill")
+                    }
+                }
+                .font(.headline)
+                ForEach(inProgress, id: \.0.id) { medication, forecast, needsAttention in
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(medication.displayName)
                             .font(.subheadline.weight(.semibold))
                         Spacer(minLength: 8)
-                        Text(RefillStatusText.line(for: medication, now: now) ?? "")
-                            .font(.subheadline)
-                            .foregroundStyle(medication.refillStatus == .ready ? AppTheme.accent : .secondary)
-                            .multilineTextAlignment(.trailing)
+                        VStack(alignment: .trailing, spacing: 2) {
+                            if needsAttention {
+                                Text(SupplyAttention.line(for: forecast))
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.orange)
+                            }
+                            Text(RefillStatusText.line(for: medication, now: now) ?? "")
+                                .font(.subheadline)
+                                .foregroundStyle(medication.refillStatus == .ready && !needsAttention ? AppTheme.accent : .secondary)
+                        }
+                        .multilineTextAlignment(.trailing)
                     }
                     .accessibilityElement(children: .combine)
                 }

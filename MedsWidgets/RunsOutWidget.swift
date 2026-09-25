@@ -9,12 +9,14 @@ struct RunsOutEntry: TimelineEntry {
     static func placeholder(at date: Date = .now) -> RunsOutEntry {
         let calendar = Calendar.autoupdatingCurrent
         let items = [
-            RunsOutSnapshot.Item(medicationID: UUID(), displayName: "Tacrolimus", daysRemaining: 6,
-                                 depletionDate: calendar.date(byAdding: .day, value: 6, to: date), refillLeadDays: 7,
-                                 refillInProgress: false, accentIndex: 0),
+            RunsOutSnapshot.Item(medicationID: UUID(), displayName: "Dimethyl fumarate", daysRemaining: 6,
+                                 depletionDate: calendar.date(byAdding: .day, value: 6, to: date), refillLeadDays: 10,
+                                 refillsRemaining: 0, refillInProgress: false, daysSinceRefillDate: nil, onHand: true,
+                                 accentIndex: 2),
             RunsOutSnapshot.Item(medicationID: UUID(), displayName: "Furosemide", daysRemaining: 21,
                                  depletionDate: calendar.date(byAdding: .day, value: 21, to: date), refillLeadDays: 7,
-                                 refillInProgress: false, accentIndex: 1)
+                                 refillsRemaining: 2, refillInProgress: false, daysSinceRefillDate: nil, onHand: true,
+                                 accentIndex: 0)
         ]
         return RunsOutEntry(date: date, snapshot: RunsOutSnapshot(items: items, now: date), needsApp: false)
     }
@@ -97,18 +99,12 @@ struct RunsOutView: View {
     private var soonest: RunsOutSnapshot.Item? { entry.snapshot?.soonest }
 
     private func color(for item: RunsOutSnapshot.Item) -> Color {
-        guard let days = item.daysRemaining else { return .secondary }
-        if item.refillInProgress { return AppTheme.accent }
-        if days <= 0 { return .red }
-        if days <= item.refillLeadDays { return .orange }
-        return AppTheme.accent
-    }
-
-    private func line(for item: RunsOutSnapshot.Item) -> String {
-        if item.refillInProgress { return "Refill on its way" }
-        guard let days = item.daysRemaining else { return "Timing unknown" }
-        if days <= 0 { return "Out of supply" }
-        return days == 1 ? "About 1 day left" : "About \(days) days left"
+        switch item.tone {
+        case .unknown: .secondary
+        case .steady: AppTheme.accent
+        case .attention: .orange
+        case .out: .red
+        }
     }
 
     private var home: some View {
@@ -130,7 +126,7 @@ struct RunsOutView: View {
                 HStack(spacing: 8) {
                     gauge(for: item)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(line(for: item))
+                        Text(item.line)
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(color(for: item))
                         if let date = item.depletionDate, item.daysRemaining ?? 0 > 0 {
@@ -193,7 +189,7 @@ struct RunsOutView: View {
                 }
                 .font(.headline)
                 .widgetAccentable()
-                Text(line(for: item)).font(.caption2)
+                Text(item.line).font(.caption2)
                 if let date = item.depletionDate, item.daysRemaining ?? 0 > 0 {
                     Text("Runs out around \(date.formatted(.dateTime.month(.abbreviated).day()))").font(.caption2)
                 }
@@ -208,7 +204,7 @@ struct RunsOutView: View {
     private var inline: some View {
         Group {
             if let item = soonest {
-                Text("\(Image(systemName: "chart.bar.fill")) \(item.displayName): \(line(for: item).lowercased())")
+                Text("\(Image(systemName: "chart.bar.fill")) \(item.displayName): \(item.line.lowercased())")
                     .privacySensitive()
             } else {
                 Text("\(Image(systemName: "chart.bar.fill")) Meds Ahead")

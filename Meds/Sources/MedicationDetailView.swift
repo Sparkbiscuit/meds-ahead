@@ -609,8 +609,8 @@ private struct RefillStatusSheet: View {
                     DatePicker(status == .ready ? "Ready on" : "Expected", selection: $date, displayedComponents: .date)
                 } footer: {
                     Text(status == .ready
-                         ? "Today says to pick it up, and the low-supply reminder pauses until the refill is added."
-                         : "The low-supply reminder pauses while the refill is on its way. Add the refill when it arrives.")
+                         ? "Today says to pick it up. The low-supply reminder pauses until the refill is added, and comes back if it waits two days or supply gets very low."
+                         : "The low-supply reminder pauses while the refill is on its way, and comes back if it runs two days late or supply gets very low. Add the refill when it arrives.")
                 }
             }
             .navigationTitle(status.displayName)
