@@ -91,7 +91,9 @@ Still to do, on a physical iPhone and in App Store Connect:
 
 ## 1.1.1 gates
 
-1.1.1 is version 1.1.1, build 7, on the local branch `fix/1.1.1-supply-accuracy` (unpushed). What it changes and why is in `VERIFICATION.md` under September 24–25, 2026, and, for the iOS 27 scanner and the release form, September 25; the designs are in `ARCHITECTURE.md`. Verified in the simulator:
+**Folded into 1.2 on September 25, 2026.** 1.1.1 is not released on its own: its fixes ship in 1.2, build 8. Run the device script below on the 1.2 build, together with the 1.2 gates; its Release steps are superseded by 1.2's.
+
+1.1.1 was version 1.1.1, build 7, on the branch `fix/1.1.1-supply-accuracy`. What it changes and why is in `VERIFICATION.md` under September 24–25, 2026, and, for the iOS 27 scanner and the release form, September 25; the designs are in `ARCHITECTURE.md`. Verified in the simulator:
 
 - [x] Unit tests 472/472 and UI tests 16/16 on the iPhone 17 Pro simulator, iOS 26.5
 - [x] Unit tests 472/472 and UI tests 16/16 on the iPhone 17 Pro simulator, iOS 27.0; the three rendered-label OCR tests that failed there at `a564dd6` pass (`VERIFICATION.md`, September 25)
@@ -134,6 +136,8 @@ About 35 minutes, on any day after step 13, with 1.1.1 run from Xcode (a Debug b
 
 ### Release
 
+Superseded by 1.2's release steps; kept as the record of what 1.1.1 would have needed.
+
 - [ ] Every step above passes, or its failure is written down and decided
 - [ ] Merge `fix/1.1.1-supply-accuracy` into `main` and push
 - [ ] Archive build 7 from that commit with automatic signing, validate in Organizer, and upload
@@ -143,7 +147,7 @@ About 35 minutes, on any day after step 13, with 1.1.1 run from Xcode (a Debug b
 
 ## 1.2 gates
 
-1.2, "First Days Home", is version 1.2, build 8, on the local branch `feature/first-days-home` (unpushed), which carries all of 1.1.1. What it changes and why is in `VERIFICATION.md` under September 25, 2026 (1.2); the designs are in `ARCHITECTURE.md` under "Dated reminders, follow-ups and the weekly count check", "Courses", "Why this date?", "The quick count", "Scanning a dozen bottles" and "The same bottle twice". Verified in the simulator:
+1.2, "First Days Home", is version 1.2, build 8, on the branch `feature/first-days-home` (pull request #2), which carries all of 1.1.1 and ships it. What it changes and why is in `VERIFICATION.md` under September 25, 2026 (1.2); the designs are in `ARCHITECTURE.md` under "Dated reminders, follow-ups and the weekly count check", "Courses", "Why this date?", "The quick count", "Scanning a dozen bottles" and "The same bottle twice". Verified in the simulator:
 
 - [x] Unit tests 643/643 and UI tests 29/29 on the iPhone 17 Pro simulator, iOS 26.5
 - [x] Unit tests 643/643 and UI tests 29/29 on the iPhone 17 Pro simulator, iOS 27.0
@@ -186,8 +190,9 @@ About three hours across three days, on the spare iPhone on iOS 26, plus twenty 
 ### Release
 
 - [ ] Every step above passes, or its failure is written down and decided
-- [ ] 1.1.1 is merged into `main` first (its own release steps above); then merge `feature/first-days-home` into `main` and push
+- [ ] The 1.1.1 device script above has also passed on this build, since 1.2 ships its fixes
+- [ ] Merge `feature/first-days-home` into `main` (pull request #2) and push
 - [ ] Archive build 8 from that commit with automatic signing, validate in Organizer, and upload
-- [ ] In App Store Connect, create version 1.2 with build 8; paste the 1.2 What's New and the review notes from `AppStore/SUBMISSION.md`, with item 2 true of the passes above
+- [ ] In App Store Connect, create version 1.2 with build 8; paste the 1.2 What's New (new features and the 1.1.1 fixes), the promotional text, the description and the review notes from `AppStore/SUBMISSION.md`, with item 2 true of the passes above
 - [ ] Confirm App Privacy stays `Data Not Collected`: 1.2 adds no collection, no network request and no new Health access; the new settings and cards remember their state in the app's own `UserDefaults`, which the privacy manifest already declares
 - [ ] Publish only the accessibility declarations a phone pass verified, as for 1.1.1, with step 12 added to VoiceOver's

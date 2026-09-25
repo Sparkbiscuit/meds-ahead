@@ -10,7 +10,7 @@ Know what runs out next
 
 ## Promotional text
 
-Scan a label, confirm your schedule, and see a calm, explainable forecast for every medication in your routine.
+Built for the first days home: scan bottle after bottle, give a course its last day, and see exactly why each run-out date is what it is.
 
 ## Description
 
@@ -32,7 +32,10 @@ Key features:
 - Taken and skipped dose history
 - Dose and low-supply refill reminders
 - Refill and inventory adjustments
-- Explainable low-supply forecasts
+- Explainable low-supply forecasts, with a "Why this date?" view of each run-out date
+- Courses with a last day, after which their reminders stop
+- Scan bottle after bottle, and add a second bottle of a tracked medication as its refill
+- An optional second reminder for a dose that isn't logged, and a weekly count check
 - Private local storage with no account or advertising
 - Dynamic Type, VoiceOver, dark mode, and reduced-motion support
 - An optional, non-recurring tip jar; every app feature remains free
@@ -49,37 +52,34 @@ medication,medicine,refill,pill,reminder,schedule,tracker,inventory,dose,health,
 
 ## 1.2 What's New (draft for Nick)
 
-For version 1.2, build 8. A draft: read it against the build before pasting into App Store Connect > Version > What's New in This Version. It says what the app does, not what it does for anyone's health. It assumes 1.1.1 was released first; if 1.1.1 ships inside 1.2 instead, add the 1.1.1 list below under "Also fixed". The review notes below are 1.2's.
+For version 1.2, build 8, which also carries every 1.1.1 fix: on September 25, 2026 Nick chose to ship the two as one update rather than release 1.1.1 first. Read it against the build before pasting into App Store Connect > Version > What's New in This Version (4,000-character limit; this is about 2,300). It says what the app does, not what it does for anyone's health. The review notes below are 1.2's and cover both.
 
 ```
-Made for the first days home, when a lot of new bottles arrive at once.
+Made for the first days home, when a lot of new bottles arrive at once, with a round of fixes to the counts, dates and warnings.
 
+New:
 - Courses. Give a medication a last day, like an antibiotic. Its reminders stop after that day, Supply says whether there is enough to finish, and Today offers to archive it when it's done.
 - Scan one bottle after another. After you save a scanned bottle, the scanner opens for the next one, with a list of what you've added so far.
 - The same bottle twice. When a bottle is already in Meds Ahead, you can add it as a refill instead of saving it as a second medication.
 - Why this date? Tap it on a medication, or touch and hold a row in Supply, to see how the run-out date was worked out.
 - A weekly count. At most once a week, Meds Ahead asks you to count one medication, in a reminder and on Today. You can turn it off in Settings.
 - Remind Again If Not Logged. Turn it on in Settings for a second reminder 30 minutes after a dose that isn't logged on this phone.
-```
 
-## 1.1.1 What's New (draft for Nick)
-
-For version 1.1.1, build 7. A draft: read it against the build before pasting into App Store Connect > Version > What's New in This Version. It describes what the app does, not what it does for anyone's health. The description and keywords below stand for 1.1.1. The review notes below are now 1.2's; 1.1.1 is submitted from its own branch, where the 1.1 notes stand.
-
-```
-Fixes to the counts, dates and warnings:
-
+Fixed:
 - If a refill you marked as requested or ready runs two days late, is due after your supply runs out, or your supply is nearly gone, the low-supply warning comes back, and Meds Ahead asks whether the refill has arrived.
 - Refill and expiration alerts stay in Notification Center while they are still true, instead of disappearing the next time the app opens.
 - The run-out date no longer drifts later when doses go unlogged. Meds Ahead counts unlogged scheduled doses as taken, says so, and asks for a count when it can't tell what is left.
 - A scanned label's count is offered with a Use button instead of filled in, because it is what the bottle held when full.
 - Scanning takes a closer look at a hard-to-read NDC, and checks the label's brand and release, such as ER or XL, before filling in a product from the code.
 - A medication added in the afternoon no longer shows that morning's dose as overdue.
-- Add Refill and Correct Count record the number you typed.
-- A dose already logged from the widget or a reminder is not logged again.
+- Add Refill and Correct Count record the number you typed, and a dose already logged from the widget or a reminder is not logged again.
 - Doses logged in Apple Health before you added a medication no longer count against its supply, and a logged dose stays logged after you change its time or travel.
 - Clearer text on colored buttons in dark mode, missed days marked on the calendar, and correct plurals: 30 patches, 150 mL, 1 day.
 ```
+
+## 1.1.1
+
+Never released on its own. Its fixes ship in 1.2, and they are the "Fixed" list in 1.2's What's New above.
 
 ## What's New in 1.1
 
@@ -99,12 +99,12 @@ Also new: the pharmacy, phone and Rx number read off the label with a Call butto
 
 Paste the block below into App Store Connect > App Review Information > Notes.
 It answers the eight questions Apple sends new-app submissions, opens with what
-1.2 changed and what 1.1 added, and says plainly that the Health integration is
+1.2 adds and fixes (1.1.1 ships inside it), and says plainly that the Health integration is
 read-only, so a reviewer never has to open a Guideline 2.1 or 5.1.3 request to
 learn either.
 
 App Store Connect caps this field at 4,000 characters, and caps the Resolution
-Center reply field at 4,000 separately. This block is 3,932 characters, 3,950
+Center reply field at 4,000 separately. This block is 3,941 characters, 3,959
 with each line break counted twice; re-count after any edit. Paragraphs are
 deliberately unwrapped so pasting does not produce ragged line breaks
 mid-sentence.
@@ -122,23 +122,23 @@ recording is requested again.
 ```
 Answers to the questions App Review asks, updated for 1.2.
 
-NEW IN 1.2: courses with a last day, after which their reminders stop; an opt-in second reminder when a dose isn't logged; a weekly count reminder, which can be turned off; a "Why this date?" view of each forecast; scanning bottles in a row; adding a bottle of a tracked medication as its refill. FROM 1.1: exact identification from a label's NDC or barcode against a bundled, public-domain FDA NDC Directory snapshot, used only when the label agrees; a read-only Apple Health import (iOS 26+) through Health's own per-medication picker, and its later doses; Home and Lock Screen widgets. Nothing is written to Health.
+NEW IN 1.2: courses whose reminders stop after their last day; an opt-in follow-up for an unlogged dose; an optional weekly count reminder; a "Why this date?" view of each forecast; scanning bottles in a row; adding a second bottle of a tracked medication as a refill. ALSO FIXED: a paused low-supply warning returns when a refill runs late; delivered alerts stay while still true; unlogged scheduled doses count as taken, with a prompt to count; a scanned quantity is offered, not filled in; NDC matching also checks brand and release form (ER vs immediate release). No new permissions or data types. Unchanged from 1.1: NDC identification from a bundled FDA snapshot, and a read-only Apple Health import (iOS 26+) through Health's own picker; nothing is written to Health.
 
-1. DEMONSTRATION. A screen recording from a physical iPhone, from launch, is available on request: onboarding, both permission prompts, scanning, review, the Health picker, saving, logging a dose, the forecast and "Why this date?", a course, a widget, the tip purchase. No accounts, so no registration, login, or deletion; no content between users, so no reporting or blocking.
+1. DEMONSTRATION. A physical-iPhone screen recording from launch is available on request: onboarding, both permission prompts, scanning, review, the Health picker, logging a dose, a course, "Why this date?", a widget, the tip purchase. No accounts, so no registration, login, or deletion; no content between users, so no reporting or blocking.
 
 2. TESTED ON. iPhone 16 Pro, iOS 26: hands-on pass including live scanning, the torch, the Health import and dose sync, the widgets, locked-device notification actions, course, follow-up and count reminders, and a StoreKit sandbox tip. Simulators: automated unit and UI suites. iPhone only, portrait only, iOS 18.0 and later; the Health features need iOS 26.
 
-3. FUNCTIONS AND AUDIENCE. Meds Ahead answers which medication runs out next. A person adds a medication by scanning, importing from Health, or typing, confirms every field, and sets a schedule. The app tracks doses, refills, and corrections, projects an explained run-out date, and sends dose and supply reminders. For people managing several medications, and caregivers. An organization and logging tool: no diagnosis, medical advice, dose recommendations, indications, interaction checks, or refill-eligibility decisions.
+3. FUNCTIONS AND AUDIENCE. Meds Ahead answers which medication runs out next. A person adds a medication by scanning, importing from Health, or typing, confirms every field, and sets a schedule. The app tracks doses, refills, and corrections, explains each run-out date, and sends dose and supply reminders. For people managing several medications, and caregivers. An organization and logging tool: no diagnosis, medical advice, dose recommendations, indications, interaction checks, or refill-eligibility decisions.
 
-4. SETUP. No login, demo account, or sample files. Page through onboarding, tap Add, then Scan a Label at any prescription label; every field is editable before saving. Enter Manually reaches the same editor; Import from Apple Health lists what the person shares. Enter a count and a schedule and save. Today logs doses, Supply shows the forecast, Medications records refills and corrections. Declining the camera prompt is supported: the scanner explains why, offers Open Settings, and keeps photo import available.
+4. SETUP. No login, demo account, or sample files. Page through onboarding, tap Add, then Scan a Label at any prescription label; every field is editable before saving. Enter Manually reaches the same editor; Import from Apple Health lists what the person shares. Today logs doses, Supply shows the forecast, Medications records refills and corrections. Declining the camera prompt is supported: the scanner explains why and keeps photo import available.
 
-5. EXTERNAL SERVICES. None: no backend, accounts, network requests, analytics, advertising, or third-party SDKs. Apple frameworks only: VisionKit and Vision for recognition; FoundationModels, Apple's on-device model, only to choose among lines the app already read, never a source of a medical fact; HealthKit, read only, per-object authorization for medications and their dose logs; WidgetKit and App Intents, the widgets reading the local database through an App Group; SwiftData, UserNotifications, StoreKit, PhotosUI, AVFoundation. Photos are not retained; Health data is never transmitted.
+5. EXTERNAL SERVICES. None: no backend, accounts, network requests, analytics, advertising, or third-party SDKs. Apple frameworks only: VisionKit and Vision for recognition; FoundationModels (on device) only to choose among lines the app already read, never as a source of medical fact; HealthKit, read only, per-object authorization for medications and their dose logs; WidgetKit and App Intents (widgets read the local database via an App Group); SwiftData, UserNotifications, StoreKit, PhotosUI, AVFoundation. Photos are not retained; Health data is never transmitted.
 
 6. REGIONS. Identical in all regions. English (U.S.) only, nothing region-gated.
 
 7. REGULATED INDUSTRY. Not a regulated medical device; no authorization required. Four bundled files hold names and packaging facts only: about 12,900 medication names from RxNorm (NLM, public domain); about 270 hand-verified generic-to-brand pairs; an FDA NDC Directory snapshot (public domain): name, brand, strength, dosage form, release form; and an RxNorm code table (NLM, public domain) for those NDCs. None carries indications, dosing, warnings, or interactions; no licensed material is included.
 
-8. IN-APP PURCHASE. Three optional, non-recurring consumable tips that unlock nothing; every feature is free. Gear icon > Support Meds Ahead > Leave an Optional Tip: Small Tip $1.99, Medium Tip $4.99, Large Tip $9.99. The row is always visible, with a Try Again button when unavailable.
+8. IN-APP PURCHASE. Three optional, non-recurring consumable tips that unlock nothing; every feature is free. Gear icon > Support Meds Ahead > Leave an Optional Tip: Small Tip $1.99, Medium Tip $4.99, Large Tip $9.99. Always visible, with Try Again when unavailable.
 ```
 
 ## App Store Connect selections
