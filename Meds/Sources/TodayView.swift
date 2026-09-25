@@ -338,7 +338,12 @@ struct TodayView: View {
     @ViewBuilder
     private func plannedThroughNotice(now: Date) -> some View {
         if let day = NotificationHealth.shared.plannedThroughNotice(now: now) {
-            HStack(alignment: .top, spacing: 12) {
+            // At the largest sizes the symbol sits above the words, as on the
+            // quick count, so the message keeps the card's width.
+            let layout = dynamicTypeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+                : AnyLayout(HStackLayout(alignment: .top, spacing: 12))
+            layout {
                 Image(systemName: "calendar.badge.clock")
                     .font(.title3)
                     .foregroundStyle(.orange)
@@ -346,7 +351,7 @@ struct TodayView: View {
                 Text("Reminders are planned through \(day.formatted(.dateTime.weekday(.wide).month(.wide).day())). Open Meds Ahead before then to keep them coming.")
                     .font(.subheadline)
                     .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 0)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -461,9 +466,21 @@ struct TodayView: View {
         ForEach(items) { item in
             VStack(alignment: .leading, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Label(FinishedCourseNotice.title(for: item), systemImage: "checkmark.circle")
-                        .font(.headline)
-                        .fixedSize(horizontal: false, vertical: true)
+                    // Above the title at the largest sizes: beside it, the
+                    // medication's name broke mid-word.
+                    Group {
+                        if dynamicTypeSize.isAccessibilitySize {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Image(systemName: "checkmark.circle")
+                                    .accessibilityHidden(true)
+                                Text(FinishedCourseNotice.title(for: item))
+                            }
+                        } else {
+                            Label(FinishedCourseNotice.title(for: item), systemImage: "checkmark.circle")
+                        }
+                    }
+                    .font(.headline)
+                    .fixedSize(horizontal: false, vertical: true)
                     Text("Archive it to take it off Today and Supply. Its history is kept, and you can restore it from Medications.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)

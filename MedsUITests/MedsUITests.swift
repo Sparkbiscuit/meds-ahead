@@ -476,6 +476,8 @@ final class MedsUITests: XCTestCase {
         XCTAssertTrue(notice.waitForExistence(timeout: 5), "the notice never appeared")
         XCTAssertTrue(notice.label.hasPrefix("Reminders are planned through "), notice.label)
         XCTAssertTrue(notice.label.hasSuffix("Open Meds Ahead before then to keep them coming."), notice.label)
+        XCTAssertLessThan(notice.frame.height, app.windows.firstMatch.frame.height * 0.75,
+                          "the message is squeezed into a column beside its symbol")
         try app.performAccessibilityAudit(for: [
             .elementDetection,
             .hitRegion,
