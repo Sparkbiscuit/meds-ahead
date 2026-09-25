@@ -184,8 +184,17 @@ struct SupplyAttention: Equatable, Sendable {
     /// What the ledger's number is called beside it. Once the forecast assumes
     /// any unlogged dose was taken, nobody knows the ledger's number is what is
     /// on hand, only that it is what was recorded; the run-out date beside it
-    /// has already taken those doses out.
+    /// has already taken those doses out. A finished course assumes nothing,
+    /// but a dose of it nobody logged leaves the number just as unvouched for:
+    /// "20 on hand" for a course given but never logged reads, on a printed
+    /// list, as a course never taken.
     static func quantityWords(for forecast: SupplyForecast) -> String {
-        forecast.needsCount || forecast.assumedDoses > 0 ? "on record" : "on hand"
+        vouchesForLedger(forecast) ? "on hand" : "on record"
+    }
+
+    /// Whether the ledger's number can be taken as what is on hand: nothing
+    /// assumed, and no finished course's dose left unlogged.
+    static func vouchesForLedger(_ forecast: SupplyForecast) -> Bool {
+        !forecast.needsCount && forecast.assumedDoses == 0 && forecast.unloggedCourseDoses == 0
     }
 }

@@ -15,11 +15,11 @@ enum SupplyChangeQuantity {
 
     /// The number Correct Count opens with: the ledger's, or nothing while the
     /// forecast assumes unlogged doses were taken, whether or not they use up
-    /// the ledger yet. Prefilled then, one tap on Save would record a count
-    /// nobody made, clear the doses the forecast had to assume, and move the
-    /// run-out date later.
+    /// the ledger yet, or a finished course has doses nobody logged. Prefilled
+    /// then, one tap on Save would record a count nobody made, clear the doses
+    /// the forecast had to assume, and move the run-out date later.
     static func countPrefill(for forecast: SupplyForecast) -> Double? {
-        forecast.needsCount || forecast.assumedDoses > 0 ? nil : forecast.currentSupply
+        SupplyAttention.vouchesForLedger(forecast) ? forecast.currentSupply : nil
     }
 
     static func value(

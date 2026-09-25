@@ -32,6 +32,11 @@ struct SupplyForecast: Equatable {
     var courseFinished: Bool = false
     /// What the supply leaves after the course's last dose, when it covers it.
     var leftoverAtCourseEnd: Double? = nil
+    /// For a finished course, its doses since the ledger was last known that
+    /// nobody logged. Nothing is due any more, so none is assumed taken, but
+    /// while any is unaccounted for the ledger's number is only what was
+    /// recorded, not what is on hand.
+    var unloggedCourseDoses: Int = 0
 }
 
 /// Which medications need a refill before a trip, from the forecasts that
@@ -189,6 +194,21 @@ enum ForecastEngine {
         // to the tablet ends, not a supply to warn about, and a few tablets
         // left over are not one to plan a refill around.
         if let courseEnd, ScheduleEngine.isCourseFinished(schedules: schedules, medicationID: medication.id, now: now, calendar: calendar) {
+            let anchor = ledgerAnchor(medication: medication, inventoryEvents: inventoryEvents, doseEvents: doseEvents)
+            // As the forecast counts logs while the course runs: a log outside
+            // every slot stands for a dose only when taken from this count.
+            let unlogged = ScheduleEngine.unloggedDoses(
+                schedules: schedules,
+                medicationID: medication.id,
+                from: anchor.date,
+                through: ScheduleEngine.courseLastMoment(courseEnd, calendar: calendar),
+                doseEvents: doseEvents.filter {
+                    $0.medicationID == medication.id && ($0.scheduleID != nil
+                        || ($0.status == .taken && $0.countsTowardSupply && $0.recordedAt >= anchor.date))
+                },
+                now: now,
+                calendar: calendar
+            )
             return Evaluation(forecast: SupplyForecast(
                 currentSupply: supply,
                 depletionDate: nil,
@@ -196,7 +216,8 @@ enum ForecastEngine {
                 confidence: .high,
                 explanation: "Course finished \(dayText(courseEnd, calendar: calendar)).",
                 courseEndDate: courseEnd,
-                courseFinished: true
+                courseFinished: true,
+                unloggedCourseDoses: unlogged.count
             ))
         }
 

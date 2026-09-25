@@ -544,6 +544,27 @@ final class CourseDisplayTests: XCTestCase {
                                                   doseEvents: taken.doses, setAside: [], now: nextMorning, calendar: calendar).count, 1)
     }
 
+    /// A course given but never logged: once it has finished, its ledger's
+    /// number is still only what was recorded. "20 tablets on hand" on a
+    /// printed list reads as a course never taken.
+    func testAnUnloggedFinishedCourseKeepsItsNumberOnRecord() throws {
+        let unlogged = course(count: 20, through: 10)
+        let over = forecast(unlogged)
+        XCTAssertTrue(over.courseFinished)
+        XCTAssertEqual(over.unloggedCourseDoses, 20)
+        XCTAssertEqual(over.assumedDoses, 0, "nothing is due, so nothing is assumed")
+        XCTAssertEqual(SupplyRowText.caption(for: over, form: .tablet), "20 tablets on record")
+        XCTAssertNil(SupplyChangeQuantity.countPrefill(for: over), "one tap would record a count nobody made")
+        XCTAssertEqual(try listEntry(unlogged).supplyLine, "20 tablets on record")
+        let breakdown = ForecastEngine.breakdown(medication: unlogged.medication, schedules: unlogged.schedules, inventoryEvents: unlogged.inventory,
+                                                 doseEvents: unlogged.doses, now: now, calendar: calendar)
+        XCTAssertTrue(WhyThisDateLedger.lines(for: breakdown, isAsNeeded: false, calendar: calendar).contains { $0.text == "= 20 tablets on record" })
+
+        // Seen through with every dose logged, the number is what is on hand.
+        XCTAssertEqual(forecast(finished).unloggedCourseDoses, 0)
+        XCTAssertEqual(SupplyChangeQuantity.countPrefill(for: forecast(finished)), 2)
+    }
+
     // MARK: - Runs-out widget
 
     func testTheWidgetSaysACourseIsCoveredAndLeavesAFinishedOneOff() throws {
