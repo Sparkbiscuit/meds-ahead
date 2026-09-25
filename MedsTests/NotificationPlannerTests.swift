@@ -393,6 +393,36 @@ final class NotificationPlannerTests: XCTestCase {
                        "but the question went with the refill")
     }
 
+    /// A count needed carries today as its run-out date, where the assumed
+    /// doses ran out. No refill alert or refill check is written from it, and
+    /// none quotes it; one already delivered stays, since the supply still
+    /// needs someone to act.
+    @MainActor
+    func testACountNeededWritesNoRefillCopyAndKeepsTheWarningGiven() throws {
+        func at(_ day: Int, _ hour: Int = 12) -> Date {
+            calendar.date(from: DateComponents(year: 2026, month: 8, day: day, hour: hour))!
+        }
+        let medication = Medication(name: "Furosemide", refillLeadDays: 7, detailedNotifications: true, createdAt: at(1, 7),
+                                    refillStatus: .requested, refillStatusDate: at(8))
+        let schedules = [8, 20].map { DoseSchedule(medicationID: medication.id, minutesAfterMidnight: $0 * 60, startDate: at(1, 7)) }
+        let counted = [InventoryEvent(medicationID: medication.id, date: at(1, 7), delta: 6, reason: .openingCount)]
+        let plan = NotificationPlanBuilder.make(medication: medication, schedules: schedules, inventoryEvents: counted,
+                                                doseEvents: [], now: at(6, 7), calendar: calendar)
+        XCTAssertTrue(plan.needsCount)
+
+        let outcome = NotificationPlanner.plan(for: [plan], now: at(6, 7), calendar: calendar)
+        XCTAssertTrue(outcome.notifications.allSatisfy { $0.kind == .dose }, "\(outcome.notifications.map(\.kind))")
+        XCTAssertTrue(outcome.retains("meds.\(medication.id.uuidString).refill.08012026"), "a warning already given stays")
+        XCTAssertTrue(outcome.retains("meds.\(medication.id.uuidString).refillcheck.20260810"), "and so does a question already asked")
+
+        // However the forecast's date falls, nothing is built from it.
+        let ahead = makePlan(doseRemindersEnabled: false, detailedNotifications: true, refillLeadDays: 7, depletionDate: at(30, 8),
+                             refillInProgress: true, refillStatusDate: at(8), needsCount: true)
+        let planned = NotificationPlanner.plan(for: [ahead], now: at(6, 7), calendar: calendar)
+        XCTAssertTrue(planned.notifications.isEmpty, "\(planned.notifications.map(\.body))")
+        XCTAssertTrue(planned.retainedPrefixes.contains("meds.AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE.refill."))
+    }
+
     func testAPackageExpirationIsAnnouncedAWeekAhead() throws {
         let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 1, hour: 12)))
         let expiration = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 30)))
@@ -537,7 +567,8 @@ final class NotificationPlannerTests: XCTestCase {
         pharmacyName: String = "",
         rxNumber: String = "",
         refillStatusDate: Date? = nil,
-        onHand: Bool = true
+        onHand: Bool = true,
+        needsCount: Bool = false
     ) -> MedicationNotificationPlan {
         MedicationNotificationPlan(
             medicationID: medicationID,
@@ -564,7 +595,8 @@ final class NotificationPlannerTests: XCTestCase {
             pharmacyName: pharmacyName,
             rxNumber: rxNumber,
             refillStatusDate: refillStatusDate,
-            onHand: onHand
+            onHand: onHand,
+            needsCount: needsCount
         )
     }
 }

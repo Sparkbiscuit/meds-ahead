@@ -91,9 +91,13 @@ enum MedicationListDocument {
             now: now,
             calendar: calendar
         )
-        let onHand = "\(forecast.currentSupply.medicationQuantityText) \(medication.form.unitName)\(forecast.currentSupply == 1 ? "" : "s") on hand"
+        let onHand = "\(forecast.currentSupply.medicationQuantityText) \(medication.form.unitName)\(forecast.currentSupply == 1 ? "" : "s") \(SupplyAttention.quantityWords(for: forecast))"
         let supplyLine: String
-        if let date = forecast.depletionDate, forecast.currentSupply > 0 {
+        // A count needed carries today as its run-out date. Printed, that
+        // would tell a pharmacist the supply is gone when nobody knows.
+        if let reason = SupplyAttention.countNeededReason(for: forecast) {
+            supplyLine = "\(onHand) · count needed: \(reason)"
+        } else if let date = forecast.depletionDate, forecast.currentSupply > 0 {
             supplyLine = "\(onHand) · runs out around \(date.formatted(date: .abbreviated, time: .omitted))"
         } else {
             supplyLine = onHand

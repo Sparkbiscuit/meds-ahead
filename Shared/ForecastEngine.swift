@@ -18,12 +18,15 @@ struct SupplyForecast: Equatable {
     /// The assumed doses use up everything the ledger still shows. What is left is
     /// unknown rather than zero, so this reads "Count needed", never "Out of supply".
     var needsCount: Bool = false
+    /// The assumed doses are counted from a refill onto an empty ledger rather
+    /// than from a count, so a reason can name the right event.
+    var assumedSinceRefill: Bool = false
 }
 
 /// Which medications need a refill before a trip, from the forecasts that
 /// already exist. Pure arithmetic: a supply that runs out before the return
-/// date needs attention before leaving; one whose timing is unknown cannot be
-/// vouched for; the rest are fine.
+/// date needs attention before leaving; one whose timing is unknown, or that
+/// needs a count, cannot be vouched for; the rest are fine.
 struct TripCheck: Equatable {
     struct Item: Equatable {
         let medicationID: UUID
@@ -47,7 +50,12 @@ struct TripCheck: Equatable {
         var fine: [Item] = []
         for (medication, forecast) in forecasts where !medication.isArchived {
             let item = Item(medicationID: medication.id, displayName: medication.displayName, forecast: forecast)
-            if let depletion = forecast.depletionDate {
+            // A count needed carries today as its run-out date, but that is
+            // where the assumptions ran out, not the supply: packing for the
+            // trip starts with counting it.
+            if forecast.needsCount {
+                uncertain.append(item)
+            } else if let depletion = forecast.depletionDate {
                 // Running out on the day of return still means arriving home
                 // without a dose in hand, so that day counts as before.
                 if calendar.startOfDay(for: depletion) <= returnDay {
@@ -203,7 +211,8 @@ enum ForecastEngine {
                 confidence: .estimated,
                 explanation: "If \(unlogged), none of the supply on record is left. Count what is left to update the forecast.",
                 assumedDoses: assumed.count,
-                needsCount: true
+                needsCount: true,
+                assumedSinceRefill: anchor.isRefill
             )
         }
 
@@ -237,7 +246,8 @@ enum ForecastEngine {
                         daysRemaining: max(0, calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: dose.date)).day ?? 0),
                         confidence: assumed.isEmpty ? .high : .estimated,
                         explanation: assumed.isEmpty ? "Based on the confirmed count and current schedule." : "Assumes \(unlogged).",
-                        assumedDoses: assumed.count
+                        assumedDoses: assumed.count,
+                        assumedSinceRefill: !assumed.isEmpty && anchor.isRefill
                     )
                 }
             }
@@ -252,7 +262,8 @@ enum ForecastEngine {
             daysRemaining: nil,
             confidence: .unknown,
             explanation: "The confirmed supply extends beyond the forecast window.",
-            assumedDoses: assumed.count
+            assumedDoses: assumed.count,
+            assumedSinceRefill: !assumed.isEmpty && anchor.isRefill
         )
     }
 

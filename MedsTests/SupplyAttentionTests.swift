@@ -17,6 +17,7 @@ final class SupplyAttentionTests: XCTestCase {
     private func attention(
         daysRemaining: Int?,
         onHand: Bool = true,
+        needsCount: Bool = false,
         refillLeadDays: Int = 7,
         refillsRemaining: Int? = nil,
         refillInProgress: Bool = true,
@@ -25,6 +26,7 @@ final class SupplyAttentionTests: XCTestCase {
         SupplyAttention(
             daysRemaining: daysRemaining,
             onHand: onHand,
+            needsCount: needsCount,
             refillLeadDays: refillLeadDays,
             refillsRemaining: refillsRemaining,
             refillInProgress: refillInProgress,
@@ -123,6 +125,52 @@ final class SupplyAttentionTests: XCTestCase {
         let out = SupplyForecast(currentSupply: 0, depletionDate: day(1), daysRemaining: 0, confidence: .high, explanation: "No confirmed supply remains.")
         XCTAssertEqual(SupplyAttention.line(for: out), "No confirmed supply remains")
         let low = SupplyForecast(currentSupply: 4, depletionDate: day(5), daysRemaining: 4, confidence: .high, explanation: "")
+        XCTAssertTrue(SupplyAttention.line(for: low).hasPrefix("Act soon · around "))
+    }
+
+    // MARK: - Count needed
+
+    /// Twice daily from the 1st, six on the opening count, nothing logged: by
+    /// the 6th the ten doses the forecast must assume use up the ledger.
+    @MainActor
+    private func staleCount(refillStatus: RefillStatus = .none, refillStatusDate: Date? = nil) -> (Medication, SupplyForecast) {
+        let medication = Medication(name: "Furosemide", createdAt: day(1, hour: 7), refillStatus: refillStatus, refillStatusDate: refillStatusDate)
+        let schedules = [8, 20].map { DoseSchedule(medicationID: medication.id, minutesAfterMidnight: $0 * 60, doseQuantity: 1, startDate: day(1, hour: 7)) }
+        let inventory = [InventoryEvent(medicationID: medication.id, date: day(1, hour: 7), delta: 6, reason: .openingCount)]
+        return (medication, ForecastEngine.forecast(medication: medication, schedules: schedules, inventoryEvents: inventory, doseEvents: [], now: day(6, hour: 7), calendar: calendar))
+    }
+
+    /// The assumed doses used up the ledger, so what is left is unknown. That
+    /// needs someone to count, whatever refill is on its way, and it is said
+    /// as a count, never as "Act soon · around today".
+    @MainActor
+    func testACountNeededNeedsAttentionAndSaysSo() throws {
+        let (medication, forecast) = staleCount(refillStatus: .requested, refillStatusDate: day(8))
+        XCTAssertTrue(forecast.needsCount)
+
+        let supply = SupplyAttention(medication: medication, forecast: forecast, now: day(6, hour: 7), calendar: calendar)
+        XCTAssertTrue(supply.needsCount)
+        XCTAssertTrue(supply.isLow)
+        XCTAssertFalse(supply.refillPauseHolds, "a refill cannot stand in for a count nobody made")
+        XCTAssertTrue(supply.needsAttention)
+
+        XCTAssertEqual(SupplyAttention.line(for: forecast), "Count needed")
+        XCTAssertEqual(SupplyAttention.countNeededReason(for: forecast), "10 doses since the last count weren't logged")
+        XCTAssertEqual(SupplyAttention.quantityWords(for: forecast), "on record")
+
+        // Plain values say the same, even with a long runway to go on.
+        XCTAssertTrue(attention(daysRemaining: 30, needsCount: true, refillInProgress: true, daysSinceRefillDate: -1).needsAttention)
+        XCTAssertFalse(attention(daysRemaining: 30, needsCount: true, refillInProgress: true, daysSinceRefillDate: -1).refillPauseHolds)
+    }
+
+    func testTheCountNeededReasonNamesTheEventItCountsFrom() {
+        let fromRefill = SupplyForecast(currentSupply: 1, depletionDate: day(6), daysRemaining: 0, confidence: .estimated, explanation: "",
+                                        assumedDoses: 1, needsCount: true, assumedSinceRefill: true)
+        XCTAssertEqual(SupplyAttention.countNeededReason(for: fromRefill), "1 dose since the last refill wasn't logged")
+
+        let low = SupplyForecast(currentSupply: 4, depletionDate: day(5), daysRemaining: 4, confidence: .estimated, explanation: "", assumedDoses: 3)
+        XCTAssertNil(SupplyAttention.countNeededReason(for: low), "an estimate with supply to spare needs no count")
+        XCTAssertEqual(SupplyAttention.quantityWords(for: low), "on hand")
         XCTAssertTrue(SupplyAttention.line(for: low).hasPrefix("Act soon · around "))
     }
 }

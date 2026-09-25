@@ -43,6 +43,31 @@ final class MedicationListDocumentTests: XCTestCase {
         XCTAssertTrue(entry.detailLine.contains("2 refills remaining"))
     }
 
+    /// Doses nobody logged used up the count on record, so the forecast's
+    /// run-out date is today. Printed, it would tell the pharmacy counter the
+    /// supply is gone; the sheet says a count is needed instead.
+    func testACountNeededPrintsNoRunOutDate() throws {
+        var utc = calendar
+        utc.timeZone = TimeZone(secondsFromGMT: 0)!
+        let counted = try XCTUnwrap(utc.date(from: DateComponents(year: 2026, month: 9, day: 1, hour: 7)))
+        let now = try XCTUnwrap(utc.date(from: DateComponents(year: 2026, month: 9, day: 6, hour: 7)))
+        let medication = Medication(name: "Furosemide", createdAt: counted)
+        let schedules = [8, 20].map { DoseSchedule(medicationID: medication.id, minutesAfterMidnight: $0 * 60, doseQuantity: 1, startDate: counted) }
+        let opening = InventoryEvent(medicationID: medication.id, date: counted, delta: 6, reason: .openingCount)
+
+        let entry = try XCTUnwrap(MedicationListDocument.entries(
+            medications: [medication],
+            schedules: schedules,
+            inventoryEvents: [opening],
+            doseEvents: [],
+            now: now,
+            calendar: utc
+        ).first)
+
+        XCTAssertEqual(entry.supplyLine, "6 tablets on record · count needed: 10 doses since the last count weren't logged")
+        XCTAssertFalse(entry.supplyLine.contains("runs out"))
+    }
+
     /// A pharmacy can act on an NDC and a clinic on an RxNorm code; a pharmacy's
     /// own barcode payload means nothing to anyone else and stays off the sheet.
     func testExactProductCodesPrintAndBarcodePayloadsDoNot() {

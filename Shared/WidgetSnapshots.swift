@@ -119,6 +119,8 @@ struct RunsOutSnapshot: Equatable, Sendable {
         /// Counted when the snapshot is made, as `daysRemaining` is.
         let daysSinceRefillDate: Int?
         let onHand: Bool
+        /// The forecast's assumptions used up the ledger; see `SupplyForecast`.
+        let needsCount: Bool
         let accentIndex: Int
 
         var id: UUID { medicationID }
@@ -136,6 +138,7 @@ struct RunsOutSnapshot: Equatable, Sendable {
             SupplyAttention(
                 daysRemaining: daysRemaining,
                 onHand: onHand,
+                needsCount: needsCount,
                 refillLeadDays: refillLeadDays,
                 refillsRemaining: refillsRemaining,
                 refillInProgress: refillInProgress,
@@ -146,7 +149,13 @@ struct RunsOutSnapshot: Equatable, Sendable {
         /// Low, and no refill in progress that can still answer for it.
         var needsAttention: Bool { attention.needsAttention }
 
-        private var isOut: Bool { !onHand || (daysRemaining ?? 1) <= 0 }
+        /// A count needed is never out: its zero days are where the assumed
+        /// doses ran out, and the ledger still shows medication.
+        private var isOut: Bool { !needsCount && (!onHand || (daysRemaining ?? 1) <= 0) }
+
+        /// The day count the widget may print. None while a count is needed,
+        /// for the same reason it is never out.
+        var shownDaysRemaining: Int? { needsCount ? nil : daysRemaining }
 
         var tone: Tone {
             if isOut { return .out }
@@ -157,6 +166,7 @@ struct RunsOutSnapshot: Equatable, Sendable {
         /// A refill on its way is said only while it can still answer for the
         /// supply; at zero, or once it runs late, the count speaks instead.
         var line: String {
+            if needsCount { return "Count needed" }
             if isOut { return "Out of supply" }
             if attention.refillPauseHolds { return "Refill on its way" }
             guard let daysRemaining else { return "Timing unknown" }
@@ -199,6 +209,7 @@ struct RunsOutSnapshot: Equatable, Sendable {
                     refillInProgress: attention.refillInProgress,
                     daysSinceRefillDate: attention.daysSinceRefillDate,
                     onHand: attention.onHand,
+                    needsCount: attention.needsCount,
                     accentIndex: medication.accentIndex
                 )
             }

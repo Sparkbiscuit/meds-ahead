@@ -22,6 +22,9 @@ struct MedicationNotificationPlan: Sendable {
     /// The refill's expected or pickup date.
     var refillStatusDate: Date? = nil
     var onHand = true
+    /// The forecast's assumed doses used up the ledger, so `depletionDate` is
+    /// where they ran out, not a day to plan a refill by.
+    var needsCount = false
 }
 
 struct ScheduleNotificationPlan: Sendable {
@@ -235,6 +238,14 @@ enum NotificationPlanner {
                 // added or cleared, whichever morning it was asked for.
                 retainedPrefixes.insert("meds.\(plan.medicationID.uuidString).refillcheck.")
             }
+            // A count needed has no run-out day to warn ahead of or to quote:
+            // the forecast's today is where its assumptions ran out. It needs
+            // attention now, so a warning already delivered stays, and nothing
+            // new is written from that date. Today and Supply ask for the count.
+            if plan.needsCount {
+                retainedPrefixes.insert("meds.\(plan.medicationID.uuidString).refill.")
+                continue
+            }
             if plan.refillInProgress,
                let checkDate = SupplyAttention.refillCheckMoment(
                    refillStatusDate: plan.refillStatusDate,
@@ -324,6 +335,7 @@ enum NotificationPlanner {
         SupplyAttention(
             daysRemaining: max(0, SupplyAttention.days(from: moment, to: depletionDay, calendar: calendar)),
             onHand: plan.onHand && depletionDay >= calendar.startOfDay(for: moment),
+            needsCount: plan.needsCount,
             refillLeadDays: plan.refillLeadDays,
             refillsRemaining: plan.refillsRemaining,
             refillInProgress: plan.refillInProgress,
@@ -538,7 +550,8 @@ enum NotificationPlanBuilder {
             pharmacyName: medication.pharmacyName,
             rxNumber: medication.rxNumber,
             refillStatusDate: medication.refillStatusDate,
-            onHand: forecast.currentSupply > 0
+            onHand: forecast.currentSupply > 0,
+            needsCount: forecast.needsCount
         )
     }
 }

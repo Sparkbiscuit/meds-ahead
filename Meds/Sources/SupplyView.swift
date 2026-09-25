@@ -147,7 +147,7 @@ private struct SupplyRow: View {
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack(alignment: .top, spacing: 14) {
-                        SupplyGauge(daysRemaining: forecast.daysRemaining, leadDays: attention.leadDays, size: 54)
+                        SupplyGauge(daysRemaining: forecast.daysRemaining, leadDays: attention.leadDays, needsCount: forecast.needsCount, size: 54)
                         nameLine
                         Spacer(minLength: 0)
                     }
@@ -155,7 +155,7 @@ private struct SupplyRow: View {
                 }
             } else {
                 HStack(spacing: 14) {
-                    SupplyGauge(daysRemaining: forecast.daysRemaining, leadDays: attention.leadDays, size: 54)
+                    SupplyGauge(daysRemaining: forecast.daysRemaining, leadDays: attention.leadDays, needsCount: forecast.needsCount, size: 54)
                     VStack(alignment: .leading, spacing: 5) {
                         nameLine
                         supplyCopy
@@ -181,7 +181,7 @@ private struct SupplyRow: View {
             if isLow {
                 Image(systemName: "exclamationmark.circle.fill")
                     .foregroundStyle(.orange)
-                    .accessibilityLabel("Low supply")
+                    .accessibilityLabel(forecast.needsCount ? "Count needed" : "Low supply")
             }
         }
     }
@@ -192,6 +192,12 @@ private struct SupplyRow: View {
                 .font(.subheadline)
                 .foregroundStyle(isLow ? .orange : .secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if let reason = SupplyAttention.countNeededReason(for: forecast) {
+                Text(reason)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             // A late refill is still worth naming, but under the warning, not
             // in place of it.
             if isLow, let status = RefillStatusText.line(for: medication, now: now) {
@@ -200,7 +206,7 @@ private struct SupplyRow: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Text("\(forecast.currentSupply.medicationQuantityText) \(medication.form.unitName)\(forecast.currentSupply == 1 ? "" : "s") on hand")
+            Text("\(forecast.currentSupply.medicationQuantityText) \(medication.form.unitName)\(forecast.currentSupply == 1 ? "" : "s") \(SupplyAttention.quantityWords(for: forecast))")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -248,7 +254,7 @@ private struct TripCheckSheet: View {
                 if !result.uncertain.isEmpty {
                     Section {
                         ForEach(result.uncertain, id: \.medicationID) { item in
-                            row(item, detail: item.forecast.explanation, symbol: "questionmark.circle", tint: .secondary)
+                            row(item, detail: SupplyAttention.countNeededReason(for: item.forecast).map { "Count needed · \($0)" } ?? item.forecast.explanation, symbol: "questionmark.circle", tint: .secondary)
                         }
                     } header: {
                         Text("Can't say")

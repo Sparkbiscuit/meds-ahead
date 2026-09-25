@@ -55,17 +55,17 @@ struct MedicationDetailView: View {
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
-            content(forecast: forecast(now: context.date))
+            content(forecast: forecast(now: context.date), now: context.date)
         }
     }
 
-    private func content(forecast: SupplyForecast) -> some View {
+    private func content(forecast: SupplyForecast, now: Date) -> some View {
         return ZStack {
             CanvasBackground()
             ScrollView {
                 VStack(spacing: 18) {
                     identityHeader
-                    forecastCard(forecast: forecast)
+                    forecastCard(forecast: forecast, now: now)
                     quickActions
                     pharmacyCard
                     scheduleCard
@@ -205,35 +205,42 @@ struct MedicationDetailView: View {
         .padding(.top, 8)
     }
 
-    private func forecastCard(forecast: SupplyForecast) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
+    private func forecastCard(forecast: SupplyForecast, now: Date) -> some View {
+        let attention = SupplyAttention(medication: medication, forecast: forecast, now: now)
+        return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("SUPPLY RUNWAY")
                         .font(.caption2.weight(.bold))
                         .tracking(0.8)
                         .foregroundStyle(.secondary)
-                    Text(forecastTitle(forecast: forecast))
+                    Text(Self.forecastTitle(for: forecast))
                         .font(.system(.title, design: .rounded, weight: .bold))
                         .contentTransition(.numericText())
                 }
                 Spacer()
-                SupplyGauge(daysRemaining: forecast.daysRemaining, leadDays: medication.refillLeadDays, size: 62)
+                SupplyGauge(daysRemaining: forecast.daysRemaining, leadDays: attention.leadDays, needsCount: forecast.needsCount, size: 62)
             }
             Text(forecast.explanation)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            if let status = refillStatusText {
-                Label(status, systemImage: medication.refillStatus == .ready ? "bag.fill" : "phone.arrow.up.right")
+            // In the words Today and Supply use too, and in the accent only
+            // while the refill still answers for the supply: run late, due
+            // after the run-out, or waited on with too little left, it takes
+            // the attention colour they give it.
+            if let status = RefillStatusText.line(for: medication, now: now) {
+                Label(status, systemImage: attention.needsAttention
+                      ? "exclamationmark.circle.fill"
+                      : medication.refillStatus == .ready ? "bag.fill" : "phone.arrow.up.right")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(AppTheme.accent)
+                    .foregroundStyle(attention.needsAttention ? .orange : AppTheme.accent)
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack {
                 ConfidenceBadge(confidence: forecast.confidence)
                 Spacer()
-                Text("\(forecast.currentSupply.medicationQuantityText) on hand")
+                Text("\(forecast.currentSupply.medicationQuantityText) \(SupplyAttention.quantityWords(for: forecast))")
                     .font(.subheadline.weight(.semibold))
             }
         }
@@ -241,12 +248,10 @@ struct MedicationDetailView: View {
         .cardSurface()
     }
 
-    /// Where the refill stands, in the words Today and Supply use too.
-    private var refillStatusText: String? {
-        RefillStatusText.line(for: medication)
-    }
-
-    private func forecastTitle(forecast: SupplyForecast) -> String {
+    /// A count needed is never "Out of supply" and never zero days: the ledger
+    /// still shows medication, and only a count can say whether it is there.
+    static func forecastTitle(for forecast: SupplyForecast) -> String {
+        if forecast.needsCount { return "Count needed" }
         if forecast.currentSupply <= 0 { return "Out of supply" }
         if let days = forecast.daysRemaining {
             return days == 1 ? "About 1 day left" : "About \(days) days left"

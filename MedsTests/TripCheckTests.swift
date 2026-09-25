@@ -34,4 +34,20 @@ final class TripCheckTests: XCTestCase {
         XCTAssertEqual(check.uncertain.map(\.displayName), ["Lotion"])
         XCTAssertEqual(check.fine.map(\.displayName), ["Melatonin"])
     }
+
+    /// A count needed carries today as its run-out date. That is where the
+    /// forecast's assumptions ran out, not the supply, so the trip cannot be
+    /// vouched for either way until someone counts.
+    func testACountNeededIsCantSayNotNeedsRefill() throws {
+        let returnDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 9, day: 20, hour: 18)))
+        let today = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 9, day: 13, hour: 9)))
+        let stale = Medication(name: "Furosemide")
+        let countNeeded = SupplyForecast(currentSupply: 6, depletionDate: today, daysRemaining: 0, confidence: .estimated, explanation: "",
+                                         assumedDoses: 10, needsCount: true)
+
+        let check = TripCheck.make(returnDate: returnDate, forecasts: [(stale, countNeeded)], calendar: calendar)
+        XCTAssertEqual(check.uncertain.map(\.displayName), ["Furosemide"])
+        XCTAssertTrue(check.needsRefill.isEmpty)
+        XCTAssertTrue(check.fine.isEmpty)
+    }
 }

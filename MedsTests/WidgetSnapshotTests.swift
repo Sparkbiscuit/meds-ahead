@@ -108,13 +108,14 @@ final class WidgetSnapshotTests: XCTestCase {
 
     func testARefillOnItsWayNeedsNoAttention() {
         let item = RunsOutSnapshot.Item(medicationID: UUID(), displayName: "Tacrolimus", daysRemaining: 3, depletionDate: date(9), refillLeadDays: 7,
-                                        refillsRemaining: nil, refillInProgress: true, daysSinceRefillDate: nil, onHand: true, accentIndex: 0)
+                                        refillsRemaining: nil, refillInProgress: true, daysSinceRefillDate: nil, onHand: true, needsCount: false, accentIndex: 0)
         XCTAssertFalse(item.needsAttention)
     }
 
-    private func item(daysRemaining: Int?, onHand: Bool = true, refillInProgress: Bool, daysSinceRefillDate: Int? = nil) -> RunsOutSnapshot.Item {
+    private func item(daysRemaining: Int?, onHand: Bool = true, needsCount: Bool = false, refillInProgress: Bool, daysSinceRefillDate: Int? = nil) -> RunsOutSnapshot.Item {
         RunsOutSnapshot.Item(medicationID: UUID(), displayName: "Furosemide", daysRemaining: daysRemaining, depletionDate: date(9), refillLeadDays: 7,
-                             refillsRemaining: nil, refillInProgress: refillInProgress, daysSinceRefillDate: daysSinceRefillDate, onHand: onHand, accentIndex: 0)
+                             refillsRemaining: nil, refillInProgress: refillInProgress, daysSinceRefillDate: daysSinceRefillDate, onHand: onHand,
+                             needsCount: needsCount, accentIndex: 0)
     }
 
     /// "Refill on its way" is said only while the refill can still answer for
@@ -156,5 +157,37 @@ final class WidgetSnapshotTests: XCTestCase {
         XCTAssertEqual(soonest.daysSinceRefillDate, 3)
         XCTAssertTrue(soonest.needsAttention, "three days late with five days left")
         XCTAssertNotEqual(soonest.line, "Refill on its way")
+    }
+
+    /// A forecast whose assumed doses used up the ledger comes with zero days
+    /// and today's date. The widget used to read that as "Out of supply" in
+    /// red with a 0 in the ring, over medication that may still be there.
+    func testACountNeededIsNeverOutOfSupply() throws {
+        let countNeeded = item(daysRemaining: 0, needsCount: true, refillInProgress: false)
+        XCTAssertEqual(countNeeded.line, "Count needed")
+        XCTAssertEqual(countNeeded.tone, .attention)
+        XCTAssertTrue(countNeeded.needsAttention)
+        XCTAssertNil(countNeeded.shownDaysRemaining, "no day count, and so no run-out date either")
+
+        let onItsWay = item(daysRemaining: 0, needsCount: true, refillInProgress: true, daysSinceRefillDate: -1)
+        XCTAssertEqual(onItsWay.line, "Count needed", "a refill on its way does not answer a count")
+        XCTAssertEqual(onItsWay.tone, .attention)
+
+        XCTAssertEqual(item(daysRemaining: 5, refillInProgress: false).shownDaysRemaining, 5)
+
+        // Made from the ledger: six tablets counted, then nothing logged
+        // since, at two tablets every morning.
+        let (_, furosemide, schedules) = medications()
+        let counted = calendar.date(byAdding: .day, value: -3, to: date(0))!
+        let inventory = [InventoryEvent(medicationID: furosemide.id, date: counted, delta: 6, reason: .openingCount)]
+        let earlier = schedules.filter { $0.medicationID == furosemide.id }.map {
+            DoseSchedule(medicationID: $0.medicationID, minutesAfterMidnight: $0.minutesAfterMidnight, doseQuantity: $0.doseQuantity, startDate: counted)
+        }
+        let snapshot = RunsOutSnapshot.make(medications: [furosemide], schedules: earlier, inventoryEvents: inventory, doseEvents: [], now: date(9), calendar: calendar)
+        let soonest = try XCTUnwrap(snapshot.soonest)
+        XCTAssertTrue(soonest.needsCount)
+        XCTAssertTrue(soonest.onHand)
+        XCTAssertEqual(soonest.line, "Count needed")
+        XCTAssertEqual(soonest.tone, .attention)
     }
 }

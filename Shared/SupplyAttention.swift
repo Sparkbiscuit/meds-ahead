@@ -1,10 +1,10 @@
 import Foundation
 
 /// Whether a medication's supply needs someone to act, decided once over plain
-/// values so Supply, Today, the runs-out widget and the notification planner
-/// cannot disagree. They used to: the screens and the alert counted different
-/// lead times, and a refill marked requested or ready silenced every one of
-/// them for good, even with nothing left on hand.
+/// values so Supply, Today, the detail screen, the runs-out widget and the
+/// notification planner cannot disagree. They used to: the screens and the
+/// alert counted different lead times, and a refill marked requested or ready
+/// silenced every one of them for good, even with nothing left on hand.
 struct SupplyAttention: Equatable, Sendable {
     /// The least warning worth giving when a prescription has to be renewed before it
     /// can be filled: reaching a prescriber, and their reaching the pharmacy, is not
@@ -27,6 +27,9 @@ struct SupplyAttention: Equatable, Sendable {
 
     let daysRemaining: Int?
     let onHand: Bool
+    /// The forecast's assumptions used up the ledger: its zero days are where
+    /// they ran out, not a runway, and only a count can say what is left.
+    let needsCount: Bool
     let refillLeadDays: Int
     let refillsRemaining: Int?
     let refillInProgress: Bool
@@ -39,9 +42,9 @@ struct SupplyAttention: Equatable, Sendable {
         Self.leadDays(refillLeadDays: refillLeadDays, refillsRemaining: refillsRemaining)
     }
 
-    /// Inside the lead time, or out.
+    /// Inside the lead time, out, or not known until someone counts.
     var isLow: Bool {
-        !onHand || daysRemaining.map { $0 <= leadDays } ?? false
+        needsCount || !onHand || daysRemaining.map { $0 <= leadDays } ?? false
     }
 
     /// A refill in progress stands in for the warning only while it is still
@@ -49,7 +52,9 @@ struct SupplyAttention: Equatable, Sendable {
     /// due before the supply runs out, and something on hand. An unknown runway
     /// is not a short one.
     var refillPauseHolds: Bool {
-        guard refillInProgress, onHand else { return false }
+        // A refill can stand in for a low count, not for a count nobody has
+        // made: what is on hand now may already be nothing.
+        guard refillInProgress, onHand, !needsCount else { return false }
         if let daysSinceRefillDate, daysSinceRefillDate >= Self.refillGraceDays { return false }
         if let daysRemaining, daysRemaining <= Self.refillPauseMinimumDays { return false }
         // Due on the run-out day or after it, a refill that arrives exactly when
@@ -66,6 +71,7 @@ struct SupplyAttention: Equatable, Sendable {
     init(
         daysRemaining: Int?,
         onHand: Bool,
+        needsCount: Bool,
         refillLeadDays: Int,
         refillsRemaining: Int?,
         refillInProgress: Bool,
@@ -73,6 +79,7 @@ struct SupplyAttention: Equatable, Sendable {
     ) {
         self.daysRemaining = daysRemaining
         self.onHand = onHand
+        self.needsCount = needsCount
         self.refillLeadDays = refillLeadDays
         self.refillsRemaining = refillsRemaining
         self.refillInProgress = refillInProgress
@@ -89,6 +96,7 @@ struct SupplyAttention: Equatable, Sendable {
         self.init(
             daysRemaining: forecast.daysRemaining,
             onHand: forecast.currentSupply > 0,
+            needsCount: forecast.needsCount,
             refillLeadDays: medication.refillLeadDays,
             refillsRemaining: medication.refillsRemaining,
             refillInProgress: inProgress,
@@ -124,10 +132,30 @@ struct SupplyAttention: Equatable, Sendable {
         return calendar.date(bySettingHour: alertHour, minute: 0, second: 0, of: day)
     }
 
-    /// The words a screen puts first when attention is needed: out, or when.
+    /// The words a screen puts first when attention is needed: a count, out,
+    /// or when. A count needed comes first because its date is today and its
+    /// days are zero, which would otherwise read as "Act soon · around today"
+    /// over medication that may still be in the bottle.
     static func line(for forecast: SupplyForecast) -> String {
+        if forecast.needsCount { return "Count needed" }
         guard forecast.currentSupply > 0 else { return "No confirmed supply remains" }
         guard let date = forecast.depletionDate else { return forecast.explanation }
         return "Act soon · around \(date.formatted(.dateTime.month(.abbreviated).day()))"
+    }
+
+    /// Why a count is needed, short enough to sit under "Count needed"; nil
+    /// when none is. The forecast's own explanation is the long form.
+    static func countNeededReason(for forecast: SupplyForecast) -> String? {
+        guard forecast.needsCount else { return nil }
+        let since = forecast.assumedSinceRefill ? "since the last refill" : "since the last count"
+        return forecast.assumedDoses == 1
+            ? "1 dose \(since) wasn't logged"
+            : "\(forecast.assumedDoses) doses \(since) weren't logged"
+    }
+
+    /// What the ledger's number is called beside it. While a count is needed
+    /// nobody knows it is what is on hand, only that it is what was recorded.
+    static func quantityWords(for forecast: SupplyForecast) -> String {
+        forecast.needsCount ? "on record" : "on hand"
     }
 }

@@ -3,18 +3,30 @@ import SwiftUI
 struct SupplyGauge: View {
     let daysRemaining: Int?
     let leadDays: Int
+    /// The forecast's zero days are where its assumed doses ran out, not a
+    /// runway: the ring asks for a count instead of reading empty and red.
+    var needsCount = false
     var size: CGFloat = 46
 
+    /// The day count the ring prints, if any.
+    var shownDays: Int? { needsCount ? nil : daysRemaining }
+
     private var progress: Double {
-        guard let daysRemaining else { return 0.18 }
-        return min(1, max(0.06, Double(daysRemaining) / Double(max(leadDays * 3, 21))))
+        guard let shownDays else { return 0.18 }
+        return min(1, max(0.06, Double(shownDays) / Double(max(leadDays * 3, 21))))
     }
 
-    private var color: Color {
+    var color: Color {
+        if needsCount { return .orange }
         guard let daysRemaining else { return .secondary }
         if daysRemaining <= 0 { return .red }
         if daysRemaining <= leadDays { return .orange }
         return AppTheme.accent
+    }
+
+    var accessibilityText: String {
+        if needsCount { return "Count needed" }
+        return daysRemaining.map { "\($0) days of supply remaining" } ?? "Supply forecast unavailable"
     }
 
     var body: some View {
@@ -24,19 +36,19 @@ struct SupplyGauge: View {
                 .trim(from: 0, to: progress)
                 .stroke(color, style: StrokeStyle(lineWidth: 5, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-            if let daysRemaining {
-                Text("\(daysRemaining)")
+            if let shownDays {
+                Text("\(shownDays)")
                     .font(.caption.weight(.bold))
                     .contentTransition(.numericText())
             } else {
                 Image(systemName: "questionmark")
                     .font(.caption.weight(.bold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(needsCount ? AnyShapeStyle(color) : AnyShapeStyle(.secondary))
             }
         }
         .frame(width: size, height: size)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(daysRemaining.map { "\($0) days of supply remaining" } ?? "Supply forecast unavailable")
+        .accessibilityLabel(accessibilityText)
     }
 }
 

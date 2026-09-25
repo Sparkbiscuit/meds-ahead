@@ -12,11 +12,11 @@ struct RunsOutEntry: TimelineEntry {
             RunsOutSnapshot.Item(medicationID: UUID(), displayName: "Dimethyl fumarate", daysRemaining: 6,
                                  depletionDate: calendar.date(byAdding: .day, value: 6, to: date), refillLeadDays: 10,
                                  refillsRemaining: 0, refillInProgress: false, daysSinceRefillDate: nil, onHand: true,
-                                 accentIndex: 2),
+                                 needsCount: false, accentIndex: 2),
             RunsOutSnapshot.Item(medicationID: UUID(), displayName: "Furosemide", daysRemaining: 21,
                                  depletionDate: calendar.date(byAdding: .day, value: 21, to: date), refillLeadDays: 7,
                                  refillsRemaining: 2, refillInProgress: false, daysSinceRefillDate: nil, onHand: true,
-                                 accentIndex: 0)
+                                 needsCount: false, accentIndex: 0)
         ]
         return RunsOutEntry(date: date, snapshot: RunsOutSnapshot(items: items, now: date), needsApp: false)
     }
@@ -129,7 +129,7 @@ struct RunsOutView: View {
                         Text(item.line)
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(color(for: item))
-                        if let date = item.depletionDate, item.daysRemaining ?? 0 > 0 {
+                        if let date = item.depletionDate, item.shownDaysRemaining ?? 0 > 0 {
                             Text("around \(date.formatted(.dateTime.month(.abbreviated).day()))")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -145,7 +145,7 @@ struct RunsOutView: View {
                                 .lineLimit(1)
                                 .privacySensitive()
                             Spacer()
-                            Text(next.daysRemaining.map { "\($0) d" } ?? "?")
+                            Text(next.shownDaysRemaining.map { "\($0) d" } ?? "?")
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(color(for: next))
                         }
@@ -164,7 +164,7 @@ struct RunsOutView: View {
     private func gauge(for item: RunsOutSnapshot.Item) -> some View {
         let color = color(for: item)
         let progress: Double = {
-            guard let days = item.daysRemaining else { return 0.18 }
+            guard let days = item.shownDaysRemaining else { return 0.18 }
             return min(1, max(0.06, Double(days) / Double(max(item.refillLeadDays * 3, 21))))
         }()
         return ZStack {
@@ -173,7 +173,7 @@ struct RunsOutView: View {
                 .trim(from: 0, to: progress)
                 .stroke(color, style: StrokeStyle(lineWidth: 4, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-            Text(item.daysRemaining.map(String.init) ?? "?")
+            Text(item.shownDaysRemaining.map(String.init) ?? "?")
                 .font(.caption2.weight(.bold))
         }
         .frame(width: 36, height: 36)
@@ -190,7 +190,7 @@ struct RunsOutView: View {
                 .font(.headline)
                 .widgetAccentable()
                 Text(item.line).font(.caption2)
-                if let date = item.depletionDate, item.daysRemaining ?? 0 > 0 {
+                if let date = item.depletionDate, item.shownDaysRemaining ?? 0 > 0 {
                     Text("Runs out around \(date.formatted(.dateTime.month(.abbreviated).day()))").font(.caption2)
                 }
             } else {
