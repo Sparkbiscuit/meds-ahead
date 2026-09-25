@@ -17,6 +17,7 @@ struct MedicationDetailView: View {
     @State private var showingDeleteConfirmation = false
     @State private var showingSaveError = false
     @State private var saveErrorMessage = ""
+    @State private var showingAlreadyLogged = false
 
     private var schedules: [DoseSchedule] {
         allSchedules.filter { $0.medicationID == medication.id }.sorted { $0.minutesAfterMidnight < $1.minutesAfterMidnight }
@@ -176,6 +177,11 @@ struct MedicationDetailView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(saveErrorMessage)
+        }
+        .alert("Already Logged", isPresented: $showingAlreadyLogged) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("The widget or a reminder has already logged this dose. Nothing more was recorded.")
         }
     }
 
@@ -496,12 +502,36 @@ struct MedicationDetailView: View {
     /// unscheduled one, at the amount belonging to the nearest time of day.
     private func recordNow() {
         let now = Date.now
-        let claimed = ScheduleEngine.actionableDose(
+        var claimed = ScheduleEngine.actionableDose(
             schedules: allSchedules,
             medicationID: medication.id,
             doseEvents: allDoseEvents,
             now: now
         )
+        if claimed != nil {
+            // The widget may have logged the dose these arrays offer where they
+            // cannot see it yet, so the store chooses the dose: the next one
+            // still due, as a screen that had caught up would offer. When the
+            // store has every due dose logged, a tap made while this screen still
+            // shows one as due is that same dose, not an extra one: nothing more
+            // is written, and the alert says why.
+            do {
+                claimed = try DoseLogGuard.actionableDose(
+                    schedules: allSchedules,
+                    medicationID: medication.id,
+                    in: modelContext,
+                    now: now
+                )
+            } catch {
+                saveErrorMessage = "Your change wasn't saved. Try again."
+                showingSaveError = true
+                return
+            }
+            guard claimed != nil else {
+                showingAlreadyLogged = true
+                return
+            }
+        }
         let quantity = claimed?.quantity
             ?? ScheduleEngine.nearestScheduledQuantity(
                 schedules: allSchedules,
@@ -659,18 +689,66 @@ private struct ActivityItem: Identifiable {
     let isHealthMirrored: Bool
 }
 
+/// The number a supply sheet records for the text in its field, or nil when the
+/// sheet's button must stay disabled. A count may be zero, since an empty bottle
+/// is a real count; a refill must be more than nothing.
+enum SupplyChangeQuantity {
+    /// The text a sheet opens with, never grouped. A region that groups with "."
+    /// shows 1497.5 as "1.497,5"; deleting only the fraction would leave "1.497",
+    /// which the shared parser reads as 1.497, not 1497.
+    static func text(for value: Double, locale: Locale = .autoupdatingCurrent) -> String {
+        if value.rounded() == value { return value.medicationQuantityText }
+        return value.formatted(.number.grouping(.never).precision(.fractionLength(0...2)).locale(locale))
+    }
+
+    static func value(
+        from text: String,
+        prefilled: Double,
+        requiresMoreThanZero: Bool,
+        locale: Locale = .autoupdatingCurrent
+    ) -> Double? {
+        let value: Double
+        if text == Self.text(for: prefilled, locale: locale) {
+            // The prefilled text is rounded to two places. Left untouched it stands
+            // for the exact number it was made from, so saving an unchanged count
+            // records no correction.
+            value = prefilled
+        } else {
+            // A second decimal separator is a slipped key, not a number: the
+            // lenient parse reads "2..8" as 2 and "1.5.5" as 1.5, and the sheet
+            // closes on the tap without showing the number it read.
+            let separators = text.filter { $0 == "." || String($0) == locale.decimalSeparator }.count
+            // Neither the prefill nor the decimal pad writes a grouping separator,
+            // so one here was pasted or typed on a keyboard, and it is ambiguous:
+            // "1.497" is 1497 to a German reader and 1.497 to the parser.
+            let grouped = locale.groupingSeparator.map { !$0.isEmpty && text.contains($0) } ?? false
+            guard separators <= 1, !grouped,
+                  let parsed = Double.medicationQuantity(from: text, locale: locale) else { return nil }
+            value = parsed
+        }
+        guard value.isFinite, value >= 0, !(requiresMoreThanZero && value <= 0) else { return nil }
+        return value
+    }
+}
+
 private struct SupplyChangeSheet: View {
     let title: String
     let message: String
     let unit: String
+    let initialValue: Double
     let actionTitle: String
     let onSave: (Double, String) -> Void
-    @State private var quantity: Double
+    @State private var text: String
     @State private var note = ""
     @Environment(\.dismiss) private var dismiss
 
-    private var isValid: Bool {
-        quantity.isFinite && quantity >= 0 && (actionTitle != "Add Refill" || quantity > 0)
+    /// Read from the text on every change, as the editor's dose field is, never
+    /// from a value a formatted field writes back: on a phone the editor's
+    /// formatted field wrote back only when it lost focus, and here the decimal
+    /// pad has no Return key and the toolbar button does not end editing, so the
+    /// sheet could record the number it opened with instead of the one typed.
+    private var quantity: Double? {
+        SupplyChangeQuantity.value(from: text, prefilled: initialValue, requiresMoreThanZero: actionTitle == "Add Refill")
     }
 
     init(
@@ -684,9 +762,10 @@ private struct SupplyChangeSheet: View {
         self.title = title
         self.message = message
         self.unit = unit
+        self.initialValue = initialValue
         self.actionTitle = actionTitle
         self.onSave = onSave
-        _quantity = State(initialValue: initialValue)
+        _text = State(initialValue: SupplyChangeQuantity.text(for: initialValue))
     }
 
     var body: some View {
@@ -694,7 +773,7 @@ private struct SupplyChangeSheet: View {
             Form {
                 Section {
                     HStack {
-                        TextField("Quantity", value: $quantity, format: .number.precision(.fractionLength(0...2)))
+                        TextField("Quantity", text: $text)
                             .keyboardType(.decimalPad)
                             .font(.title2.weight(.semibold))
                             .accessibilityIdentifier("supply-quantity")
@@ -712,10 +791,11 @@ private struct SupplyChangeSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(actionTitle) {
+                        guard let quantity else { return }
                         onSave(quantity, note.trimmingCharacters(in: .whitespacesAndNewlines))
                         dismiss()
                     }
-                    .disabled(!isValid)
+                    .disabled(quantity == nil)
                 }
             }
         }

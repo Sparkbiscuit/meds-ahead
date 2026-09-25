@@ -239,6 +239,9 @@ final class MedsUITests: XCTestCase {
         app.buttons["supply-actions"].tap()
         XCTAssertTrue(app.buttons["Add Refill"].waitForExistence(timeout: 3))
         app.buttons["Add Refill"].tap()
+        // The button follows the text as typed: a refill of nothing is refused.
+        replaceQuantity(with: "0")
+        XCTAssertFalse(app.buttons["Add Refill"].isEnabled, "a refill must be more than nothing")
         replaceQuantity(with: "90")
         app.buttons["Add Refill"].tap()
         XCTAssertTrue(app.staticTexts["118 on hand"].waitForExistence(timeout: 3), "the typed refill, not the suggested one")
@@ -246,6 +249,8 @@ final class MedsUITests: XCTestCase {
         app.buttons["supply-actions"].tap()
         XCTAssertTrue(app.buttons["Correct Count"].waitForExistence(timeout: 3))
         app.buttons["Correct Count"].tap()
+        replaceQuantity(with: "0")
+        XCTAssertTrue(app.buttons["Save Count"].isEnabled, "an empty bottle is a real count")
         replaceQuantity(with: "100")
         app.buttons["Save Count"].tap()
         XCTAssertTrue(app.staticTexts["100 on hand"].waitForExistence(timeout: 3), "the typed count, not the one the sheet opened with")

@@ -32,6 +32,8 @@ struct TodayView: View {
     @Environment(\.requestReview) private var requestReview
     @State private var savingDoseIDs: Set<String> = []
     @State private var showingSaveError = false
+    @State private var showingAlreadyLogged = false
+    @State private var alreadyLoggedMessage = ""
     @State private var showingLogAllConfirmation = false
     /// Set aside for the rest of the day rather than forever: someone who tracks
     /// supply without logging every dose should not be nagged permanently, and
@@ -149,6 +151,11 @@ struct TodayView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text("This dose wasn't logged. Try again.")
+        }
+        .alert("Already Logged", isPresented: $showingAlreadyLogged) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(alreadyLoggedMessage)
         }
     }
 
@@ -448,18 +455,25 @@ struct TodayView: View {
         defer { savingDoseIDs.subtract(pending.map(\.1.id)) }
 
         var newEvents: [DoseEvent] = []
-        for (medication, dose) in pending {
-            let event = DoseEvent(
-                medicationID: medication.id,
-                scheduleID: dose.scheduleID,
-                scheduledAt: dose.date,
-                doseQuantity: dose.quantity,
-                status: .taken
-            )
-            modelContext.insert(event)
-            newEvents.append(event)
-        }
         do {
+            for (medication, dose) in pending {
+                // A dose the widget logged may still look due in these arrays.
+                guard try !DoseLogGuard.isLogged(dose, in: modelContext) else { continue }
+                let event = DoseEvent(
+                    medicationID: medication.id,
+                    scheduleID: dose.scheduleID,
+                    scheduledAt: dose.date,
+                    doseQuantity: dose.quantity,
+                    status: .taken
+                )
+                modelContext.insert(event)
+                newEvents.append(event)
+            }
+            guard !newEvents.isEmpty else {
+                alreadyLoggedMessage = "The widget or a reminder has already logged these doses. Nothing more was recorded."
+                showingAlreadyLogged = true
+                return
+            }
             try modelContext.save()
             let newIDs = Set(newEvents.map(\.id))
             let plans = NotificationPlanBuilder.makeAll(
@@ -484,15 +498,23 @@ struct TodayView: View {
     private func record(_ dose: ScheduledDose, for medication: Medication, status: DoseEventStatus) {
         guard self.status(for: dose) == nil, !savingDoseIDs.contains(dose.id) else { return }
         savingDoseIDs.insert(dose.id)
-        let event = DoseEvent(
-            medicationID: medication.id,
-            scheduleID: dose.scheduleID,
-            scheduledAt: dose.date,
-            doseQuantity: dose.quantity,
-            status: status
-        )
-        modelContext.insert(event)
+        defer { savingDoseIDs.remove(dose.id) }
         do {
+            // The widget may have logged this dose where these arrays cannot see it
+            // yet. The card still offers it, so a tap that writes nothing says why.
+            guard try !DoseLogGuard.isLogged(dose, in: modelContext) else {
+                alreadyLoggedMessage = "The widget or a reminder has already logged this dose. Nothing more was recorded."
+                showingAlreadyLogged = true
+                return
+            }
+            let event = DoseEvent(
+                medicationID: medication.id,
+                scheduleID: dose.scheduleID,
+                scheduledAt: dose.date,
+                doseQuantity: dose.quantity,
+                status: status
+            )
+            modelContext.insert(event)
             try modelContext.save()
             let plans = NotificationPlanBuilder.makeAll(
                 medications: medications,
@@ -507,7 +529,6 @@ struct TodayView: View {
             modelContext.rollback()
             showingSaveError = true
         }
-        savingDoseIDs.remove(dose.id)
     }
 
     /// A dose just logged is the moment the app has been useful. The policy
