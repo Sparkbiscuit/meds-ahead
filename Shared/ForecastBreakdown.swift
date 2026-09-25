@@ -70,6 +70,13 @@ struct ForecastBreakdown: Equatable {
         }
     }
 
+    /// A day the schedule's use changes on: a taper's next step, or nil
+    /// while a gap between steps holds no dose.
+    struct UseChange: Equatable, Sendable {
+        let date: Date
+        let use: Use?
+    }
+
     /// What the forecast concluded, read off the forecast itself.
     enum Conclusion: Equatable, Sendable {
         case runsOut(date: Date, daysRemaining: Int)
@@ -165,6 +172,12 @@ struct ForecastBreakdown: Equatable {
     /// returns it for the same inputs.
     let forecast: SupplyForecast
     let alert: Alert?
+    /// The day `use` starts, when nothing is scheduled today and a schedule
+    /// begins later; nil when `use` is today's.
+    var useStarts: Date? = nil
+    /// The days after that the use changes, through the run-out day or the
+    /// course's last day: the steps a taper's conclusion was worked out over.
+    var useChanges: [UseChange] = []
 
     var conclusion: Conclusion { Conclusion(forecast) }
 
@@ -314,6 +327,15 @@ extension ForecastEngine {
             $0.medicationID == medication.id && $0.status == .taken && $0.countsTowardSupply
                 && (ledger.index == nil || $0.recordedAt >= ledger.date)
         }
+        let scheduled = medication.isAsNeeded
+            ? ScheduleUse(use: nil, starts: nil, changes: [])
+            : scheduleUse(
+                schedules: schedules,
+                medicationID: medication.id,
+                now: now,
+                through: forecast.depletionDate ?? forecast.courseEndDate,
+                calendar: calendar
+            )
 
         return ForecastBreakdown(
             form: medication.form,
@@ -326,30 +348,80 @@ extension ForecastEngine {
             assumed: ForecastBreakdown.Tally(count: forecast.assumedDoses, quantity: evaluation.assumedQuantity),
             use: medication.isAsNeeded
                 ? evaluation.asNeededRate.map(ForecastBreakdown.Use.asNeeded)
-                : scheduleUse(schedules: schedules, medicationID: medication.id, now: now, calendar: calendar),
+                : scheduled.use,
             courseEnd: forecast.courseEndDate,
             forecast: forecast,
-            alert: lowSupplyAlert(medication: medication, forecast: forecast, now: now, calendar: calendar)
+            alert: lowSupplyAlert(medication: medication, forecast: forecast, now: now, calendar: calendar),
+            useStarts: scheduled.starts,
+            useChanges: scheduled.changes
         )
     }
 
-    /// What the schedule uses: one amount when every weekday holds the same,
-    /// or the week's total when they differ. A schedule whose last day has
-    /// passed uses nothing any more: counting it would overstate the use
-    /// beside a date the forecast worked out without it, and a finished
-    /// course would still read as using its old amount every day.
-    private static func scheduleUse(schedules: [DoseSchedule], medicationID: UUID, now: Date, calendar: Calendar) -> ForecastBreakdown.Use? {
+    private struct ScheduleUse {
+        let use: ForecastBreakdown.Use?
+        let starts: Date?
+        let changes: [ForecastBreakdown.UseChange]
+    }
+
+    /// What the schedule uses today, or on the first day ahead that holds a
+    /// dose when today holds none, and the days it changes after that up to
+    /// `end`. Each day counts only the schedules running on it: a taper's
+    /// later steps added to today's read as a daily amount nobody is given,
+    /// beside a conclusion the forecast worked out a day at a time. A
+    /// schedule whose last day has passed uses nothing any more, so a
+    /// finished course reads as using nothing.
+    private static func scheduleUse(
+        schedules: [DoseSchedule],
+        medicationID: UUID,
+        now: Date,
+        through end: Date?,
+        calendar: Calendar
+    ) -> ScheduleUse {
+        let own = schedules.filter { $0.medicationID == medicationID }
         let today = calendar.startOfDay(for: now)
-        let own = schedules.filter {
-            $0.medicationID == medicationID && ($0.endDate.map { calendar.startOfDay(for: $0) >= today } ?? true)
+        // One amount when every weekday holds the same, or the week's total
+        // when they differ.
+        func use(on day: Date) -> ForecastBreakdown.Use? {
+            let running = own.filter {
+                calendar.startOfDay(for: $0.startDate) <= day && ($0.endDate.map { calendar.startOfDay(for: $0) >= day } ?? true)
+            }
+            guard !running.isEmpty else { return nil }
+            let byWeekday = (0..<7).map { weekday in
+                running.filter { $0.weekdayMask & (1 << weekday) != 0 }.reduce(0) { $0 + $1.doseQuantity }
+            }
+            return byWeekday.allSatisfy({ $0 == byWeekday[0] })
+                ? .daily(quantity: byWeekday[0])
+                : .weekly(quantity: byWeekday.reduce(0, +))
         }
-        guard !own.isEmpty else { return nil }
-        let byWeekday = (0..<7).map { weekday in
-            own.filter { $0.weekdayMask & (1 << weekday) != 0 }.reduce(0) { $0 + $1.doseQuantity }
+        // The only days the running schedules can change on: one starting,
+        // or the day after one's last.
+        let turns = Set(own.flatMap { schedule -> [Date] in
+            let start = calendar.startOfDay(for: schedule.startDate)
+            let after = schedule.endDate.flatMap { calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: $0)) }
+            return [start] + (after.map { [$0] } ?? [])
+        })
+        .filter { $0 > today }
+        .sorted()
+
+        var current = use(on: today)
+        var starts: Date?
+        if current == nil, let first = turns.first(where: { use(on: $0) != nil }) {
+            current = use(on: first)
+            starts = first
         }
-        return byWeekday.allSatisfy({ $0 == byWeekday[0] })
-            ? .daily(quantity: byWeekday[0])
-            : .weekly(quantity: byWeekday.reduce(0, +))
+        guard let current else { return ScheduleUse(use: nil, starts: nil, changes: []) }
+        var changes: [ForecastBreakdown.UseChange] = []
+        if let end {
+            let lastDay = calendar.startOfDay(for: end)
+            var previous: ForecastBreakdown.Use? = current
+            for day in turns where day > (starts ?? today) && day <= lastDay {
+                let next = use(on: day)
+                guard next != previous else { continue }
+                changes.append(ForecastBreakdown.UseChange(date: day, use: next))
+                previous = next
+            }
+        }
+        return ScheduleUse(use: current, starts: starts, changes: changes)
     }
 
     /// The low-supply alert for this forecast, worked out as

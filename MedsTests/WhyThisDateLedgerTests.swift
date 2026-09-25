@@ -407,6 +407,95 @@ final class WhyThisDateLedgerTests: XCTestCase {
         XCTAssertEqual(result.last?.kind, .alert)
     }
 
+    /// A taper, as a discharge writes one: two a day through Sep 30, then one
+    /// a day through Oct 14. The use line says today's amount and the step
+    /// after it, so 28 left, less 10 and 14, checks against the 4 the
+    /// conclusion leaves, where the two steps added together read as three a
+    /// day nobody is given.
+    func testATaperSaysTodaysAmountAndTheStepsAfterIt() throws {
+        let medication = Medication(name: "Prednisone", createdAt: date(9, 20, 7))
+        let schedules = [
+            DoseSchedule(medicationID: medication.id, minutesAfterMidnight: 8 * 60, doseQuantity: 2, startDate: date(9, 20, 7),
+                         endDate: ScheduleEngine.normalizedEndDate(forDay: date(9, 30), calendar: calendar)),
+            DoseSchedule(medicationID: medication.id, minutesAfterMidnight: 8 * 60, doseQuantity: 1, startDate: date(10, 1, 0),
+                         endDate: ScheduleEngine.normalizedEndDate(forDay: date(10, 14), calendar: calendar))
+        ]
+        let inventory = [InventoryEvent(medicationID: medication.id, date: date(9, 20, 7), delta: 40, reason: .openingCount)]
+        func explained(at now: Date, _ inventory: [InventoryEvent] = inventory) -> ForecastBreakdown {
+            ForecastEngine.breakdown(medication: medication, schedules: schedules, inventoryEvents: inventory, doseEvents: [], now: now, calendar: calendar)
+        }
+
+        let midway = explained(at: date(9, 25))
+        XCTAssertEqual(midway.use, .daily(quantity: 2), "today's step alone")
+        XCTAssertNil(midway.useStarts)
+        XCTAssertEqual(midway.useChanges, [ForecastBreakdown.UseChange(date: calendar.startOfDay(for: date(10, 1)), use: .daily(quantity: 1))])
+        let result = lines(midway)
+        XCTAssertEqual(result.map(\.text), [
+            "Started with 40 tablets on \(day(date(9, 20)))",
+            "No doses logged since then",
+            "= 40 tablets on record",
+            "−12 tablets from 6 scheduled doses not logged, assumed taken",
+            "= about 28 tablets left",
+            "Uses 2 tablets a day now",
+            "Last day of the course: \(day(date(10, 14)))",
+            "Enough to finish the course on \(day(date(10, 14))), with 4 tablets left"
+        ])
+        let use = try XCTUnwrap(result.first { $0.kind == .use })
+        XCTAssertEqual(use.detail, "Then 1 tablet a day from \(day(date(10, 1))).")
+        XCTAssertEqual(use.spoken, "The schedule uses 2 tablets a day now, then 1 tablet a day from \(day(date(10, 1))).")
+
+        // On the last step, nothing is left to change to.
+        let last = explained(at: date(10, 5))
+        XCTAssertEqual(last.use, .daily(quantity: 1))
+        XCTAssertEqual(last.useChanges, [])
+        XCTAssertEqual(lines(last).first { $0.kind == .use }?.text, "Uses 1 tablet a day")
+
+        // Counted before the course starts: nothing today, so the first step
+        // says when it begins.
+        let early = [InventoryEvent(medicationID: medication.id, date: date(9, 18, 7), delta: 40, reason: .openingCount)]
+        let before = explained(at: date(9, 18), early)
+        XCTAssertEqual(before.use, .daily(quantity: 2))
+        XCTAssertEqual(before.useStarts, calendar.startOfDay(for: date(9, 20)))
+        let starting = try XCTUnwrap(lines(before).first { $0.kind == .use })
+        XCTAssertEqual(starting.text, "Uses 2 tablets a day from \(day(date(9, 20)))")
+        XCTAssertEqual(starting.detail, "Then 1 tablet a day from \(day(date(10, 1))).")
+        XCTAssertEqual(starting.spoken, "The schedule uses 2 tablets a day from \(day(date(9, 20))), then 1 tablet a day from \(day(date(10, 1))).")
+    }
+
+    /// Several steps with a day off between two of them, said in order; a
+    /// step after the supply runs out played no part in the date, so it is
+    /// left out.
+    func testEveryStepUpToTheDateIsSaidInOrder() throws {
+        let medication = Medication(name: "Prednisone", createdAt: date(9, 20, 7))
+        func step(_ quantity: Double, _ first: Int, _ last: Int) -> DoseSchedule {
+            DoseSchedule(medicationID: medication.id, minutesAfterMidnight: 8 * 60, doseQuantity: quantity, startDate: date(9, first, 0),
+                         endDate: ScheduleEngine.normalizedEndDate(forDay: date(9, last), calendar: calendar))
+        }
+        let schedules = [step(3, 20, 22), step(2, 23, 25), step(1, 27, 30)]
+        func explained(count: Double) -> ForecastBreakdown {
+            ForecastEngine.breakdown(
+                medication: medication,
+                schedules: schedules,
+                inventoryEvents: [InventoryEvent(medicationID: medication.id, date: date(9, 20, 7), delta: count, reason: .openingCount)],
+                doseEvents: [],
+                now: date(9, 20, 7),
+                calendar: calendar
+            )
+        }
+
+        let covered = explained(count: 30)
+        XCTAssertEqual(covered.conclusion, .courseCovered(end: ScheduleEngine.normalizedEndDate(forDay: date(9, 30), calendar: calendar), leftover: 11))
+        let use = try XCTUnwrap(lines(covered).first { $0.kind == .use })
+        XCTAssertEqual(use.text, "Uses 3 tablets a day now")
+        XCTAssertEqual(use.detail, "Then 2 tablets a day from \(day(date(9, 23))), nothing scheduled from \(day(date(9, 26))) and 1 tablet a day from \(day(date(9, 27))).")
+
+        let short = explained(count: 8)
+        guard case let .runsOut(runsOut, _) = short.conclusion else { return XCTFail("eight tablets run out on the 22nd") }
+        XCTAssertEqual(calendar.startOfDay(for: runsOut), calendar.startOfDay(for: date(9, 22)))
+        XCTAssertEqual(short.useChanges, [], "the steps after the 22nd played no part in the date")
+        XCTAssertEqual(lines(short).first { $0.kind == .use }?.text, "Uses 3 tablets a day")
+    }
+
     /// A count made from Today or "Why this date?" is the same correction
     /// the detail screen records: the difference from the ledger, or a zero
     /// correction when they agree, so a count always ends "Count needed".

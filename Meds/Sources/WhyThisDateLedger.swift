@@ -196,13 +196,36 @@ enum WhyThisDateLedger {
             return [change, total]
         }
 
+        /// "2 tablets a day", or a week's total with its daily share.
+        private func rate(_ use: ForecastBreakdown.Use?) -> String {
+            switch use {
+            case let .daily(quantity)?: "\(amount(quantity)) a day"
+            case let .weekly(quantity)?: "\(amount(quantity)) a week, about \(amount(quantity / 7)) a day"
+            case let .asNeeded(rate)?: "about \(amount(rate.perDay)) a day"
+            case nil: "nothing scheduled"
+            }
+        }
+
         private func use(_ use: ForecastBreakdown.Use) -> Line {
             switch use {
-            case let .daily(quantity):
-                return Line(kind: .use, text: "Uses \(amount(quantity)) a day", spoken: "The schedule uses \(amount(quantity)) a day.")
-            case let .weekly(quantity):
-                let text = "Uses \(amount(quantity)) a week, about \(amount(use.perDay)) a day"
-                return Line(kind: .use, text: text, spoken: "The schedule uses \(amount(quantity)) a week, about \(amount(use.perDay)) a day.")
+            case .daily, .weekly:
+                // A taper's later steps are said beside today's amount, so the
+                // amount left can be checked against the conclusion under it,
+                // which was worked out over every step.
+                let starts = breakdown.useStarts.map { " from \(day($0))" } ?? ""
+                let now = breakdown.useChanges.isEmpty || !starts.isEmpty ? "" : " now"
+                let text = "Uses \(rate(use))\(starts)\(now)"
+                let steps = breakdown.useChanges.map { "\(rate($0.use)) from \(day($0.date))" }
+                guard let last = steps.last else {
+                    return Line(kind: .use, text: text, spoken: "The schedule uses \(rate(use))\(starts).")
+                }
+                let then = steps.count == 1 ? last : steps.dropLast().joined(separator: ", ") + " and " + last
+                return Line(
+                    kind: .use,
+                    text: text,
+                    detail: "Then \(then).",
+                    spoken: "The schedule uses \(rate(use))\(starts)\(now), then \(then)."
+                )
             case let .asNeeded(rate):
                 // Over the history that exists, at most thirty days, which is
                 // what the run-out date was divided out from.
