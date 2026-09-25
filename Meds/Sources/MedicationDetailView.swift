@@ -165,7 +165,7 @@ struct MedicationDetailView: View {
             }
         }
         .sheet(item: $refillStatusToSet) { status in
-            RefillStatusSheet(status: status, initialDate: medication.refillStatusDate ?? .now) { date in
+            RefillStatusSheet(status: status, initialDate: Self.refillStatusInitialDate(for: status, medication: medication)) { date in
                 medication.refillStatus = status
                 medication.refillStatusDate = date
                 medication.updatedAt = .now
@@ -254,6 +254,15 @@ struct MedicationDetailView: View {
         }
         .padding(19)
         .cardSurface()
+    }
+
+    /// The date a refill status sheet opens on: the one stored for that same
+    /// status, or today. The date decides how long the refill quiets the
+    /// low-supply warning, so Ready for Pickup opened on the day the refill
+    /// was requested started a pause that had already run out, and the app
+    /// said the refill needed checking the moment it was marked ready.
+    static func refillStatusInitialDate(for status: RefillStatus, medication: Medication, now: Date = .now) -> Date {
+        medication.refillStatus == status ? (medication.refillStatusDate ?? now) : now
     }
 
     /// A count needed is never "Out of supply" and never zero days: the ledger

@@ -34,6 +34,30 @@ final class SupplyAttentionTests: XCTestCase {
         )
     }
 
+    /// The refill's date decides how long it quiets the warning, so marking a
+    /// requested refill ready starts from the day it was marked. Opened on the
+    /// date stored for the request, the sheet started a pause already over,
+    /// and "A refill needs checking" sat beside "Ready for pickup".
+    @MainActor
+    func testMarkingARequestedRefillReadyStartsFromThatDay() {
+        let medication = Medication(name: "Furosemide", refillStatus: .requested, refillStatusDate: day(10))
+        let now = day(13)
+        XCTAssertEqual(MedicationDetailView.refillStatusInitialDate(for: .ready, medication: medication, now: now), now)
+        XCTAssertEqual(MedicationDetailView.refillStatusInitialDate(for: .requested, medication: medication, now: now), day(10),
+                       "reopening the same status keeps the date it was given")
+        XCTAssertEqual(MedicationDetailView.refillStatusInitialDate(for: .requested, medication: Medication(name: "Furosemide"), now: now), now)
+
+        let fiveDaysLeft = SupplyForecast(currentSupply: 5, depletionDate: day(18), daysRemaining: 5, confidence: .high, explanation: "")
+        let readyOn = MedicationDetailView.refillStatusInitialDate(for: .ready, medication: medication, now: now)
+        medication.refillStatus = .ready
+        medication.refillStatusDate = readyOn
+        XCTAssertFalse(SupplyAttention(medication: medication, forecast: fiveDaysLeft, now: now, calendar: calendar).needsAttention)
+
+        medication.refillStatusDate = day(10)
+        XCTAssertTrue(SupplyAttention(medication: medication, forecast: fiveDaysLeft, now: now, calendar: calendar).needsAttention,
+                      "the request's date, kept, had already ended the pause")
+    }
+
     func testARefillExpectedAheadStillQuietsTheWarning() {
         let expected = attention(daysRemaining: 9, refillLeadDays: 10, daysSinceRefillDate: -3)
         XCTAssertTrue(expected.isLow)
