@@ -86,6 +86,18 @@ enum ScheduleEngine {
         return date
     }
 
+    /// Whether the schedule still has a dose at exactly this moment. A time
+    /// drawn earlier, by a widget, may since have been edited, ended, or
+    /// fallen before the schedule's first day; logging it anyway would record
+    /// a dose at a time, or on a day, that no screen offers.
+    static func hasSlot(
+        _ schedule: DoseSchedule,
+        at date: Date,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> Bool {
+        scheduledDate(for: schedule, on: calendar.startOfDay(for: date), calendar: calendar) == date
+    }
+
     /// Every dose scheduled on the calendar day containing `day`. Today, the
     /// medication detail screen, and the missed-dose list all ask this question, and
     /// asking it in one place keeps them from disagreeing about the day's boundaries.

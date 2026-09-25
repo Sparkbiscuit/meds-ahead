@@ -391,6 +391,36 @@ final class ScheduleEngineTests: XCTestCase {
         XCTAssertNil(ScheduleEngine.nearestScheduledDose(to: eight, schedules: schedules, medicationID: UUID(), calendar: calendar))
     }
 
+    /// The widget logs the dose it last drew. By the tap, the time may have
+    /// been edited, the schedule ended, or the day may be one the schedule no
+    /// longer offers; only a slot the engine still produces may be logged.
+    func testAWidgetsSlotIsLoggedOnlyWhileTheEngineStillOffersIt() throws {
+        let calendar = calendar("GMT")
+        let schedule = DoseSchedule(medicationID: UUID(), minutesAfterMidnight: 8 * 60, doseQuantity: 1,
+                                    startDate: try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 9, day: 1))))
+        let drawn = try slot(schedule, day: 10, calendar: calendar).date
+        XCTAssertTrue(ScheduleEngine.hasSlot(schedule, at: drawn, calendar: calendar))
+
+        schedule.minutesAfterMidnight = 9 * 60
+        XCTAssertFalse(ScheduleEngine.hasSlot(schedule, at: drawn, calendar: calendar), "the time was edited")
+        schedule.minutesAfterMidnight = 8 * 60
+
+        schedule.endDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 9, day: 9)))
+        XCTAssertFalse(ScheduleEngine.hasSlot(schedule, at: drawn, calendar: calendar), "the schedule ended")
+        schedule.endDate = nil
+
+        schedule.startDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 9, day: 10, hour: 15)))
+        XCTAssertFalse(ScheduleEngine.hasSlot(schedule, at: drawn, calendar: calendar), "saved after that morning had passed")
+
+        // A time the clock skips is offered where the engine moves it, and the
+        // same question gives the same answer there.
+        let newYork = self.calendar("America/New_York")
+        let springForward = try XCTUnwrap(newYork.date(from: DateComponents(year: 2026, month: 3, day: 8)))
+        let early = DoseSchedule(medicationID: UUID(), minutesAfterMidnight: 2 * 60 + 30, startDate: springForward)
+        let offered = try XCTUnwrap(ScheduleEngine.doses(schedules: [early], medicationID: early.medicationID, onDayOf: springForward, calendar: newYork).first)
+        XCTAssertTrue(ScheduleEngine.hasSlot(early, at: offered.date, calendar: newYork))
+    }
+
     func testNonexistentSpringForwardTimeMovesToNextValidTime() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "America/New_York"))

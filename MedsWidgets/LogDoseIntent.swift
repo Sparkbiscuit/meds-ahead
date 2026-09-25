@@ -43,8 +43,13 @@ struct LogNextDoseIntent: AppIntent {
         let medications = try context.fetch(FetchDescriptor<Medication>())
         let schedules = try context.fetch(FetchDescriptor<DoseSchedule>())
         let doseEvents = try context.fetch(FetchDescriptor<DoseEvent>())
+        // The snapshot's time is only what the widget last drew. The engine is
+        // asked again, as a reminder action does, so a slot it no longer
+        // produces (a time edited since, an ended schedule, a first day that
+        // began after it) is refused instead of logged.
         guard let medication = medications.first(where: { $0.id == medicationID }), !medication.isArchived,
-              let schedule = schedules.first(where: { $0.id == scheduleID }), schedule.medicationID == medicationID else {
+              let schedule = schedules.first(where: { $0.id == scheduleID }), schedule.medicationID == medicationID,
+              ScheduleEngine.hasSlot(schedule, at: scheduledAt) else {
             return .result()
         }
         let dose = ScheduledDose(medicationID: medicationID, scheduleID: scheduleID, date: scheduledAt, quantity: schedule.doseQuantity)
