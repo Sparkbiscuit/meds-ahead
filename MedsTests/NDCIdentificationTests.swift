@@ -561,6 +561,36 @@ final class NDCIdentificationTests: XCTestCase {
         }
     }
 
+    /// The other direction of the brand check: ASTAGRAF XL printed anywhere
+    /// on the label, and the code misread to Prograf. The labeler's other
+    /// brands of the drug are brands the label can print.
+    func testALabelPrintingAnotherBrandOfTheDrugRefusesTheCode() {
+        for lines in [
+            ["RIVERSIDE PHARMACY", "TACROLIMUS 1 MG CAPSULE", "ASTAGRAF XL", "NDC 0469-0617-73"],
+            ["RIVERSIDE PHARMACY", "TACROLIMUS 1 MG CAPSULE", "GENERIC FOR ASTAGRAF XL", "NDC 0469-0617-73"],
+            ["RIVERSIDE PHARMACY", "ASTAGRAF XL 1 MG CAPSULE", "NDC 0469-0617-73"]
+        ] {
+            let draft = releasedDraft(lines)
+            XCTAssertEqual(draft.identification, .contradicted(code: "00469-0617-73", product: "Tacrolimus 1 mg (Prograf)"), "\(lines)")
+            XCTAssertNotEqual(draft.nameProvenance, .ndc, "\(lines)")
+            XCTAssertNotEqual(draft.brandName, "Prograf", "\(lines)")
+            XCTAssertEqual(draft.rxNormCode, "", "\(lines)")
+        }
+
+        // The same label with the code it carries.
+        let right = releasedDraft(["RIVERSIDE PHARMACY", "TACROLIMUS 1 MG CAPSULE", "ASTAGRAF XL", "NDC 0469-0677-73"])
+        XCTAssertEqual(right.identification, .accepted(code: "00469-0677-73"))
+        XCTAssertEqual(right.brandName, "Astagraf XL")
+
+        // A generic of the labeler has no brand of its own to print, and the
+        // release the printed brand names refuses it instead.
+        let generic = MedicationLabelInterpreter.offlineDraft(
+            evidence(["RIVERSIDE PHARMACY", "TACROLIMUS 1 MG CAPSULE", "ASTAGRAF XL", "NDC 0469-0999-73"]),
+            ndcDirectory: releasedDirectory(tacrolimusRows + [("004690999", "tacrolimus", "", "1 mg", "capsule", "")])
+        )
+        XCTAssertEqual(generic.identification, .contradicted(code: "00469-0999-73", product: "Tacrolimus 1 mg"))
+    }
+
     /// A narrow label wraps "TACROLIMUS XL 1 MG CAPSULE" onto two lines.
     func testWrappedReleaseLettersRefuseAnImmediateReleaseCode() {
         for lines in [
@@ -572,6 +602,28 @@ final class NDCIdentificationTests: XCTestCase {
             XCTAssertNotEqual(draft.brandName, "Prograf", "\(lines)")
             XCTAssertEqual(draft.rxNormCode, "", "\(lines)")
         }
+    }
+
+    /// Two readings, one of each release, leave the release in doubt, so the
+    /// table's immediate-release brand is not lent either.
+    func testTwoReadingsOfTwoReleasesLendNoBrand() {
+        let draft = releasedDraft(["TACROLIMUS 1 MG CAPSULE", "NDC 0469-0677-73", "NDC 0469-0617-73"])
+        XCTAssertEqual(draft.identification, .ambiguous)
+        XCTAssertEqual(draft.name, "Tacrolimus")
+        XCTAssertEqual(draft.brandName, "")
+    }
+
+    /// Some listings carry the drug's name and strength as their brand. A
+    /// label that names the drug has not named such a product, so it does not
+    /// vouch for the product's release.
+    func testABrandThatIsOnlyTheDrugsNameDoesNotBackARelease() {
+        let rows = tacrolimusRows + [("699990081", "aspirin", "Aspirin 81 mg", "81 mg", "tablet", "dr")]
+        func draft(_ lines: [String]) -> MedicationDraft {
+            MedicationLabelInterpreter.offlineDraft(evidence(lines), ndcDirectory: releasedDirectory(rows))
+        }
+        XCTAssertEqual(draft(["ASPIRIN 81 MG TABLET", "NDC 69999-0081-01"]).identification,
+                       .uncorroborated(code: "69999-0081-01", product: "Aspirin 81 mg delayed-release (Aspirin 81 mg)"))
+        XCTAssertEqual(draft(["ASPIRIN EC 81 MG TABLET", "NDC 69999-0081-01"]).identification, .accepted(code: "69999-0081-01"))
     }
 
     /// A guess at a neighbouring code goes forward only when the label rules
@@ -656,6 +708,36 @@ final class NDCIdentificationTests: XCTestCase {
         XCTAssertEqual(refined.name, "Tacrolimus")
         XCTAssertEqual(refined.brandName, "", "not Prograf")
         XCTAssertEqual(refined.identification, doubted.identification)
+    }
+
+    /// Nor may it lend one when the reading without it found no name at all,
+    /// and the model supplies the name beside a code for the other release.
+    @available(iOS 26.0, *)
+    func testTheLanguageModelDoesNotLendABrandTheCodeArguesAgainst() {
+        let unnamed = releasedDraft(["QTY 60 1 MG", "TACROLIMUS CAPSULES", "NDC 0469-0677-73"])
+        XCTAssertEqual(unnamed.name, "", "the reading without the model finds no name here")
+        XCTAssertEqual(unnamed.identification, .uncorroborated(code: "00469-0677-73", product: "Tacrolimus 1 mg (Astagraf XL)"))
+        let candidates = LabelInterpretationCandidates(
+            medicationNames: [LabelFieldCandidate(id: 1, value: "TACROLIMUS")],
+            strengths: [LabelFieldCandidate(id: 1, value: "1 mg")],
+            directions: [],
+            quantities: [],
+            refills: []
+        )
+        let selection = LabelFieldSelection(
+            medicationNameID: 1,
+            normalizedMedicationName: "Tacrolimus",
+            strengthID: 1,
+            directionsID: 0,
+            quantityID: 0,
+            refillsID: 0
+        )
+
+        let refined = MedicationLabelInterpreter.applying(selection, candidates: candidates, to: unnamed)
+
+        XCTAssertEqual(refined.name, "Tacrolimus")
+        XCTAssertEqual(refined.brandName, "", "not Prograf beside a code for Astagraf XL")
+        XCTAssertEqual(refined.identification, unnamed.identification)
     }
 
     func testThePreviewReportsAnExactMatch() {

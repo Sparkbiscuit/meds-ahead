@@ -98,7 +98,9 @@ enum NDCIdentification {
         for (key, match) in byProduct where match.source == .printedText && (printedPackages[key]?.count ?? 0) > 1 {
             byProduct[key]?.packageIsSettled = false
         }
-        let judged = order.compactMap { key in byProduct[key].map { ($0, verdict(for: $0, against: draft, labelText: labelText)) } }
+        let judged = order.compactMap { key in
+            byProduct[key].map { ($0, verdict(for: $0, against: draft, labelText: labelText, directory: directory)) }
+        }
         guard !judged.isEmpty else { return nil }
         let surviving = judged.filter { $0.1 != .contradicted }
         if surviving.isEmpty { return judged[0] }
@@ -154,7 +156,12 @@ enum NDCIdentification {
         return text
     }
 
-    static func verdict(for match: Match, against draft: MedicationDraft, labelText: String) -> Verdict {
+    static func verdict(
+        for match: Match,
+        against draft: MedicationDraft,
+        labelText: String,
+        directory: NDCDirectory = .shared
+    ) -> Verdict {
         let product = match.product
 
         // The label's own confirmed name is a different drug.
@@ -177,8 +184,10 @@ enum NDCIdentification {
 
         let labelWords = Set(words(labelText))
         let reference = referenceBrand(of: product)
-        let release = releaseEvidence(in: labelText, labelWords: labelWords, for: product, reference: reference, draft: draft)
-        if releaseContradicts(release, product: product) || printsAnotherBrand(reference, on: labelWords, product: product) {
+        let siblings = brandedSiblings(of: product, directory: directory)
+        let release = releaseEvidence(in: labelText, labelWords: labelWords, for: product, reference: reference, siblings: siblings, draft: draft)
+        if releaseContradicts(release, product: product)
+            || printsAnotherBrand(reference, siblings: siblings, on: labelWords, product: product) {
             return .contradicted
         }
 
@@ -193,21 +202,30 @@ enum NDCIdentification {
     /// What the label says about release on the lines that name this drug.
     /// Where it says nothing in letters, a reference brand it prints says it
     /// for it: PROGRAF is immediate-release tacrolimus, as TOPROL XL is
-    /// extended-release metoprolol. The product's own brand printed is the
-    /// label naming this very product, and implies nothing further.
+    /// extended-release metoprolol. So does a brand of the labeler's other
+    /// products of the drug, wherever it is printed: ASTAGRAF XL on a line of
+    /// its own under "TACROLIMUS 1 MG CAPSULE" is extended release. The
+    /// product's own brand printed is the label naming this very product, and
+    /// implies nothing further.
     private static func releaseEvidence(
         in labelText: String,
         labelWords: Set<String>,
         for product: NDCProduct,
         reference: String?,
+        siblings: [NDCProduct],
         draft: MedicationDraft
     ) -> ReleaseForm.Evidence {
         let reference = reference ?? ""
         let nameWords = (words(product.genericName) + words(product.brandName) + words(draft.name) + words(reference))
             .filter { !uninformativeTokens.contains($0) && !interchangeableSalts.contains($0) }
         var evidence = ReleaseForm.evidence(in: labelText, namedBy: Set(nameWords))
-        let ownBrandPrinted = brandKey(product.brandName)?.isSubset(of: labelWords) == true
-        if evidence.stated.isEmpty, !ownBrandPrinted,
+        guard !printsOwnBrand(product, on: labelWords) else { return evidence }
+        // Only a modified release is taken from a sibling's listing: an empty
+        // column claims nothing, and Tecfidera is delayed-release filed plain.
+        for sibling in siblings where printsOwnBrand(sibling, on: labelWords) {
+            if let release = sibling.comparableRelease, release.isModified { evidence.stated.insert(release) }
+        }
+        if evidence.stated.isEmpty,
            let key = brandKey(reference), key.isSubset(of: labelWords),
            let implied = MedicationBrandIndex.release(ofName: "", brand: reference) {
             evidence.stated.insert(implied)
@@ -244,43 +262,93 @@ enum NDCIdentification {
     ) -> Bool {
         guard let release = product.comparableRelease, release.isModified else { return true }
         if evidence.suggested.contains(release) { return true }
-        if brandKey(product.brandName)?.isSubset(of: labelWords) == true { return true }
+        if printsOwnBrand(product, on: labelWords) { return true }
         return (draft.nameProvenance == .vocabulary || draft.nameProvenance == .strengthAnchored)
             && MedicationBrandIndex.release(ofName: draft.name, brand: "") == release
     }
 
-    /// The label as read, less a brand the table lent it that the code read
-    /// beside it argues against. "TACROLIMUS 1 MG CAPSULE" borrows Prograf,
-    /// which is immediate-release; a code for Astagraf XL that the label could
-    /// not confirm leaves the release in doubt, and a brand that settles it
-    /// wrongly is worse than none. A brand the label prints is kept.
-    static func doubtingBorrowedBrand(of draft: MedicationDraft, for match: Match, labelText: String) -> MedicationDraft {
-        guard let release = match.product.comparableRelease, release.isModified,
-              !draft.brandName.isEmpty,
-              let borrowed = brandKey(draft.brandName), !borrowed.isSubset(of: Set(words(labelText))),
-              MedicationBrandIndex.release(ofName: "", brand: draft.brandName).map({ $0 != release }) ?? false,
-              namesAgree(labelText: draft.name, product: match.product) else { return draft }
-        var result = draft
-        result.brandName = ""
-        return result
+    /// Whether a brand the table would lend a label's name is one the label
+    /// argues against: a code read on it names the drug in another release, or
+    /// it prints another brand of the drug. "TACROLIMUS 1 MG CAPSULE" borrows
+    /// Prograf, which is immediate-release; beside a code for Astagraf XL,
+    /// whether or not the label could confirm the code, or under a line that
+    /// reads ASTAGRAF XL, the release is in doubt, and a brand that settles it
+    /// wrongly is worse than none. A brand the label prints is never doubted.
+    static func doubts(
+        borrowedBrand brand: String,
+        for name: String,
+        evidence: [ScanEvidence],
+        labelText: String,
+        directory: NDCDirectory = .shared
+    ) -> Bool {
+        guard !brand.isEmpty, !name.isEmpty, !directory.isEmpty, let borrowed = brandKey(brand) else { return false }
+        let labelWords = Set(words(labelText))
+        guard !borrowed.isSubset(of: labelWords) else { return false }
+        let borrowedRelease = MedicationBrandIndex.release(ofName: "", brand: brand)
+        let products = readings(in: evidence)
+            .flatMap(\.candidates)
+            .compactMap { directory.product(for: $0) }
+            .filter { namesAgree(labelText: name, product: $0) }
+        return products.contains { product in
+            if let release = product.comparableRelease, let borrowedRelease, release != borrowedRelease { return true }
+            return ([product] + brandedSiblings(of: product, directory: directory)).contains { other in
+                printsOwnBrand(other, on: labelWords) && brandKey(other.brandName) != borrowed
+            }
+        }
     }
 
-    /// Whether the label prints this drug's reference brand while the code
-    /// names another brand of it: PROGRAF on the label, Astagraf XL from the
-    /// code. Like a salt, a brand makes a different product; unlike a salt it
-    /// is refused only when the product's own brand is nowhere on the label.
-    /// A store's brand ("CVS Health Ibuprofen") is the generic under a shop's
-    /// name and prints "compare to Advil" beside it, and a variant of the
-    /// reference brand ("Bactrim DS", "Adderall XR") differs from it in
-    /// strength or release, which are checked on their own, so neither is
-    /// held to this.
-    private static func printsAnotherBrand(_ reference: String?, on labelWords: Set<String>, product: NDCProduct) -> Bool {
+    /// Whether the label prints another brand of this drug while the code
+    /// names a brand it does not print: PROGRAF on the label with Astagraf XL
+    /// from the code, or the other way round. The other brands are the
+    /// table's reference brand and the brands of the labeler's other products
+    /// of the drug, which a code misread by one digit lands on. Like a salt, a
+    /// brand makes a different product; unlike a salt it is refused only when
+    /// the product's own brand is nowhere on the label. A store's brand ("CVS
+    /// Health Ibuprofen") is the generic under a shop's name and prints
+    /// "compare to Advil" beside it, and a variant of the product's own brand
+    /// ("Bactrim DS", "Adderall XR") differs from it in strength or release,
+    /// which are checked on their own, so neither is held to this.
+    private static func printsAnotherBrand(
+        _ reference: String?,
+        siblings: [NDCProduct],
+        on labelWords: Set<String>,
+        product: NDCProduct
+    ) -> Bool {
         guard let own = brandKey(product.brandName), !own.isSubset(of: labelWords),
-              own.isDisjoint(with: words(product.genericName)),
-              let reference = reference.flatMap(brandKey),
-              !reference.isSubset(of: own), reference.isSubset(of: labelWords) else { return false }
-        return true
+              own.isDisjoint(with: words(product.genericName)) else { return false }
+        let referenceKey = reference.flatMap(brandKey)
+        let others = (referenceKey.map { [$0] } ?? [])
+            + siblings.filter { printsOwnBrand($0, on: labelWords) }.compactMap { brandKey($0.brandName) }
+        return others.contains { !$0.isSubset(of: own) && $0.isSubset(of: labelWords) }
     }
+
+    /// The labeler's other products of this drug that carry a brand of their
+    /// own: Astagraf XL beside Prograf. A code misread by one digit lands on
+    /// these first, because a labeler numbers its line in sequence.
+    private static func brandedSiblings(of product: NDCProduct, directory: NDCDirectory) -> [NDCProduct] {
+        directory.products(withLabeler: String(product.productKey.prefix(5)), genericName: product.genericName)
+            .filter { $0.productKey != product.productKey && isDistinctiveBrand($0) }
+    }
+
+    /// Whether the label prints the product's brand, and the brand is more
+    /// than the drug's name. Some listings carry the generic and its strength
+    /// as their brand, "Aspirin 81 mg" or "Guaifenesin 600 mg", and a label
+    /// that names the drug has not named such a product.
+    private static func printsOwnBrand(_ product: NDCProduct, on labelWords: Set<String>) -> Bool {
+        guard let key = brandKey(product.brandName), key.isSubset(of: labelWords) else { return false }
+        return isDistinctiveBrand(product)
+    }
+
+    private static func isDistinctiveBrand(_ product: NDCProduct) -> Bool {
+        guard let key = brandKey(product.brandName) else { return false }
+        let generic = Set(words(product.genericName))
+        return key.contains { word in
+            !generic.contains(word) && !interchangeableSalts.contains(word) && !strippableQualifiers.contains(word)
+                && !strengthWords.contains(word) && word.first?.isNumber == false && ReleaseForm.named(by: word) == nil
+        }
+    }
+
+    private static let strengthWords: Set<String> = ["mg", "mcg", "g", "ml", "iu", "unit", "units", "hr", "hour"]
 
     /// The brand the curated table gives this product's drug, whatever brand
     /// the listing carries: Prograf for every tacrolimus.
@@ -314,7 +382,7 @@ enum NDCIdentification {
         guard draft.nameProvenance == .vocabulary || draft.nameProvenance == .strengthAnchored,
               !draft.name.isEmpty,
               StrengthComparison.compare(label: draft.strength, product: product.strength) == .equivalent,
-              verdict(for: match, against: draft, labelText: labelText) == .accepted else {
+              verdict(for: match, against: draft, labelText: labelText, directory: directory) == .accepted else {
             return false
         }
         let siblings = directory.products(withLabeler: String(product.productKey.prefix(5)))
@@ -330,7 +398,10 @@ enum NDCIdentification {
                 return false
             }
             if let printedForm = explicitForm(in: labelText), printedForm != candidate.form { return false }
-            let release = releaseEvidence(in: labelText, labelWords: labelWords, for: candidate, reference: referenceBrand(of: candidate), draft: draft)
+            let release = releaseEvidence(
+                in: labelText, labelWords: labelWords, for: candidate, reference: referenceBrand(of: candidate),
+                siblings: brandedSiblings(of: candidate, directory: directory), draft: draft
+            )
             if releaseContradicts(release, product: candidate) {
                 return false
             }
@@ -365,9 +436,10 @@ enum NDCIdentification {
         _ match: Match,
         to draft: MedicationDraft,
         labelText: String,
+        directory: NDCDirectory = .shared,
         rxNormTable: RxNormTable = .shared
     ) -> MedicationDraft {
-        guard verdict(for: match, against: draft, labelText: labelText) == .accepted else { return draft }
+        guard verdict(for: match, against: draft, labelText: labelText, directory: directory) == .accepted else { return draft }
         let product = match.product
         var result = draft
         (result.name, result.brandName) = identity(of: product, labelBrand: draft.brandName)

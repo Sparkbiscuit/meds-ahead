@@ -138,7 +138,27 @@ struct NDCDirectory: Sendable {
     /// labeler numbers its line in sequence, so these are the codes a misread
     /// product segment lands on.
     func products(withLabeler labeler: String) -> [NDCProduct] {
-        guard labeler.count == 5, let numeric = UInt32(labeler) else { return [] }
+        rows(withLabeler: labeler).compactMap { index in
+            parseRow(at: offsets[index], key: String(format: "%09u", keys[index]))
+        }
+    }
+
+    /// The labeler's products listed under one generic name: the other
+    /// strengths, forms and releases of the drug a code names, and the brands
+    /// they go by. Rows under other names are passed over without being read,
+    /// because a repackager lists thousands.
+    func products(withLabeler labeler: String, genericName: String) -> [NDCProduct] {
+        let name = Array(genericName.utf8)
+        return rows(withLabeler: labeler).compactMap { index in
+            let start = offsets[index] + 10
+            let end = start + name.count
+            guard end < bytes.count, bytes[end] == 0x09, bytes[start..<end].elementsEqual(name) else { return nil }
+            return parseRow(at: offsets[index], key: String(format: "%09u", keys[index]))
+        }
+    }
+
+    private func rows(withLabeler labeler: String) -> Range<Int> {
+        guard labeler.count == 5, let numeric = UInt32(labeler) else { return 0..<0 }
         let first = numeric * 10_000
         var low = 0
         var high = keys.count
@@ -146,14 +166,9 @@ struct NDCDirectory: Sendable {
             let middle = (low + high) / 2
             if keys[middle] < first { low = middle + 1 } else { high = middle }
         }
-        var products: [NDCProduct] = []
-        var index = low
-        while index < keys.count, keys[index] < first + 10_000 {
-            let key = String(format: "%09u", keys[index])
-            if let product = parseRow(at: offsets[index], key: key) { products.append(product) }
-            index += 1
-        }
-        return products
+        var end = low
+        while end < keys.count, keys[end] < first + 10_000 { end += 1 }
+        return low..<end
     }
 
     private func parseRow(at offset: Int, key: String) -> NDCProduct? {

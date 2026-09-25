@@ -76,7 +76,7 @@ enum MedicationLabelInterpreter {
         // match emptied the name on most genuine prescription labels. A merely
         // name-shaped line still gets dropped: label furniture like "Open 9 to 6" is
         // worse in the name field than nothing at all.
-        let labelDraft = withBrandNames(draft)
+        let labelDraft = withBrandNames(draft, directory: ndcDirectory)
 
         // An NDC the label carries settles identity exactly, but only once the label
         // has been read the ordinary way and can vouch for it: the reading above is
@@ -93,10 +93,9 @@ enum MedicationLabelInterpreter {
         let code = match.code.hyphenated
         switch verdict {
         case .accepted:
-            result = NDCIdentification.applying(match, to: labelDraft, labelText: labelText, rxNormTable: rxNormTable)
+            result = NDCIdentification.applying(match, to: labelDraft, labelText: labelText, directory: ndcDirectory, rxNormTable: rxNormTable)
             result.identification = .accepted(code: match.recordedCode)
         case .uncorroborated:
-            result = NDCIdentification.doubtingBorrowedBrand(of: labelDraft, for: match, labelText: labelText)
             result.identification = .uncorroborated(code: code, product: NDCIdentification.summary(of: match.product))
         case .contradicted:
             result.identification = .contradicted(code: code, product: NDCIdentification.summary(of: match.product))
@@ -202,10 +201,8 @@ enum MedicationLabelInterpreter {
             candidates: candidates.refills,
             fallback: draft.refillsRemaining
         )
-        // The reading without the model already chose a brand for this name, and
-        // may have withheld the one the table lends: a code for Astagraf XL beside
-        // "TACROLIMUS 1 MG" leaves the release in doubt, and Prograf would settle
-        // it. So only a name the model changed is looked up again.
+        // The reading without the model already chose a brand for this name, so
+        // only a name the model changed is looked up again.
         guard draft.nameProvenance != .ndc, result.name != draft.name else { return result }
         return withBrandNames(result)
     }
@@ -219,7 +216,12 @@ enum MedicationLabelInterpreter {
     /// ("GLUCOPHAGE XR" is Glucophage XR), and where the table's brand is
     /// another release's the brand stays blank and the name keeps the
     /// release, "Tacrolimus XL", since nothing else would say it.
-    private static func withBrandNames(_ draft: MedicationDraft) -> MedicationDraft {
+    ///
+    /// A brand the label does not print is also held back when a code read on
+    /// the label, or another brand it prints, names the drug in another
+    /// release (see `NDCIdentification.doubts`). This runs on every path a
+    /// brand is lent, the model's included.
+    private static func withBrandNames(_ draft: MedicationDraft, directory: NDCDirectory = .shared) -> MedicationDraft {
         guard !draft.name.isEmpty, draft.brandName.isEmpty else { return draft }
         let labelText = LabelCandidateBuilder.textLines(from: draft.evidence).joined(separator: "\n")
         let nameWords = Set(draft.name.lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init))
@@ -233,8 +235,13 @@ enum MedicationLabelInterpreter {
         }
 
         var result = draft
+        let generic = formattedMedicationName(pair.generic)
+        if NDCIdentification.doubts(borrowedBrand: pair.brand, for: generic, evidence: draft.evidence, labelText: labelText, directory: directory) {
+            result.name = release.modified.map { ReleaseForm.name(generic, keeping: release.printedLetters(for: $0)) } ?? generic
+            return result
+        }
         result.brandName = pair.brand
-        result.name = formattedMedicationName(pair.generic)
+        result.name = generic
         return result
     }
 
