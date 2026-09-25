@@ -87,7 +87,7 @@ final class CourseEditorTests: XCTestCase {
         XCTAssertNil(MedicationEditorView.courseLastDayProblem(courseEnds: true, lastDay: finished, stored: finished, now: now, calendar: newYork),
                      "a finished course saved with its own last day stays finished")
         XCTAssertEqual(MedicationEditorView.courseLastDayProblem(courseEnds: true, lastDay: try date(11, 9, in: newYork), stored: finished, now: now, calendar: newYork),
-                       "Choose today or a later day to start this course again, or \(ForecastEngine.dayText(finished, calendar: newYork)) to leave it finished.")
+                       "Choose today or a later day to start this course again, or \(ForecastEngine.dayText(finished, calendar: newYork)) to keep its last day.")
         XCTAssertNil(MedicationEditorView.courseLastDayProblem(courseEnds: true, lastDay: now, stored: finished, now: now, calendar: newYork),
                      "today starts it again")
         XCTAssertNil(MedicationEditorView.courseLastDayProblem(courseEnds: false, lastDay: try date(11, 9, in: newYork), stored: finished, now: now, calendar: newYork),
@@ -109,9 +109,9 @@ final class CourseEditorTests: XCTestCase {
                        base + " Reminders stop after the last day.", "a course ending today is still running")
         let finished = try date(9, 12, in: newYork)
         XCTAssertEqual(MedicationEditorView.scheduleFooter(courseEnds: true, storedCourseEnd: finished, now: now, calendar: newYork),
-                       base + " Reminders stop after the last day. This course finished on \(ForecastEngine.dayText(finished, calendar: newYork)). Choosing today or a later day starts it again from today.")
+                       base + " Reminders stop after the last day. This course's last day was \(ForecastEngine.dayText(finished, calendar: newYork)). Choosing today or a later day starts it again from today.")
         XCTAssertEqual(MedicationEditorView.scheduleFooter(courseEnds: false, storedCourseEnd: finished, now: now, calendar: newYork),
-                       base + " This course finished on \(ForecastEngine.dayText(finished, calendar: newYork)). Saved without a last day, it starts again from today.")
+                       base + " This course's last day was \(ForecastEngine.dayText(finished, calendar: newYork)). Saved without a last day, it starts again from today.")
         XCTAssertEqual(MedicationEditorView.scheduleFooter(courseEnds: false, storedCourseEnd: try date(20, 12, in: newYork), now: now, calendar: newYork), base)
     }
 }

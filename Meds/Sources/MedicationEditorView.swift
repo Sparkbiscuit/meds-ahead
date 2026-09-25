@@ -886,7 +886,7 @@ struct MedicationEditorView: View {
         let today = calendar.startOfDay(for: now)
         guard calendar.startOfDay(for: lastDay) < today else { return nil }
         if let stored, calendar.startOfDay(for: stored) < today {
-            return "Choose today or a later day to start this course again, or \(ForecastEngine.dayText(stored, calendar: calendar)) to leave it finished."
+            return "Choose today or a later day to start this course again, or \(ForecastEngine.dayText(stored, calendar: calendar)) to keep its last day."
         }
         return "Choose today or a later day for the course's last day."
     }
@@ -902,9 +902,10 @@ struct MedicationEditorView: View {
         if courseEnds { footer += " Reminders stop after the last day." }
         // Saving a finished course with a new last day, or none, starts it
         // again today rather than filling in the days since, so the footer
-        // says so before the person saves.
+        // says so before the person saves. Its last day, not "finished": a
+        // course whose supply ran out first is not called finished anywhere.
         if let storedCourseEnd, calendar.startOfDay(for: storedCourseEnd) < calendar.startOfDay(for: now) {
-            footer += " This course finished on \(ForecastEngine.dayText(storedCourseEnd, calendar: calendar))."
+            footer += " This course's last day was \(ForecastEngine.dayText(storedCourseEnd, calendar: calendar))."
             footer += courseEnds ? " Choosing today or a later day starts it again from today." : " Saved without a last day, it starts again from today."
         }
         return footer
