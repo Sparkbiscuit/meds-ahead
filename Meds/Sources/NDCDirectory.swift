@@ -1,7 +1,7 @@
 import Foundation
 
-/// One product from the FDA National Drug Code Directory, reduced to the four
-/// facts a label review needs.
+/// One product from the FDA National Drug Code Directory, reduced to the facts
+/// a label review needs.
 struct NDCProduct: Hashable, Sendable {
     /// Labeler (5) and product (4) digits of the code.
     let productKey: String
@@ -14,6 +14,25 @@ struct NDCProduct: Hashable, Sendable {
     /// `800-160 mg`, `15 mg/5 mL`. Empty when the listing carries no usable strength.
     let strength: String
     let form: MedicationForm
+    /// What the listing claims about release: its dosage form ("CAPSULE,
+    /// EXTENDED RELEASE"), else its names. Nil for a row written without the
+    /// column, where only release letters in the brand ("Astagraf XL") say it.
+    ///
+    /// Immediate means only that the listing claims nothing else. The FDA
+    /// files some delayed-release products as plain capsules, Tecfidera among
+    /// them, so an immediate listing is not proof against delayed release.
+    let release: ReleaseForm?
+
+    /// The release, where it is what tells two products of one drug apart: a
+    /// tablet, capsule or oral liquid. A patch is extended-release by nature,
+    /// and a label for a patch or an injection seldom prints a release, so
+    /// asking one to would only refuse codes it names correctly.
+    var comparableRelease: ReleaseForm? {
+        switch form {
+        case .tablet, .capsule, .liquid: release
+        default: nil
+        }
+    }
 }
 
 /// The FDA National Drug Code Directory, trimmed to what a label needs and
@@ -148,7 +167,8 @@ struct NDCDirectory: Sendable {
             genericName: fields[1],
             brandName: fields[2],
             strength: fields[3],
-            form: MedicationForm(rawValue: fields[4]) ?? .other
+            form: MedicationForm(rawValue: fields[4]) ?? .other,
+            release: fields.count >= 6 ? ReleaseForm(directoryValue: fields[5]) : ReleaseForm.named(in: fields[2])
         )
     }
 }

@@ -7,15 +7,21 @@ as ndctext.zip (product.txt, package.txt) and ndc_excluded.zip (products that
 have left the directory). The excluded file is accepted but, as of September
 2026, contributes nothing: the FDA blanks the name, type and strength of every
 delisted listing, so only product.txt matters in practice. This tool trims
-the product listings to the four facts a pharmacy label needs — generic name,
-brand name, strength, dosage form — keyed by the nine digits (labeler + product)
-that a printed or barcoded NDC reduces to, and writes one sorted, tab-separated
-row per product. The app binary-searches that file; see NDCDirectory.swift.
+the product listings to the facts a pharmacy label needs — generic name, brand
+name, strength, dosage form, release — keyed by the nine digits (labeler +
+product) that a printed or barcoded NDC reduces to, and writes one sorted,
+tab-separated row per product. The app binary-searches that file; see
+NDCDirectory.swift.
+
+The release column is "er" (extended), "dr" (delayed) or empty. Immediate- and
+extended-release products of one drug share a generic name, strength and form
+(Prograf and Astagraf XL are both tacrolimus 1 mg capsules), so without it a
+code misread by one digit names the other medicine and nothing contradicts it.
 
 Usage:
   Tools/build_ndc_directory.py --products product.txt \
       [--excluded products_excluded.txt] [--excluded-within-years 6] \
-      --snapshot 2026-09-11 --output Meds/Resources/NDCDirectory.txt
+      --snapshot 2026-09-25 --output Meds/Resources/NDCDirectory.txt
 
   Tools/build_ndc_directory.py --self-test
 """
@@ -23,8 +29,10 @@ Usage:
 import argparse
 import csv
 import datetime as dt
+import os
 import re
 import sys
+import tempfile
 from collections import Counter
 
 INCLUDED_PRODUCT_TYPES = {"HUMAN PRESCRIPTION DRUG", "HUMAN OTC DRUG"}
@@ -66,6 +74,13 @@ NUMERATOR_UNITS = {
 
 DENOMINATOR_UNITS = {"1": "", "ml": "mL", "l": "L", "g": "g", "mg": "mg", "h": "h", "d": "d",
                      "kg": "kg", "cm2": "cm²", "[usp'u]": "units", "[iu]": "IU"}
+
+# Release letters as a brand carries them: "Oxtellar XR", "Ambien CR", "Aspirin EC".
+# The app reads the same letters off a label (ReleaseForm.swift).
+RELEASE_LETTERS = {"er": "er", "xl": "er", "xr": "er", "sr": "er", "cr": "er", "la": "er", "cd": "er",
+                   "xt": "er", "dr": "dr", "ec": "dr"}
+EXTENDED_PHRASE = re.compile(r"(?i)\b(?:extended|sustained|controlled)[\s-]*release")
+DELAYED_PHRASE = re.compile(r"(?i)\b(?:delayed[\s-]*release|enteric[\s-]*coated)")
 
 
 def read_rows(path):
@@ -240,6 +255,33 @@ def form(row):
     return "other"
 
 
+def release(row, app_form):
+    """'er', 'dr', or '' when nothing in the listing claims a modified release.
+
+    The dosage form is the FDA's own word and settles it. Where it is silent
+    the names can still say so: some labelers file an extended-release tablet
+    as TABLET and put "Extended-Release" in the name, and a brand carries its
+    release letters, "Oxtellar XR". The letters only count after a brand's
+    first word and only on an oral tablet or capsule, because "Dr. Sheffield"
+    and "La Roche-Posay" lead with the same letters on creams and sunscreens.
+    """
+    dosage_form = row.get("DOSAGEFORMNAME", "").upper()
+    if "EXTENDED RELEASE" in dosage_form:
+        return "er"
+    if "DELAYED RELEASE" in dosage_form:
+        return "dr"
+    names = " ".join(collapse(row.get(column, "")) for column in
+                     ("PROPRIETARYNAME", "PROPRIETARYNAMESUFFIX", "NONPROPRIETARYNAME"))
+    extended, delayed = bool(EXTENDED_PHRASE.search(names)), bool(DELAYED_PHRASE.search(names))
+    if extended != delayed:
+        return "er" if extended else "dr"
+    if extended or "ORAL" not in row.get("ROUTENAME", "").upper() or app_form not in ("tablet", "capsule"):
+        return ""
+    brand = f'{collapse(row.get("PROPRIETARYNAME", ""))} {collapse(row.get("PROPRIETARYNAMESUFFIX", ""))}'
+    found = {RELEASE_LETTERS[token] for token in tokens(brand)[1:] if token in RELEASE_LETTERS}
+    return found.pop() if len(found) == 1 else ""
+
+
 def marketing_date(text):
     text = text.strip()
     if len(text) != 8 or not text.isdigit():
@@ -266,12 +308,14 @@ def build_entries(rows, stats, label):
         if not generic:
             stats[f"{label} skipped no name"] += 1
             continue
+        app_form = form(row)
         entry = {
             "key": key,
             "generic": generic,
             "brand": brand_name(row, generic),
             "strength": strength(row),
-            "form": form(row),
+            "form": app_form,
+            "release": release(row, app_form),
             "start": marketing_date(row.get("STARTMARKETINGDATE", "")) or dt.date.min,
             "end": marketing_date(row.get("ENDMARKETINGDATE", "")),
         }
@@ -288,7 +332,7 @@ def write_directory(entries, output, snapshot, description):
         handle.write(f"# FDA NDC Directory snapshot {snapshot}: {description}\n")
         for key in sorted(entries):
             entry = entries[key]
-            fields = [key, entry["generic"], entry["brand"], entry["strength"], entry["form"]]
+            fields = [key, entry["generic"], entry["brand"], entry["strength"], entry["form"], entry["release"]]
             handle.write("\t".join(field.replace("\t", " ").replace("\n", " ") for field in fields) + "\n")
 
 
@@ -338,6 +382,8 @@ def main(argv):
     print("  forms:", ", ".join(f"{name} {count}" for name, count in forms.most_common()))
     branded = sum(1 for entry in entries.values() if entry["brand"])
     print(f"  with a brand: {branded}; with a strength: {sum(1 for e in entries.values() if e['strength'])}")
+    releases = Counter(entry["release"] or "immediate" for entry in entries.values())
+    print("  release:", ", ".join(f"{name} {count}" for name, count in releases.most_common()))
     return 0
 
 
@@ -390,6 +436,29 @@ def self_test():
     assert form({"DOSAGEFORMNAME": "KIT"}) == "other"
     assert form({"DOSAGEFORMNAME": "SPRAY, METERED"}) == "liquid"
 
+    def released(**row):
+        return release(row, form(row))
+    assert released(DOSAGEFORMNAME="CAPSULE, COATED, EXTENDED RELEASE", PROPRIETARYNAME="ASTAGRAF XL") == "er"
+    assert released(DOSAGEFORMNAME="CAPSULE, GELATIN COATED", PROPRIETARYNAME="Prograf", ROUTENAME="ORAL") == ""
+    assert released(DOSAGEFORMNAME="TABLET, EXTENDED RELEASE", PROPRIETARYNAME="Envarsus", PROPRIETARYNAMESUFFIX="XR") == "er"
+    assert released(DOSAGEFORMNAME="CAPSULE, DELAYED RELEASE", PROPRIETARYNAME="TECFIDERA") == "dr"
+    assert released(DOSAGEFORMNAME="TABLET, ORALLY DISINTEGRATING, DELAYED RELEASE", PROPRIETARYNAME="Prevacid") == "dr"
+    assert released(DOSAGEFORMNAME="PATCH, EXTENDED RELEASE", PROPRIETARYNAME="Exelon") == "er"
+    # The dosage form is silent; the names are not.
+    assert released(DOSAGEFORMNAME="TABLET", ROUTENAME="ORAL", PROPRIETARYNAME="Potassium Chloride",
+                    NONPROPRIETARYNAME="potassium chloride extended-release") == "er"
+    assert released(DOSAGEFORMNAME="TABLET, COATED", ROUTENAME="ORAL", PROPRIETARYNAME="Aspirin 81mg Enteric coated") == "dr"
+    assert released(DOSAGEFORMNAME="TABLET", ROUTENAME="ORAL", PROPRIETARYNAME="OXTELLAR", PROPRIETARYNAMESUFFIX="XR") == "er"
+    assert released(DOSAGEFORMNAME="TABLET, COATED", ROUTENAME="ORAL", PROPRIETARYNAME="Ambien CR") == "er"
+    assert released(DOSAGEFORMNAME="TABLET", ROUTENAME="ORAL", PROPRIETARYNAME="ASPIRIN 325 MG EC") == "dr"
+    assert released(DOSAGEFORMNAME="TABLET", ROUTENAME="ORAL", PROPRIETARYNAME="Immediate Release Mucus Relief") == ""
+    # Letters that lead a name, or sit on something that is not an oral tablet or capsule, are not a release.
+    assert released(DOSAGEFORMNAME="TABLET, COATED", ROUTENAME="ORAL", PROPRIETARYNAME="Dr Simi Pain Relief") == ""
+    assert released(DOSAGEFORMNAME="CREAM", ROUTENAME="TOPICAL", PROPRIETARYNAME="Dr. Sheffield Anti Itch Cream") == ""
+    assert released(DOSAGEFORMNAME="LOTION", ROUTENAME="TOPICAL", PROPRIETARYNAME="La Roche Posay Anthelios XL") == ""
+    assert released(DOSAGEFORMNAME="INJECTION, SUSPENSION", ROUTENAME="INTRAMUSCULAR", PROPRIETARYNAME="BICILLIN CR") == ""
+    assert released(DOSAGEFORMNAME="TABLET", ROUTENAME="ORAL", PROPRIETARYNAME="Metoprolol Tartrate") == ""
+
     rows = [
         {"PRODUCTNDC": "0093-1039", "PRODUCTTYPENAME": "HUMAN PRESCRIPTION DRUG", "PROPRIETARYNAME": "Sertraline",
          "NONPROPRIETARYNAME": "Sertraline Hydrochloride", "DOSAGEFORMNAME": "TABLET, FILM COATED",
@@ -403,6 +472,7 @@ def self_test():
     entries = build_entries(rows, stats, "product")
     assert list(entries) == ["000931039"], entries
     assert entries["000931039"]["start"] == dt.date(2010, 1, 1)
+    assert entries["000931039"]["release"] == ""
     assert stats["product skipped type BULK INGREDIENT"] == 1
     print("self-test passed")
     return 0

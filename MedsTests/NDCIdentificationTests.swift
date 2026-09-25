@@ -378,6 +378,52 @@ final class NDCIdentificationTests: XCTestCase {
         return NDCIdentification.labelNamesExactly(.init(code: code, product: product, source: .printedText), draft: label, labelText: text, directory: directory)
     }
 
+    // MARK: - Release
+
+    /// Rows with the release column the bundled snapshot carries: "er", "dr",
+    /// or empty for a listing that claims neither.
+    private typealias ReleasedRow = (key: String, generic: String, brand: String, strength: String, form: String, release: String)
+
+    private let tacrolimusRows: [ReleasedRow] = [
+        ("004690617", "tacrolimus", "Prograf", "1 mg", "capsule", ""),
+        ("004690677", "tacrolimus", "Astagraf XL", "1 mg", "capsule", "er"),
+        ("689923010", "tacrolimus", "Envarsus XR", "1 mg", "tablet", "er"),
+        ("714322002", "tacrolimus", "", "1 mg", "capsule", "er"),
+        ("006157824", "metoprolol succinate", "", "50 mg", "tablet", "er"),
+        ("006781234", "metoprolol tartrate", "", "50 mg", "tablet", ""),
+        ("167290189", "mycophenolic acid", "", "360 mg", "tablet", "dr"),
+        ("644060006", "dimethyl fumarate", "Tecfidera", "240 mg", "capsule", ""),
+        ("500900001", "cetirizine hydrochloride", "Zyrtec", "10 mg", "tablet", ""),
+        ("497080146", "sulfamethoxazole and trimethoprim", "Bactrim DS", "800-160 mg", "tablet", ""),
+        ("499350220", "naproxen sodium", "Equate Naproxen Sodium", "220 mg", "tablet", "")
+    ]
+
+    private func releasedDirectory(_ rows: [ReleasedRow]) -> NDCDirectory {
+        let body = rows
+            .sorted { $0.key < $1.key }
+            .map { [$0.key, $0.generic, $0.brand, $0.strength, $0.form, $0.release].joined(separator: "\t") }
+            .joined(separator: "\n")
+        return NDCDirectory(data: Data(("# Test snapshot\n" + body + "\n").utf8))
+    }
+
+    private func releasedDraft(_ lines: [String], barcode: String? = nil) -> MedicationDraft {
+        MedicationLabelInterpreter.offlineDraft(evidence(lines, barcode: barcode), ndcDirectory: releasedDirectory(tacrolimusRows))
+    }
+
+    func testTheReleaseColumnIsReadAndFiveColumnRowsStillLoad() throws {
+        let directory = releasedDirectory(tacrolimusRows)
+        XCTAssertEqual(directory.product(forKey: "004690677")?.release, .extended)
+        XCTAssertEqual(directory.product(forKey: "004690617")?.release, .immediate)
+        XCTAssertEqual(directory.product(forKey: "167290189")?.release, .delayed)
+
+        // A row without the column says only what its brand's letters say.
+        let fiveColumns = NDCDirectory(data: Data("004690617\ttacrolimus\tPrograf\t1 mg\tcapsule\n004690677\ttacrolimus\tAstagraf XL\t1 mg\tcapsule\n".utf8))
+        XCTAssertEqual(fiveColumns.count, 2)
+        XCTAssertNil(fiveColumns.product(forKey: "004690617")?.release)
+        XCTAssertEqual(fiveColumns.product(forKey: "004690677")?.release, .extended)
+        XCTAssertEqual(try XCTUnwrap(fiveColumns.product(forKey: "004690677")).form, .capsule)
+    }
+
     func testAnEmptyDirectoryChangesNothing() {
         let draft = MedicationLabelInterpreter.offlineDraft(
             evidence(["SERTRALINE HCL 50 MG TABLET", "NDC 0093-1039-01"]),

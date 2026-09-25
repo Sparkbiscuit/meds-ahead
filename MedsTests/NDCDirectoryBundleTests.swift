@@ -77,6 +77,55 @@ final class NDCDirectoryBundleTests: XCTestCase {
         XCTAssertEqual(NDCIdentification.displayName(for: try XCTUnwrap(directory.product(forKey: "540920381"))), "Amphetamine - dextroamphetamine")
     }
 
+    /// The release column, pinned on the products it exists for. Prograf and
+    /// Astagraf XL are one digit apart and otherwise identical in the file.
+    func testTheReleaseColumnTellsTheTacrolimusProductsApart() throws {
+        let prograf = try XCTUnwrap(directory.product(forKey: "004690617"))
+        XCTAssertEqual(prograf.release, .immediate)
+
+        let astagraf = try XCTUnwrap(directory.product(forKey: "004690677"))
+        XCTAssertEqual(astagraf.genericName, "tacrolimus")
+        XCTAssertEqual(astagraf.brandName, "Astagraf XL")
+        XCTAssertEqual(astagraf.strength, "1 mg")
+        XCTAssertEqual(astagraf.form, .capsule)
+        XCTAssertEqual(astagraf.release, .extended)
+
+        let envarsus = try XCTUnwrap(directory.product(forKey: "689923010"))
+        XCTAssertEqual(envarsus.brandName, "Envarsus XR")
+        XCTAssertEqual(envarsus.form, .tablet)
+        XCTAssertEqual(envarsus.release, .extended)
+
+        let genericExtended = try XCTUnwrap(directory.product(forKey: "714322002"))
+        XCTAssertEqual(genericExtended.genericName, "tacrolimus")
+        XCTAssertEqual(genericExtended.brandName, "")
+        XCTAssertEqual(genericExtended.release, .extended)
+    }
+
+    func testTheReleaseColumnOnOtherModifiedReleaseProducts() throws {
+        let toprol = try XCTUnwrap(directory.product(forKey: "708420111"))
+        XCTAssertEqual(toprol.genericName, "metoprolol succinate")
+        XCTAssertEqual(toprol.brandName, "Toprol XL")
+        XCTAssertEqual(toprol.strength, "50 mg")
+        XCTAssertEqual(toprol.release, .extended)
+
+        let succinate = try XCTUnwrap(directory.product(forKey: "006157824"))
+        XCTAssertEqual(succinate.genericName, "metoprolol succinate")
+        XCTAssertEqual(succinate.brandName, "")
+        XCTAssertEqual(succinate.release, .extended)
+
+        let myfortic = try XCTUnwrap(directory.product(forKey: "000780386"))
+        XCTAssertEqual(myfortic.genericName, "mycophenolic acid")
+        XCTAssertEqual(myfortic.brandName, "Myfortic")
+        XCTAssertEqual(myfortic.strength, "360 mg")
+        XCTAssertEqual(myfortic.release, .delayed)
+
+        XCTAssertEqual(directory.product(forKey: "540920381")?.release, .extended, "Adderall XR")
+        XCTAssertEqual(directory.product(forKey: "167140612")?.release, .immediate, "a generic sertraline")
+        // The FDA lists Tecfidera as a plain CAPSULE, which is why a label that
+        // says DR does not refuse a listing that claims no release.
+        XCTAssertEqual(directory.product(forKey: "644060006")?.release, .immediate)
+    }
+
     /// A hospital pharmacy label, end to end against the shipped snapshot.
     func testAHospitalLabelResolvesAgainstTheSnapshot() {
         let capture = UUID()
