@@ -237,6 +237,106 @@ final class ScheduleReconcilerTests: XCTestCase {
         XCTAssertTrue(asks(beforeAsNeeded, asNeeded), "switched to as needed, every schedule's past goes with it")
     }
 
+    /// A course's last day goes onto every schedule the edit keeps and every
+    /// one it adds, and saving with no last day takes it off again: a course
+    /// made ongoing must not still stop.
+    @MainActor
+    func testACoursesLastDayIsWrittenOnReusedAndNewSchedulesAndCleared() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        let started = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 9, day: 1, hour: 9)))
+        let fixture = try makeFixture(minutes: [8 * 60, 20 * 60], startDate: started)
+        let lastDay = ScheduleEngine.normalizedEndDate(
+            forDay: try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 9, day: 10, hour: 18))),
+            calendar: calendar
+        )
+        XCTAssertEqual(lastDay, calendar.date(from: DateComponents(year: 2026, month: 9, day: 10, hour: 12)))
+
+        let course = ScheduleReconciler.reconcile(
+            medicationID: fixture.medicationID,
+            definitions: [8 * 60, 14 * 60, 20 * 60].map {
+                ScheduleDefinition(minutesAfterMidnight: $0, doseQuantity: 1, weekdayMask: 0b1111111, endDate: lastDay)
+            },
+            existing: fixture.schedules,
+            in: fixture.context,
+            startDate: try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 9, day: 3, hour: 10)))
+        )
+        try fixture.context.save()
+        XCTAssertEqual([course[0].id, course[2].id], fixture.schedules.map(\.id), "the 08:00 and 20:00 schedules are reused")
+        XCTAssertEqual(course.map(\.endDate), [lastDay, lastDay, lastDay], "kept and added schedules alike")
+        XCTAssertEqual(course[0].startDate, started, "a reused schedule keeps its start")
+        XCTAssertEqual(ScheduleEngine.courseEnd(schedules: course, medicationID: fixture.medicationID), lastDay)
+        XCTAssertEqual(ScheduleReconciler.snapshot(course)[course[0].id]?.endDate, lastDay, "a snapshot keeps the end it had")
+
+        let ongoing = ScheduleReconciler.reconcile(
+            medicationID: fixture.medicationID,
+            definitions: [8 * 60, 14 * 60, 20 * 60, 22 * 60].map {
+                ScheduleDefinition(minutesAfterMidnight: $0, doseQuantity: 1, weekdayMask: 0b1111111)
+            },
+            existing: course,
+            in: fixture.context
+        )
+        try fixture.context.save()
+        XCTAssertEqual(ongoing.map(\.id).prefix(3), course.map(\.id).prefix(3))
+        XCTAssertTrue(ongoing.allSatisfy { $0.endDate == nil })
+        XCTAssertNil(ScheduleEngine.courseEnd(schedules: ongoing, medicationID: fixture.medicationID))
+    }
+
+    /// The last day is a dose day, morning and evening, through the same
+    /// question Today asks; the day after it holds nothing.
+    @MainActor
+    func testACoursesLastDayKeepsEveryDoseAndTheNextDayHasNone() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        func september(_ day: Int, _ hour: Int = 12) -> Date {
+            calendar.date(from: DateComponents(year: 2026, month: 9, day: day, hour: hour))!
+        }
+        let fixture = try makeFixture(minutes: [8 * 60, 20 * 60], startDate: september(1, 7))
+        let course = ScheduleReconciler.reconcile(
+            medicationID: fixture.medicationID,
+            definitions: [8 * 60, 20 * 60].map {
+                ScheduleDefinition(minutesAfterMidnight: $0, doseQuantity: 1, weekdayMask: 0b1111111,
+                                   endDate: ScheduleEngine.normalizedEndDate(forDay: september(10), calendar: calendar))
+            },
+            existing: fixture.schedules,
+            in: fixture.context
+        )
+        try fixture.context.save()
+
+        let lastDay = ScheduleEngine.doses(schedules: course, medicationID: fixture.medicationID, onDayOf: september(10), calendar: calendar)
+        XCTAssertEqual(lastDay.map(\.date), [september(10, 8), september(10, 20)])
+        XCTAssertTrue(ScheduleEngine.doses(schedules: course, medicationID: fixture.medicationID, onDayOf: september(11), calendar: calendar).isEmpty)
+        XCTAssertEqual(ScheduleEngine.doses(schedules: course, medicationID: fixture.medicationID, from: september(1, 0), through: september(30), calendar: calendar).count,
+                       20, "ten days, the first and the last included")
+    }
+
+    /// Moving a course's end across days already past rewrites what they
+    /// held, as a taper does: ended three days back, the unlogged doses since
+    /// leave what the forecast assumes. Moving it among days still to come
+    /// does not.
+    @MainActor
+    func testMovingACoursesEndAcrossThePastAsksForACount() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        func september(_ day: Int) -> Date { ScheduleEngine.normalizedEndDate(forDay: calendar.date(from: DateComponents(year: 2026, month: 9, day: day))!, calendar: calendar) }
+        let now = calendar.date(from: DateComponents(year: 2026, month: 9, day: 12, hour: 9))!
+        let fixture = try makeFixture(minutes: [8 * 60])
+        func edit(from old: Date?, to new: Date?, assumedDoses: Int = 3) -> Bool {
+            let before = [fixture.schedules[0].id: ScheduleDefinition(minutesAfterMidnight: 8 * 60, doseQuantity: 1, weekdayMask: 0b1111111, endDate: old)]
+            fixture.schedules[0].endDate = new
+            return ScheduleReconciler.asksForCount(assumedDoses: assumedDoses, before: before, after: fixture.schedules, now: now, calendar: calendar)
+        }
+
+        XCTAssertTrue(edit(from: nil, to: september(9)), "ended three days back")
+        XCTAssertTrue(edit(from: september(9), to: nil), "a finished course made ongoing again")
+        XCTAssertTrue(edit(from: september(11), to: september(20)), "yesterday's end moved on")
+        XCTAssertFalse(edit(from: nil, to: september(12)), "ending today leaves every day so far as it was")
+        XCTAssertFalse(edit(from: september(15), to: september(20)))
+        XCTAssertFalse(edit(from: nil, to: september(20)))
+        XCTAssertFalse(edit(from: september(20), to: september(20)))
+        XCTAssertFalse(edit(from: nil, to: september(9), assumedDoses: 0), "with every dose logged, the past is what was logged")
+    }
+
     @MainActor
     private func makeFixture(minutes: [Int], startDate: Date = .now) throws -> ReconcilerFixture {
         let schema = Schema([Medication.self, DoseSchedule.self, DoseEvent.self, InventoryEvent.self])
