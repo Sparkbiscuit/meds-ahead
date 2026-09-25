@@ -809,4 +809,58 @@ final class MedsUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(value.frame.minY, label.frame.maxY - 1, "the reason sits beside its label, not under it")
         XCTAssertGreaterThan(value.frame.width, app.windows.firstMatch.frame.width * 0.6, "the reason is squeezed into a narrow column")
     }
+
+    /// "Why this date?" from a Supply row lays out the ledger behind the date,
+    /// without taking the row's tap. Count Now there records a count the
+    /// ledger then starts from, and the detail screen's button shows the same.
+    func testWhyThisDateShowsTheLedgerAndCountsFromIt() {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-ui-testing",
+            "-skip-onboarding",
+            "-seed-demo-data",
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryL"
+        ]
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["Supply"].tap()
+        let row = app.staticTexts["Furosemide"]
+        XCTAssertTrue(row.waitForExistence(timeout: 3))
+        row.press(forDuration: 1.2)
+        let why = app.buttons["Why this date?"]
+        XCTAssertTrue(why.waitForExistence(timeout: 3), "the row offers no way to ask why")
+        why.tap()
+
+        XCTAssertTrue(app.navigationBars["Why This Date?"].waitForExistence(timeout: 3))
+        func line(_ start: String) -> XCUIElement {
+            app.descendants(matching: .any).matching(identifier: "why-line")
+                .matching(NSPredicate(format: "label BEGINSWITH %@", start)).firstMatch
+        }
+        XCTAssertTrue(line("Started with 28 tablets on ").waitForExistence(timeout: 3))
+        XCTAssertTrue(line("No doses logged as taken since then.").exists)
+        XCTAssertTrue(line("That comes to 28 tablets on hand.").exists)
+        XCTAssertTrue(line("The schedule uses 2 tablets a day.").exists)
+        XCTAssertTrue(line("Runs out around ").exists)
+        XCTAssertTrue(line("Low-supply alert on ").exists)
+
+        app.buttons["why-count-now"].tap()
+        XCTAssertTrue(app.navigationBars["Correct Current Count"].waitForExistence(timeout: 3))
+        let quantity = app.textFields["supply-quantity"]
+        XCTAssertEqual(quantity.value as? String, "28", "nothing is assumed, so the count opens on the ledger's number")
+        quantity.tap()
+        quantity.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 4) + "20")
+        app.buttons["Save Count"].tap()
+        XCTAssertTrue(line("Counted 20 tablets on ").waitForExistence(timeout: 3), "the ledger starts from the new count")
+        XCTAssertTrue(line("That comes to 20 tablets on hand.").exists)
+
+        app.buttons["Done"].tap()
+        row.tap()
+        let detailWhy = app.buttons["why-this-date"]
+        XCTAssertTrue(detailWhy.waitForExistence(timeout: 3), "the forecast card offers no way to ask why")
+        XCTAssertTrue(app.staticTexts["20 on hand"].exists)
+        detailWhy.tap()
+        XCTAssertTrue(line("Counted 20 tablets on ").waitForExistence(timeout: 3))
+    }
 }

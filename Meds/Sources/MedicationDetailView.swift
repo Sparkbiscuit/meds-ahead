@@ -251,6 +251,7 @@ struct MedicationDetailView: View {
                 Text("\(forecast.currentSupply.medicationQuantityText) \(SupplyAttention.quantityWords(for: forecast))")
                     .font(.subheadline.weight(.semibold))
             }
+            WhyThisDateButton(medication: medication)
         }
         .padding(19)
         .cardSurface()
