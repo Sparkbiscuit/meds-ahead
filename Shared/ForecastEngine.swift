@@ -268,15 +268,12 @@ enum ForecastEngine {
         // taken from this count: charged to the supply and made since the anchor.
         // History imported with the medication never came out of the count, and
         // a dose from before the anchor is already reflected in it.
-        let logs = ScheduleEngine.DoseLogIndex(
-            doseEvents: doseEvents.filter {
-                $0.medicationID == medication.id && ($0.scheduleID != nil
-                    || ($0.status == .taken && $0.countsTowardSupply && $0.recordedAt >= anchor.date && $0.recordedAt <= now))
-            },
-            medicationID: medication.id,
-            calendar: calendar
-        )
-        func unlogged(from start: Date, through end: Date) -> [ScheduledDose] {
+        let accounting = doseEvents.filter {
+            $0.medicationID == medication.id && ($0.scheduleID != nil
+                || ($0.status == .taken && $0.countsTowardSupply && $0.recordedAt >= anchor.date && $0.recordedAt <= now))
+        }
+        let logs = ScheduleEngine.DoseLogIndex(doseEvents: accounting, medicationID: medication.id, calendar: calendar)
+        func unlogged(from start: Date, through end: Date, logs: ScheduleEngine.DoseLogIndex = logs) -> [ScheduledDose] {
             ScheduleEngine.unloggedDoses(
                 schedules: schedules,
                 medicationID: medication.id,
@@ -300,11 +297,18 @@ enum ForecastEngine {
             .flatMap { $0 <= threeYears ? $0 : nil }
 
         guard supply > 0 else {
-            // After a course's last dose, nothing on record is what a course
-            // dispensed to the tablet leaves, and nothing more is needed. A
-            // dose still to come with nothing on record is still a gap.
+            // Nothing on record is how a course dispensed to the tablet ends,
+            // but only once every dose it asked for since the anchor was
+            // logged taken. A dose still to come is a gap, and so is one that
+            // went by unlogged or skipped: with the bottle empty, that is most
+            // likely a course that ran out early, and calling it enough would
+            // clear the warning for a family still missing doses.
             if let courseEnd, let courseLimit,
-               !unlogged(from: dosesToComeFrom, through: courseLimit).contains(where: { $0.date > overdueBefore }) {
+               unlogged(
+                   from: anchor.date,
+                   through: courseLimit,
+                   logs: ScheduleEngine.DoseLogIndex(doseEvents: accounting.filter { $0.status == .taken }, medicationID: medication.id, calendar: calendar)
+               ).isEmpty {
                 return Evaluation(forecast: SupplyForecast(
                     currentSupply: 0,
                     depletionDate: nil,

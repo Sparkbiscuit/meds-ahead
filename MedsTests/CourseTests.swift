@@ -218,6 +218,48 @@ final class CourseTests: XCTestCase {
         XCTAssertTrue(attention(medication, gap, now: september(10, 19)).needsAttention)
     }
 
+    /// Dispensed three short, the bottle empties on the 9th and the last
+    /// three doses go by. Once the final one is overdue nothing is still to
+    /// come, but the course was not finished from this supply: the warning
+    /// stays until the course is over, whether the missed doses were left
+    /// unlogged or skipped.
+    func testACourseThatRanOutEarlyIsNotEnoughOnItsLastDay() {
+        let (medication, schedules, _) = twiceDailyCourse(count: 17, through: 10)
+        let opening = InventoryEvent(medicationID: medication.id, date: september(1, 7), delta: 17, reason: .openingCount)
+        let untilEmpty = Array((1...9).flatMap { day in schedules.map { logged($0, on: day) } }.prefix(17))
+        let missed = [(schedules[1], 9), (schedules[0], 10), (schedules[1], 10)].map { schedule, day in
+            let date = september(day, schedule.minutesAfterMidnight / 60)
+            return DoseEvent(medicationID: medication.id, scheduleID: schedule.id, scheduledAt: date, recordedAt: date.addingTimeInterval(60),
+                             doseQuantity: 1, status: .skipped)
+        }
+
+        for (doses, label) in [(untilEmpty, "unlogged"), (untilEmpty + missed, "skipped")] {
+            let midCourse = forecast(medication, schedules, [opening], doses, now: september(9, 21))
+            XCTAssertEqual(midCourse.explanation, "No confirmed supply remains.", label)
+
+            let lastEvening = september(10, 20, 31)
+            let afterLastDose = forecast(medication, schedules, [opening], doses, now: lastEvening)
+            XCTAssertFalse(afterLastDose.courseCovered, label)
+            XCTAssertNil(afterLastDose.leftoverAtCourseEnd, label)
+            XCTAssertEqual(afterLastDose.explanation, "No confirmed supply remains.", label)
+            XCTAssertEqual(afterLastDose.courseEndDate, lastDay(10), label)
+            XCTAssertTrue(attention(medication, afterLastDose, now: lastEvening).needsAttention, label)
+
+            XCTAssertTrue(forecast(medication, schedules, [opening], doses, now: september(11, 8)).courseFinished, label)
+        }
+
+        // Every dose logged, the last one at 20:00: an empty bottle at 20:31
+        // is the course finished from what was dispensed.
+        let (exact, exactSchedules, exactOpening) = twiceDailyCourse(count: 20, through: 10)
+        let allTaken = (1...10).flatMap { day in exactSchedules.map { logged($0, on: day) } }
+        XCTAssertTrue(forecast(exact, exactSchedules, [exactOpening], allTaken, now: september(10, 20, 31)).courseCovered)
+
+        // Never counted and nothing logged: nothing says the course was had.
+        let uncounted = forecast(exact, exactSchedules, [], now: september(10, 20, 31))
+        XCTAssertFalse(uncounted.courseCovered)
+        XCTAssertEqual(uncounted.explanation, "No confirmed supply remains.")
+    }
+
     /// The 1.1.1 rule still holds on a course: doses nobody logged are
     /// assumed taken before the course's remaining doses are weighed.
     func testUnloggedDosesAreAssumedTakenOnACourseToo() {
