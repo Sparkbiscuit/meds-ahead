@@ -78,7 +78,7 @@ enum MedicationListDocument {
             scheduleLines = schedules
                 .sorted { $0.minutesAfterMidnight < $1.minutesAfterMidnight }
                 .map { schedule in
-                    let quantity = "\(schedule.doseQuantity.medicationQuantityText) \(medication.form.unitName)\(schedule.doseQuantity == 1 ? "" : "s")"
+                    let quantity = medication.form.quantityText(schedule.doseQuantity)
                     return "\(timeText(minutes: schedule.minutesAfterMidnight, calendar: calendar)) — \(quantity) · \(weekdaySummary(mask: schedule.weekdayMask, calendar: calendar))"
                 }
         }
@@ -91,7 +91,7 @@ enum MedicationListDocument {
             now: now,
             calendar: calendar
         )
-        let onHand = "\(forecast.currentSupply.medicationQuantityText) \(medication.form.unitName)\(forecast.currentSupply == 1 ? "" : "s") \(SupplyAttention.quantityWords(for: forecast))"
+        let onHand = "\(medication.form.quantityText(forecast.currentSupply)) \(SupplyAttention.quantityWords(for: forecast))"
         let supplyLine: String
         // A count needed carries today as its run-out date. Printed, that
         // would tell a pharmacist the supply is gone when nobody knows.
@@ -105,7 +105,7 @@ enum MedicationListDocument {
 
         var detailParts: [String] = []
         if let refills = medication.refillsRemaining {
-            detailParts.append("\(refills) refill\(refills == 1 ? "" : "s") remaining")
+            detailParts.append("\(refills.counted("refill", plural: "refills")) remaining")
         }
         if let expiration = medication.expirationDate {
             detailParts.append("Package expires \(expiration.formatted(date: .abbreviated, time: .omitted))")
@@ -144,7 +144,7 @@ enum MedicationListDocument {
         let taken = recent.filter { $0.status == .taken }.count
         let skipped = recent.filter { $0.status == .skipped }.count
         guard taken + skipped > 0 else { return "No doses logged in the last 30 days" }
-        var line = "\(taken) dose\(taken == 1 ? "" : "s") logged in the last 30 days"
+        var line = "\(taken.counted("dose", plural: "doses")) logged in the last 30 days"
         if skipped > 0 { line += ", \(skipped) skipped" }
         if medication.createdAt > start {
             line += " (added \(medication.createdAt.formatted(date: .abbreviated, time: .omitted)))"

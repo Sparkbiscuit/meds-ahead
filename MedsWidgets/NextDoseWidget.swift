@@ -244,7 +244,7 @@ struct NextDoseView: View {
                 Text("\(Image(systemName: "pills.fill")) \(time, style: .time) \(items.count == 1 ? items[0].displayName : "\(items.count) medications")")
                     .privacySensitive()
             } else if let snapshot = entry.snapshot, case let .allLogged(count) = snapshot.state {
-                Text("\(Image(systemName: "checkmark.circle")) All \(count) doses logged")
+                Text("\(Image(systemName: "checkmark.circle")) All \(count.counted("dose", plural: "doses")) logged")
             } else {
                 Text("\(Image(systemName: "pills.fill")) Meds Ahead")
             }

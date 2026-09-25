@@ -37,7 +37,7 @@ struct AdherenceCalendarCard: View {
         guard taken + skipped + missed > 0 else { return "Nothing logged this month yet." }
         var parts = ["\(taken) taken"]
         if skipped > 0 { parts.append("\(skipped) skipped") }
-        if missed > 0 { parts.append("\(missed) day\(missed == 1 ? "" : "s") with nothing logged") }
+        if missed > 0 { parts.append("\(missed.dayCountText) with nothing logged") }
         return parts.joined(separator: " · ")
     }
 

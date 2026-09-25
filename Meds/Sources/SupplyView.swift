@@ -206,7 +206,7 @@ private struct SupplyRow: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Text("\(forecast.currentSupply.medicationQuantityText) \(medication.form.unitName)\(forecast.currentSupply == 1 ? "" : "s") \(SupplyAttention.quantityWords(for: forecast))")
+            Text("\(medication.form.quantityText(forecast.currentSupply)) \(SupplyAttention.quantityWords(for: forecast))")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)

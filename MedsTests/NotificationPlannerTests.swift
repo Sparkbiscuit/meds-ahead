@@ -573,7 +573,7 @@ final class NotificationPlannerTests: XCTestCase {
         MedicationNotificationPlan(
             medicationID: medicationID,
             displayName: displayName,
-            unitName: "tablet",
+            form: .tablet,
             isAsNeeded: false,
             isArchived: isArchived,
             doseRemindersEnabled: doseRemindersEnabled,

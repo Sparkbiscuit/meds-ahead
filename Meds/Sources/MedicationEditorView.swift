@@ -254,7 +254,7 @@ struct MedicationEditorView: View {
                                 .accessibilityIdentifier("current-supply")
                         }
                         .padding(.vertical, 3)
-                        Text(form.unitName + (Double.medicationQuantity(from: currentSupplyText) == 1 ? "" : "s"))
+                        Text(form.unitText(for: Double.medicationQuantity(from: currentSupplyText) ?? 0))
                             .foregroundStyle(.secondary)
                     }
                     if let draftLabelQuantity, let draftLabelQuantityNote {
@@ -286,7 +286,7 @@ struct MedicationEditorView: View {
                             }
                             ScheduleDoseQuantityField(
                                 quantity: $schedule.doseQuantity,
-                                unitName: form.unitName,
+                                form: form,
                                 allowsHalfSteps: form == .tablet || form == .capsule
                             )
                             WeekdayPicker(mask: $schedule.weekdayMask)
@@ -324,7 +324,7 @@ struct MedicationEditorView: View {
                 Toggle("Refill reminders", isOn: $refillRemindersEnabled)
                 Toggle("Show medication name", isOn: $detailedNotifications)
                     .disabled((!remindersEnabled || isAsNeeded) && !refillRemindersEnabled)
-                Stepper("Low supply: \(refillLeadDays) days before", value: $refillLeadDays, in: 1...30)
+                Stepper("Low supply: \(refillLeadDays.dayCountText) before", value: $refillLeadDays, in: 1...30)
                     .disabled(!refillRemindersEnabled)
             }
 
@@ -670,7 +670,7 @@ struct MedicationEditorView: View {
     private var importedDosesTitle: String {
         let count = draftImportedDoses.count
         guard let earliest = draftImportedDoses.map(\.date).min() else { return "" }
-        return "Import \(count) dose\(count == 1 ? "" : "s") logged in Health since \(earliest.formatted(date: .abbreviated, time: .omitted))"
+        return "Import \(count.counted("dose", plural: "doses")) logged in Health since \(earliest.formatted(date: .abbreviated, time: .omitted))"
     }
 
     private var hasUnsavedRequiredData: Bool {
@@ -1019,7 +1019,7 @@ private struct WeekdayPicker: View {
 
 private struct ScheduleDoseQuantityField: View {
     @Binding var quantity: Double
-    let unitName: String
+    let form: MedicationForm
     let allowsHalfSteps: Bool
     @State private var text: String = ""
     @FocusState private var focused: Bool
@@ -1051,12 +1051,12 @@ private struct ScheduleDoseQuantityField: View {
                     .focused($focused)
                     .accessibilityIdentifier("dose-quantity")
                     .accessibilityLabel("Amount per dose")
-                    .accessibilityValue("\(quantity.medicationQuantityText) \(unitName)")
+                    .accessibilityValue(form.quantityText(quantity))
                 Stepper(value: $quantity, in: Self.minimumQuantity...999, step: step) {
                     Text("Amount per dose")
                 }
                 .labelsHidden()
-                Text(unitName + (quantity == 1 ? "" : "s"))
+                Text(form.unitText(for: quantity))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)

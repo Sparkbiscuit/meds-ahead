@@ -1044,7 +1044,7 @@ enum StillImageRecognizer {
         for suspect in suspects {
             found += zoomedCodeLines(around: suspect.boundingBox, in: upright)
         }
-        report += "; zoomed \(suspects.count) line\(suspects.count == 1 ? "" : "s") for the NDC, found \(found.count)"
+        report += "; zoomed \(suspects.count.counted("line", plural: "lines")) for the NDC, found \(found.count)"
         readings += found.flatMap { NationalDrugCode.readings(inLabelText: $0.text) }
         if !resolvesInDirectory(readings) {
             let tiled = tiledCodeLines(in: upright)

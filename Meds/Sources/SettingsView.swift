@@ -201,7 +201,7 @@ struct SettingsView: View {
         if outcome.inserted > 0 { parts.append("\(outcome.inserted) brought over") }
         if outcome.removed > 0 { parts.append("\(outcome.removed) removed") }
         if outcome.updated + outcome.adopted > 0 { parts.append("\(outcome.updated + outcome.adopted) matched") }
-        let medications = "\(outcome.linkedMedications) linked medication\(outcome.linkedMedications == 1 ? "" : "s")"
+        let medications = outcome.linkedMedications.counted("linked medication", plural: "linked medications")
         healthCheckState = .done(parts.isEmpty ? "\(medications); nothing new." : "\(medications): " + parts.joined(separator: ", ") + ".")
     }
 

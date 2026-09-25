@@ -69,7 +69,7 @@ struct NextDoseSnapshot: Equatable, Sendable {
                     medicationID: medication.id,
                     scheduleID: dose.scheduleID,
                     displayName: medication.displayName,
-                    quantityText: "\(dose.quantity.medicationQuantityText) \(medication.form.unitName)\(dose.quantity == 1 ? "" : "s")",
+                    quantityText: medication.form.quantityText(dose.quantity),
                     accentIndex: medication.accentIndex
                 )
             }
@@ -170,7 +170,7 @@ struct RunsOutSnapshot: Equatable, Sendable {
             if isOut { return "Out of supply" }
             if attention.refillPauseHolds { return "Refill on its way" }
             guard let daysRemaining else { return "Timing unknown" }
-            return daysRemaining == 1 ? "About 1 day left" : "About \(daysRemaining) days left"
+            return "About \(daysRemaining.dayCountText) left"
         }
     }
 

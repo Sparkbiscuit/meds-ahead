@@ -26,7 +26,7 @@ struct SupplyGauge: View {
 
     var accessibilityText: String {
         if needsCount { return "Count needed" }
-        return daysRemaining.map { "\($0) days of supply remaining" } ?? "Supply forecast unavailable"
+        return daysRemaining.map { "\($0.dayCountText) of supply remaining" } ?? "Supply forecast unavailable"
     }
 
     var body: some View {
@@ -157,7 +157,7 @@ struct NotificationHealthBanner: View {
         case .unasked:
             "Your schedules are saved, but no reminder can be delivered until you allow notifications."
         case let .partlyScheduled(failed):
-            "\(failed) reminder\(failed == 1 ? "" : "s") couldn't be scheduled with iOS. Your medications and history are unaffected."
+            "\(failed.counted("reminder", plural: "reminders")) couldn't be scheduled with iOS. Your medications and history are unaffected."
         case .fine:
             ""
         }

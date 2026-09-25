@@ -3,7 +3,7 @@ import Foundation
 struct MedicationNotificationPlan: Sendable {
     let medicationID: UUID
     let displayName: String
-    let unitName: String
+    let form: MedicationForm
     let isAsNeeded: Bool
     let isArchived: Bool
     let doseRemindersEnabled: Bool
@@ -134,7 +134,7 @@ enum NotificationPlanner {
                     medicationID: plan.medicationID,
                     scheduleID: schedule.id,
                     displayName: plan.displayName,
-                    unitName: plan.unitName,
+                    form: plan.form,
                     quantity: schedule.doseQuantity,
                     detailedNotifications: plan.detailedNotifications
                 )
@@ -418,7 +418,7 @@ enum NotificationPlanner {
         if let only {
             title = only.detailedNotifications ? "Time for \(only.displayName)" : "Medication reminder"
             body = only.detailedNotifications
-                ? "Touch and hold to log \(only.quantity.medicationQuantityText) \(pluralized(only.unitName, quantity: only.quantity)), or open Meds Ahead to review."
+                ? "Touch and hold to log \(only.form.quantityText(only.quantity)), or open Meds Ahead to review."
                 : "Touch and hold to log this dose, or open Meds Ahead to review."
         } else {
             title = "\(timeLabel(hour: hour, minute: minute, calendar: calendar)) meds are ready"
@@ -458,10 +458,6 @@ enum NotificationPlanner {
         return formatter.string(from: date)
     }
 
-    private static func pluralized(_ unit: String, quantity: Double) -> String {
-        quantity == 1 ? unit : unit + "s"
-    }
-
     private struct DoseTime: Hashable {
         let hour: Int
         let minute: Int
@@ -479,7 +475,7 @@ enum NotificationPlanner {
         let medicationID: UUID
         let scheduleID: UUID
         let displayName: String
-        let unitName: String
+        let form: MedicationForm
         let quantity: Double
         let detailedNotifications: Bool
     }
@@ -526,7 +522,7 @@ enum NotificationPlanBuilder {
         return MedicationNotificationPlan(
             medicationID: medication.id,
             displayName: medication.displayName,
-            unitName: medication.form.unitName,
+            form: medication.form,
             isAsNeeded: medication.isAsNeeded,
             isArchived: medication.isArchived,
             doseRemindersEnabled: medication.remindersEnabled,

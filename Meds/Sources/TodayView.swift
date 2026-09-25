@@ -672,7 +672,7 @@ private struct DoseCard: View {
     }
 
     private var doseLine: String {
-        let quantity = "\(dose.quantity.medicationQuantityText) \(medication.form.unitName)\(dose.quantity == 1 ? "" : "s")"
+        let quantity = medication.form.quantityText(dose.quantity)
         return medication.strength.isEmpty ? quantity : "\(quantity) · \(medication.strength)"
     }
 }

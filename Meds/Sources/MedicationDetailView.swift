@@ -113,7 +113,7 @@ struct MedicationDetailView: View {
             SupplyChangeSheet(
                 title: "Add a Refill",
                 message: "Add the quantity you actually received.",
-                unit: medication.form.unitName,
+                form: medication.form,
                 initialValue: suggestedRefillQuantity,
                 actionTitle: "Add Refill"
             ) { quantity, note in
@@ -135,7 +135,7 @@ struct MedicationDetailView: View {
             SupplyChangeSheet(
                 title: "Correct Current Count",
                 message: "Count everything on hand, including doses already placed in pill organizers.",
-                unit: medication.form.unitName,
+                form: medication.form,
                 initialValue: SupplyChangeQuantity.countPrefill(for: forecast),
                 actionTitle: "Save Count"
             ) { actualCount, note in
@@ -254,7 +254,7 @@ struct MedicationDetailView: View {
         if forecast.needsCount { return "Count needed" }
         if forecast.currentSupply <= 0 { return "Out of supply" }
         if let days = forecast.daysRemaining {
-            return days == 1 ? "About 1 day left" : "About \(days) days left"
+            return "About \(days.dayCountText) left"
         }
         return "Timing unknown"
     }
@@ -364,7 +364,7 @@ struct MedicationDetailView: View {
                         Text(timeText(minutes: schedule.minutesAfterMidnight))
                             .font(.body.weight(.semibold))
                         Spacer()
-                        Text("\(schedule.doseQuantity.medicationQuantityText) \(medication.form.unitName)\(schedule.doseQuantity == 1 ? "" : "s")")
+                        Text(medication.form.quantityText(schedule.doseQuantity))
                             .foregroundStyle(.secondary)
                     }
                     if schedule.id != schedules.last?.id { Divider() }
@@ -386,7 +386,7 @@ struct MedicationDetailView: View {
             Label("Details", systemImage: "list.bullet.rectangle")
                 .font(.headline)
             DetailLine(label: "Refills", value: medication.refillsRemaining.map(String.init) ?? "Not entered")
-            DetailLine(label: "Low-supply alert", value: "\(medication.refillLeadDays) days before")
+            DetailLine(label: "Low-supply alert", value: "\(medication.refillLeadDays.dayCountText) before")
             if let expirationDate = medication.expirationDate {
                 let calendar = Calendar.autoupdatingCurrent
                 let isExpired = calendar.startOfDay(for: expirationDate) < calendar.startOfDay(for: .now)
@@ -747,7 +747,7 @@ enum SupplyChangeQuantity {
 private struct SupplyChangeSheet: View {
     let title: String
     let message: String
-    let unit: String
+    let form: MedicationForm
     /// Nil opens the field empty.
     let initialValue: Double?
     let actionTitle: String
@@ -768,14 +768,14 @@ private struct SupplyChangeSheet: View {
     init(
         title: String,
         message: String,
-        unit: String,
+        form: MedicationForm,
         initialValue: Double?,
         actionTitle: String,
         onSave: @escaping (Double, String) -> Void
     ) {
         self.title = title
         self.message = message
-        self.unit = unit
+        self.form = form
         self.initialValue = initialValue
         self.actionTitle = actionTitle
         self.onSave = onSave
@@ -791,7 +791,7 @@ private struct SupplyChangeSheet: View {
                             .keyboardType(.decimalPad)
                             .font(.title2.weight(.semibold))
                             .accessibilityIdentifier("supply-quantity")
-                        Text(unit + (quantity == 1 ? "" : "s"))
+                        Text(form.unitText(for: quantity ?? 0))
                             .foregroundStyle(.secondary)
                     }
                     TextField("Optional note", text: $note, axis: .vertical)

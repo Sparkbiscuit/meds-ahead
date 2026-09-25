@@ -129,7 +129,7 @@ struct HealthImportView: View {
         parts.append(summary.hasSchedule ? "Scheduled in Health" : "As needed in Health")
         if !summary.recentTakenDoses.isEmpty {
             let count = summary.recentTakenDoses.count
-            parts.append("\(count) dose\(count == 1 ? "" : "s") logged in 30 days")
+            parts.append("\(count.counted("dose", plural: "doses")) logged in 30 days")
         }
         if summary.isArchived { parts.append("Archived in Health") }
         return parts.joined(separator: " · ")
