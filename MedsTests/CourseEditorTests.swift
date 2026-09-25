@@ -62,6 +62,42 @@ final class CourseEditorTests: XCTestCase {
         XCTAssertEqual(MedicationEditorView.earliestCourseLastDay(stored: try date(9, 12, in: newYork), now: now, calendar: newYork), try date(9, 0, in: newYork))
     }
 
+    /// A day before today is saved only as a finished course's own last day,
+    /// left as it was. The editor opened at 23:50 and saved at 00:05 keeps
+    /// the day it opened on while the picker, whose range starts at today,
+    /// shows today: saved, the new course would already be over, with not
+    /// one reminder. A finished course's picker starts at its own last day,
+    /// and a day between that and today would stretch the old course over
+    /// days nobody was asked to take a dose on.
+    func testADayBeforeTodayIsRefusedUnlessItIsTheStoredOne() throws {
+        let newYork = try calendar("America/New_York")
+        let opened = try date(25, 23, in: newYork).addingTimeInterval(50 * 60)
+        let saved = try date(26, 0, in: newYork).addingTimeInterval(5 * 60)
+        XCTAssertLessThan(opened, MedicationEditorView.earliestCourseLastDay(stored: nil, now: saved, calendar: newYork),
+                          "why: the day kept is before the picker's range")
+        XCTAssertEqual(MedicationEditorView.courseLastDayProblem(courseEnds: true, lastDay: opened, stored: nil, now: saved, calendar: newYork),
+                       "Choose today or a later day for the course's last day.")
+        XCTAssertNil(MedicationEditorView.courseLastDayProblem(courseEnds: true, lastDay: saved, stored: nil, now: saved, calendar: newYork), "today")
+        XCTAssertNil(MedicationEditorView.courseLastDayProblem(courseEnds: true, lastDay: try date(30, 9, in: newYork), stored: nil, now: saved, calendar: newYork))
+        XCTAssertNil(MedicationEditorView.courseLastDayProblem(courseEnds: false, lastDay: opened, stored: nil, now: saved, calendar: newYork),
+                     "no course, no last day")
+
+        let now = try date(12, 9, in: newYork)
+        let finished = ScheduleEngine.normalizedEndDate(forDay: try date(9, 0, in: newYork), calendar: newYork)
+        XCTAssertNil(MedicationEditorView.courseLastDayProblem(courseEnds: true, lastDay: finished, stored: finished, now: now, calendar: newYork),
+                     "a finished course saved with its own last day stays finished")
+        XCTAssertEqual(MedicationEditorView.courseLastDayProblem(courseEnds: true, lastDay: try date(11, 9, in: newYork), stored: finished, now: now, calendar: newYork),
+                       "Choose today or a later day to start this course again, or \(ForecastEngine.dayText(finished, calendar: newYork)) to leave it finished.")
+        XCTAssertNil(MedicationEditorView.courseLastDayProblem(courseEnds: true, lastDay: now, stored: finished, now: now, calendar: newYork),
+                     "today starts it again")
+        XCTAssertNil(MedicationEditorView.courseLastDayProblem(courseEnds: false, lastDay: try date(11, 9, in: newYork), stored: finished, now: now, calendar: newYork),
+                     "no last day starts it again")
+
+        let running = ScheduleEngine.normalizedEndDate(forDay: try date(20, 0, in: newYork), calendar: newYork)
+        XCTAssertEqual(MedicationEditorView.courseLastDayProblem(courseEnds: true, lastDay: try date(11, 9, in: newYork), stored: running, now: now, calendar: newYork),
+                       "Choose today or a later day for the course's last day.")
+    }
+
     func testTheFooterSaysRemindersStopAfterTheLastDay() throws {
         let newYork = try calendar("America/New_York")
         let now = try date(12, 9, in: newYork)

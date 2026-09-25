@@ -176,6 +176,9 @@ struct MedicationEditorView: View {
                 }
                 masksByMinute[minutes, default: 0] |= schedule.weekdayMask
             }
+            if let problem = Self.courseLastDayProblem(courseEnds: courseEnds, lastDay: courseLastDay, stored: storedCourseEnd) {
+                return problem
+            }
         }
         return nil
     }
@@ -343,6 +346,12 @@ struct MedicationEditorView: View {
                     Toggle("Course ends", isOn: $courseEnds.animation(.medsSpring))
                         .accessibilityIdentifier("course-ends")
                         .accessibilityHint("For a medication taken until a set day, such as an antibiotic")
+                        .onChange(of: courseEnds) { _, isOn in
+                            // From today as it is now: the editor may have
+                            // opened before midnight, and a picker shows a day
+                            // before its range as today while it keeps the old.
+                            if isOn, storedCourseEnd == nil { courseLastDay = .now }
+                        }
                     if courseEnds {
                         DatePicker(
                             "Last day",
@@ -829,8 +838,9 @@ struct MedicationEditorView: View {
     }
 
     /// The first day the Last day picker offers: today, or a finished
-    /// course's own last day, so the course loads as it was and saves back
-    /// unchanged.
+    /// course's own last day, which a picker starting at today would show as
+    /// today. The days between that one and today stay on offer only because
+    /// a range cannot skip them; `courseLastDayProblem` refuses them.
     static func earliestCourseLastDay(stored: Date?, now: Date = .now, calendar: Calendar = .autoupdatingCurrent) -> Date {
         let today = calendar.startOfDay(for: now)
         guard let stored else { return today }
@@ -849,6 +859,30 @@ struct MedicationEditorView: View {
         guard courseEnds else { return nil }
         if let stored, calendar.isDate(stored, inSameDayAs: lastDay) { return stored }
         return ScheduleEngine.normalizedEndDate(forDay: lastDay, calendar: calendar)
+    }
+
+    /// Why the last day cannot be saved, or nil. A day picked must be today
+    /// or later; only a finished course's own last day, left as it was, may
+    /// be past. A day before today saved as new would be a course already
+    /// over, with no reminders at all, or would stretch a finished course
+    /// over days nobody was asked to take a dose on. And the picker cannot
+    /// be trusted to prevent it: a compact picker shows a day before its
+    /// range as the first day it offers while it keeps the earlier one.
+    static func courseLastDayProblem(
+        courseEnds: Bool,
+        lastDay: Date,
+        stored: Date?,
+        now: Date = .now,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> String? {
+        guard courseEnds else { return nil }
+        if let stored, calendar.isDate(stored, inSameDayAs: lastDay) { return nil }
+        let today = calendar.startOfDay(for: now)
+        guard calendar.startOfDay(for: lastDay) < today else { return nil }
+        if let stored, calendar.startOfDay(for: stored) < today {
+            return "Choose today or a later day to start this course again, or \(ForecastEngine.dayText(stored, calendar: calendar)) to leave it finished."
+        }
+        return "Choose today or a later day for the course's last day."
     }
 
     /// Under the Schedule section of a scheduled medication.
