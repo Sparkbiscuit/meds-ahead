@@ -62,7 +62,26 @@ final class ScheduleSlotDateTests: XCTestCase {
         XCTAssertEqual(slot(repeated, on: date(newYork, 11, 1), calendar: newYork).map { newYork.component(.hour, from: $0) }, 1)
     }
 
-    /// Whatever the model's own answer is, the plain-values one is the same,
+    /// The rules as 1.1 wrote them, before the planner needed them from plain
+    /// values, written out again here. `scheduledDate` now asks `slotDate`, so
+    /// comparing the two would only check that one passes its values to the
+    /// other; this is something to compare them with.
+    private func dayRulesAsTheyWere(_ schedule: DoseSchedule, on day: Date, calendar: Calendar) -> Bool {
+        let target = calendar.startOfDay(for: day)
+        guard target >= calendar.startOfDay(for: schedule.startDate) else { return false }
+        if let endDate = schedule.endDate, target > calendar.startOfDay(for: endDate) { return false }
+        return schedule.weekdayMask & (1 << (calendar.component(.weekday, from: target) - 1)) != 0
+    }
+
+    private func rulesAsTheyWere(_ schedule: DoseSchedule, on day: Date, calendar: Calendar) -> Date? {
+        let hour = schedule.minutesAfterMidnight / 60
+        let minute = schedule.minutesAfterMidnight % 60
+        guard dayRulesAsTheyWere(schedule, on: day, calendar: calendar),
+              let date = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: day) else { return nil }
+        return date >= schedule.startDate.addingTimeInterval(-30 * 60) ? date : nil
+    }
+
+    /// The plain-values answer and the model's are the rules as they were,
     /// across every kind of day the rules treat differently.
     func testThePlainValuesAnswerIsTheModelsAnswer() {
         for zone in ["GMT", "America/New_York", "Australia/Lord_Howe"] {
@@ -81,8 +100,11 @@ final class ScheduleSlotDateTests: XCTestCase {
                 for month in [3, 4, 10, 11] {
                     for day in 1...14 {
                         let day = date(calendar, month, day, 12)
-                        let expected = ScheduleEngine.scheduledDate(for: schedule, on: day, calendar: calendar)
+                        let expected = rulesAsTheyWere(schedule, on: day, calendar: calendar)
                         XCTAssertEqual(slot(schedule, on: day, calendar: calendar), expected, "\(zone) \(day)")
+                        XCTAssertEqual(ScheduleEngine.scheduledDate(for: schedule, on: day, calendar: calendar), expected, "\(zone) \(day)")
+                        XCTAssertEqual(ScheduleEngine.isActive(schedule, on: day, calendar: calendar),
+                                       dayRulesAsTheyWere(schedule, on: day, calendar: calendar), "\(zone) \(day)")
                         if expected != nil { checked += 1 }
                     }
                 }

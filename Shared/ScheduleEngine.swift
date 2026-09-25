@@ -55,15 +55,33 @@ enum ScheduleEngine {
         on day: Date,
         calendar: Calendar = .autoupdatingCurrent
     ) -> Bool {
-        let start = calendar.startOfDay(for: schedule.startDate)
+        isActive(
+            weekdayMask: schedule.weekdayMask,
+            startDate: schedule.startDate,
+            endDate: schedule.endDate,
+            on: day,
+            calendar: calendar
+        )
+    }
+
+    /// The day rules alone, from plain values: the one copy `slotDate` and
+    /// the model's `isActive` both answer from.
+    static func isActive(
+        weekdayMask: Int,
+        startDate: Date,
+        endDate: Date?,
+        on day: Date,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> Bool {
+        let start = calendar.startOfDay(for: startDate)
         let target = calendar.startOfDay(for: day)
         guard target >= start else { return false }
-        if let endDate = schedule.endDate,
+        if let endDate,
            target > calendar.startOfDay(for: endDate) {
             return false
         }
         let weekday = calendar.component(.weekday, from: target) - 1
-        return schedule.weekdayMask & (1 << weekday) != 0
+        return weekdayMask & (1 << weekday) != 0
     }
 
     static func scheduledDate(
@@ -92,11 +110,7 @@ enum ScheduleEngine {
         on day: Date,
         calendar: Calendar = .autoupdatingCurrent
     ) -> Date? {
-        let target = calendar.startOfDay(for: day)
-        guard target >= calendar.startOfDay(for: startDate) else { return nil }
-        if let endDate, target > calendar.startOfDay(for: endDate) { return nil }
-        let weekday = calendar.component(.weekday, from: target) - 1
-        guard weekdayMask & (1 << weekday) != 0 else { return nil }
+        guard isActive(weekdayMask: weekdayMask, startDate: startDate, endDate: endDate, on: day, calendar: calendar) else { return nil }
         let hour = minutesAfterMidnight / 60
         let minute = minutesAfterMidnight % 60
         guard let date = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: day) else { return nil }
