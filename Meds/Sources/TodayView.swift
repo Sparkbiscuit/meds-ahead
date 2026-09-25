@@ -441,8 +441,11 @@ struct TodayView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
+                // Named for what it sets aside: Today can show three Not Now
+                // buttons, and a hint is not read when hints are off.
                 Button("Not Now") { missedDosesSetAsideOn = dayKey(now) }
                     .font(.subheadline)
+                    .accessibilityLabel("Not now, missed doses")
                     .accessibilityHint("Hides these until tomorrow")
             }
             .padding(18)
@@ -501,6 +504,7 @@ struct TodayView: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.large)
+                    .accessibilityLabel("Keep \(item.displayName) for now")
                     .accessibilityHint("Keeps \(item.displayName) as it is")
                     .accessibilityIdentifier("finished-course-not-now")
                     Button {

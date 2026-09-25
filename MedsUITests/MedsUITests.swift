@@ -1012,6 +1012,7 @@ final class MedsUITests: XCTestCase {
         let title = app.descendants(matching: .any).matching(
             NSPredicate(format: "label BEGINSWITH %@", "Amoxicillin's course finished on \(yesterday.formatted(.dateTime.month(.abbreviated).day()))."))
         XCTAssertTrue(title.firstMatch.exists, "the card names the course and the day it finished")
+        XCTAssertEqual(app.buttons["finished-course-not-now"].label, "Keep Amoxicillin for now", "Not Now names what it keeps")
         app.buttons["finished-course-not-now"].tap()
         XCTAssertTrue(card.waitForNonExistence(timeout: 3), "Not Now set the card aside")
 
@@ -1168,6 +1169,8 @@ final class MedsUITests: XCTestCase {
         scrollToQuickCount(app, title: title)
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label ENDSWITH %@", "weren't logged, so only a count can say what's left.")).firstMatch.exists)
         XCTAssertEqual(app.staticTexts["quick-count-catch-up"].label, "Log or skip its missed doses above first, so they don't come off the new count.")
+        XCTAssertTrue(app.buttons["Not now, missed doses"].exists, "each Not Now names what it sets aside")
+        XCTAssertEqual(app.buttons["quick-count-not-now"].label, "Not now, Dimethyl fumarate count")
         app.buttons["quick-count-not-now"].tap()
         XCTAssertTrue(title.waitForNonExistence(timeout: 3), "Not Now left the card up")
         XCTAssertFalse(app.buttons["quick-count-now"].exists, "Not Now hides the card, not only the medication it named")

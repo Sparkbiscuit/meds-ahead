@@ -229,6 +229,7 @@ struct QuickCountCard: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
+                .accessibilityLabel("Not now, \(prompt.displayName) count")
                 .accessibilityHint("Hides this for three days")
                 .accessibilityIdentifier("quick-count-not-now")
 
