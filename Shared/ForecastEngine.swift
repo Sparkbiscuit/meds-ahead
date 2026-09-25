@@ -157,13 +157,15 @@ enum ForecastEngine {
     }
 
     /// A forecast and what it was worked out from. `forecast` hands on only
-    /// the answer; an explanation of it must start from these same values, so
-    /// it can never describe a second calculation that disagrees with the
-    /// date beside it.
+    /// the answer; `breakdown` explains it from these same values, so "Why
+    /// this date?" can never describe a second calculation that disagrees
+    /// with the date beside it.
     struct Evaluation {
         let forecast: SupplyForecast
         /// The amount the assumed doses stand for; the forecast counts them.
         var assumedQuantity: Double = 0
+        /// The as-needed rate the run-out date is divided out from.
+        var asNeededRate: ForecastBreakdown.AsNeededRate? = nil
     }
 
     static func evaluation(
@@ -509,6 +511,7 @@ enum ForecastEngine {
             to: calendar.startOfDay(for: now)
         ).day ?? 0
         let window = min(30, max(1, observed + 1))
+        let rate = ForecastBreakdown.AsNeededRate(doseCount: recent.count, quantity: quantity, windowDays: window)
         let dailyAverage = quantity / Double(window)
         let rawDays = supply / dailyAverage
         // The scheduled path stops looking three years out, and so does this one.
@@ -524,7 +527,7 @@ enum ForecastEngine {
                 daysRemaining: nil,
                 confidence: .unknown,
                 explanation: "The confirmed supply extends beyond the forecast window."
-            ))
+            ), asNeededRate: rate)
         }
         let days = max(1, Int(rawDays.rounded(.down)))
         let date = calendar.date(byAdding: .day, value: days, to: now)
@@ -536,7 +539,7 @@ enum ForecastEngine {
             explanation: window == 1
                 ? "Estimated from today's as-needed use."
                 : "Estimated from the last \(window) days of as-needed use."
-        ))
+        ), asNeededRate: rate)
     }
 
     private static func unknownAsNeeded(supply: Double) -> SupplyForecast {
