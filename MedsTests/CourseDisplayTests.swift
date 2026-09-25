@@ -296,4 +296,57 @@ final class CourseDisplayTests: XCTestCase {
         XCTAssertEqual(FinishedCourseNotice.adding("a", to: both), both)
         XCTAssertEqual(FinishedCourseNotice.setAside(in: ""), [])
     }
+
+    // MARK: - Printed list
+
+    private func listEntry(_ course: Course, schedules: [DoseSchedule]? = nil) throws -> MedicationListEntry {
+        try XCTUnwrap(MedicationListDocument.entries(
+            medications: [course.medication],
+            schedules: schedules ?? course.schedules,
+            inventoryEvents: course.inventory,
+            doseEvents: course.doses,
+            now: now,
+            calendar: calendar
+        ).first)
+    }
+
+    private func printedDay(_ date: Date) -> String {
+        date.formatted(Date.FormatStyle(date: .abbreviated, time: .omitted, calendar: calendar, timeZone: calendar.timeZone))
+    }
+
+    func testThePrintedListSaysWhenACourseEnds() throws {
+        let running = try listEntry(covered)
+        XCTAssertEqual(running.scheduleLines.count, 2)
+        XCTAssertTrue(running.scheduleLines.allSatisfy { $0.hasSuffix(" · Every day · until \(printedDay(lastDay(20)))") }, "\(running.scheduleLines)")
+        XCTAssertEqual(printedDay(lastDay(20)), "Sep 20, 2026")
+        XCTAssertEqual(running.supplyLine, "22 tablets on hand · enough to finish the course on Sep 20, 2026")
+
+        let over = try listEntry(finished)
+        XCTAssertEqual(over.scheduleLines, ["Course finished Sep 9, 2026"], "no times for a course that is over")
+        XCTAssertEqual(over.supplyLine, "2 tablets on hand")
+
+        let ongoing = try listEntry(course(count: 30, through: nil, loggedThrough: september(12, 8)))
+        XCTAssertFalse(ongoing.scheduleLines.contains { $0.contains("until") })
+        XCTAssertTrue(ongoing.supplyLine.contains("runs out around"))
+    }
+
+    /// Enough for the course only if the unlogged doses were taken, as the
+    /// run-out line says it.
+    func testAPrintedCoveredCourseSaysWhatItAssumed() throws {
+        let unlogged = try listEntry(course(count: 45, through: 20, loggedThrough: september(11, 23)))
+        XCTAssertEqual(unlogged.supplyLine,
+                       "23 tablets on record · 1 dose since the last count wasn't logged · enough to finish the course on Sep 20, 2026 if it was taken")
+    }
+
+    /// A course taken up again prints the times it is taken on now, not the
+    /// ended course's beside them.
+    func testThePrintedListShowsOnlyTheCourseTakenUpAgain() throws {
+        let old = finished
+        let reopened = [9, 21].map {
+            DoseSchedule(medicationID: old.medication.id, minutesAfterMidnight: $0 * 60, doseQuantity: 1, startDate: now, endDate: lastDay(20))
+        }
+        let entry = try listEntry(old, schedules: old.schedules + reopened)
+        XCTAssertEqual(entry.scheduleLines.count, 2, "the two times it is taken on now, not four: \(entry.scheduleLines)")
+        XCTAssertTrue(entry.scheduleLines.allSatisfy { $0.hasSuffix("until Sep 20, 2026") })
+    }
 }
