@@ -1,5 +1,218 @@
 # Verification record
 
+## September 25, 2026 — 1.2 "First Days Home": courses, reminders by date, and a dozen bottles at once
+
+1.2 is version 1.2, build 8, on the local branch `feature/first-days-home`;
+nothing is pushed or submitted. It is built on 1.1.1 and carries all of it,
+the entries below included: `fix/1.1.1-supply-accuracy` was merged in three
+times as it moved (`1615af7`, `d6167fe`, and the merge of its final paperwork
+at `07fd388`).
+
+It is for the first days after a hospital discharge, when a caregiver comes
+home with a bag of new bottles, several of them courses that end on a given
+day, and has to set them all up at once and then keep them straight. 1.1 made
+each bottle a separate trip through Add, could not say a medication stops, so
+a ten-day antibiotic's reminders never did, and gave no way to see how a
+run-out date was worked out or to be asked for a count before a date went
+stale. The designs are in `ARCHITECTURE.md` under "Dated reminders, follow-ups
+and the weekly count check", "Courses", "Why this date?", "The quick count",
+"Scanning a dozen bottles" and "The same bottle twice"; `PRODUCT.md` has the
+feature list and the course forecast rules.
+
+### What was built
+
+- **Courses** (`dc2fe60`, `60b457a`, `ec43393`, `66750c1`, `f1dbe66`,
+  `1c876b2`, `5f5690b`, `dba2ca2`, `a656180`, `962b9eb`). A last day in the
+  editor, applied to every schedule and stored as noon so a trip under twelve
+  hours cannot move it. The forecast says whether the supply finishes the
+  course, and a finished course warns about nothing. Today offers to archive
+  one for three days, never for a course whose supply ran out first, which is
+  described by its last day on every surface rather than called finished.
+  Taking a finished course up again starts new schedules from today.
+- **Reminders by date** (`914e840`, `f694b33`, `cc72e6a`, `8f6e001`,
+  `ff67481`). A schedule that starts or ends within the week is planned one
+  day at a time, so a course's reminders stop after its last day; the ongoing
+  medications keep their repeating requests, and a time the two share rings
+  twice. A dated reminder's Taken logs the day it names, wherever the phone
+  is. Today says when the reminders planned so far will run out.
+- **Follow-ups** (`cf683ae`, `fcd292a`), off until chosen: a second reminder
+  30 minutes after a dose not logged on this phone, worded to check first, and
+  withdrawn by the widget's Taken.
+- **The weekly count check and the quick count** (`63e2edd`, `4d87b43`,
+  `f7e74ad`, `d74c199`, `54c6ad4`). One question a week, at 10:00, about the
+  one medication a count would help most, in a reminder and as a card on
+  Today, which asks for missed doses to be logged first.
+- **Why this date?** (`f5f2ded`, `3d84c50`, `585ba35`, `706e078`, `63ea10f`).
+  The forecast's own steps as a short ledger that adds up, from the detail
+  screen or a Supply row.
+- **Save and Scan Next** (`89633fd`, `62c9d78`, `0daf608`, `28a0f49`). After
+  Add, a new scanner for the next bottle, and a tally bar of the bottles
+  saved.
+- **The same bottle twice** (`71623c6`, `24ba3a2`, `6388921`, `572347c`,
+  `588f31a`). "Already in Meds Ahead" on the review screen, and a bottle added
+  to the medication as a refill; Prograf and Astagraf XL are never taken for
+  each other.
+
+No `@Model` changed: `Shared/Models.swift` is as 1.1 shipped it, the course's
+last day is the `DoseSchedule.endDate` that has existed since 1.0, and the new
+state is in plain structs and the app's own `UserDefaults`. The ledger is
+append-only as before: adding a bottle records a refill, and archiving a
+finished course records nothing.
+
+### How it was built and reviewed
+
+Five lanes, in two waves, each built in its own worktree against its own
+simulators: the forecast engine and courses' arithmetic, reminder planning,
+and the scanning setup first; then the course screens and the "Why this date?"
+and quick-count work on top of them. Each lane went to a separate reviewer
+whose job was to break it. A finding was fixed only once it had been
+reproduced and had survived an attempt to refute it, and each fix came with a
+test. The lanes were merged, with 1.1.1, into `feature/first-days-home`
+(`d6167fe`), where an integration pass ran both suites, found no merge
+breakage, and looked at Today in light, dark and Accessibility XXXL with every
+new card at once; that moved the finished-course card below the quick count,
+whose "above" had pointed past it (`0b5fc0c`), and named a course that ran out
+before its last day by that day rather than as finished (`962b9eb`).
+
+Then the whole 1.2 diff went to five reviewers at once, on reminders, courses,
+setup, the tests and the screens. Twenty-three findings survived refutation.
+Twenty-one commits, `f81518b` to `84c5243`, fix twenty-two of them, each code
+change with its own test, and half of the twenty-third: the one exception to
+consolidating same-time reminders is now written down in `ARCHITECTURE.md`,
+and its line in `AGENTS.md` is left for Nick below. Among the fixes: a refill
+alert now outranks follow-ups under the sixty-request cap; a dose logged early
+is left out of its dated reminder; the count check is planned before it falls
+due and never past a course's end; a reminder's Taken that finds nothing to
+log still replans; a course supplied to the tablet stays covered once its last
+dose goes unlogged; and a tracked medication's stored code matches only a
+product it describes. Three fixes differ from what the reviewer suggested,
+because the suggestion broke an existing test or case; the commits say how.
+
+This entry's pass merged 1.1.1's final paperwork, which merged cleanly and
+changed documentation only (`07fd388`), set the version to 1.2 (8) in every
+configuration of the app and the widget (`faa8ffe`), built Release, and ran
+both suites whole on both runtimes. That run found one UI test failing on iOS
+26.5 for a reason in the test, fixed in `522debf` (see Results).
+
+### Verified only in the simulator
+
+- Every reminder rule is proved on the planner's plain values:
+  `DatedReminderPlanningTests`, `FollowUpReminderTests` (including every five
+  minutes of both clock changes in New York, London, Lord Howe and Santiago),
+  `CountCheckPolicyTests`, `NotificationContentTests` and
+  `NotificationActionsTests`, which plans in Sydney and answers in Los
+  Angeles. No 1.2 reminder has rung on a phone. How a one-shot calendar
+  trigger behaves across a clock change is inferred from `Calendar`'s
+  matching.
+- The widget's withdrawal of a follow-up calls `UNUserNotificationCenter` from
+  the widget extension; tested only through the rule it applies.
+- Courses, the finished-course card and the course's words on every surface,
+  by unit tests and by UI tests over fictional seeded courses (`-seed-course`,
+  `-seed-finished-course`), with screenshots in light, dark and Accessibility
+  XXXL.
+- Save and Scan Next, the tally and "Already in Meds Ahead", by UI tests with
+  the simulated scanner and typed NDCs; the Prograf and Astagraf XL rule also
+  against the shipped directory and RxNorm table. No camera and no real
+  bottle.
+- "Why this date?": every line, plural and state in `WhyThisDateLedgerTests`,
+  and its steps summing to the ledger's raw balance in
+  `ForecastBreakdownTests`.
+
+### Still open, for a phone
+
+The "1.2 gates" device script in `RELEASE_CHECKLIST.md`, about three hours
+over three days after five minutes of setup a week ahead: a fictional course
+ending tomorrow whose reminders must stop after its last day, with Taken and
+Skip from the Lock Screen on its dated reminders; follow-ups, including none
+after a dose is logged and the widget's Taken withdrawing one; the weekly
+count check at 10:00 and the quick count; twelve bottles in one session and a
+second bottle of one as a refill; "Why this date?" against a counted bottle;
+the widgets with a course; VoiceOver on the new screens; and the same on an
+iPhone running iOS 27. Two things the script does not try, and only unit tests
+cover: a follow-up on the night the clocks go back (in the United States, next
+on November 1), and a dated reminder answered after the phone's time zone
+changes. At Accessibility XXXL the scanner's progress pills overlap the frame
+in the simulator, older than 1.2; it needs a look on a phone.
+
+### Decisions left for Nick
+
+- `AGENTS.md` says notification planning consolidates same-time slots; a
+  course's dated reminder at a time an ongoing medication shares rings beside
+  it, on purpose, and only `ARCHITECTURE.md` says so. The rule's wording is
+  yours to change.
+- Reminders a week ahead stop if the app is not opened for a week while a
+  course or a later start is dated. Today warns from three days before; one
+  more request, on the last planned day, could say "Open Meds Ahead to keep
+  reminders coming". Not built.
+- Follow-ups are planned a day ahead, so they stop after a day with no app
+  opened and no Lock Screen action, and a dose logged in Apple Health is not
+  seen until the app next syncs, so its follow-up can still ring.
+- The ledger takes a dose off the supply when it is logged, so a dose from
+  before a count logged after it comes off twice. The quick count asks for
+  missed doses first; the detail screen, a late reminder action, or a
+  missed-doses card set aside for the day do not. A real fix changes the
+  ledger for every forecast.
+- A course's noon end holds for time-zone changes under twelve hours;
+  `ScheduleEngine.isActive` comparing calendar days would hold for any, but
+  changes the rule for every screen.
+- Turning on Course ends starts the Last day picker on today, so saving
+  without choosing makes a course that ends today.
+- Switching a course with ended history to as-needed deletes its current
+  schedules, and editing a finished course's times without taking it up again
+  rewrites its ended schedules in place. The ledger is untouched.
+- The quick count's Count Now opens prefilled when no dose is assumed, so one
+  tap records a count nobody made and rests the card for a week. Not Now hides
+  the card rather than moving on; a medication that needs a count is never
+  rested. Tapping a count check while a sheet or a pushed screen is open only
+  switches the tab.
+- A Health review gets no "Already in Meds Ahead" banner. A bottle added as a
+  refill makes Add Refill suggest that bottle's amount next time, and never
+  counts down refills left. The tally lists names newest first.
+- A scanned extended-release bottle whose code was not used and whose brand
+  was not read still matches an uncoded immediate-release entry by name and
+  strength; the banner shows the tracked medication's brand, and only offers.
+- `testAnExtendedReleaseBottleIsNotOfferedAsTheImmediateReleaseOne` still
+  fails now and then in a full iOS 26.5 run and passes alone (see Results).
+  Current amount was there but could not be tapped, and after the second swipe
+  it was gone: one swipe carried it past the part of the form that could be
+  tapped, as happens when a keyboard shortens it. Putting the typed code's
+  keyboard away before scrolling, as `522debf` does for the course test, would
+  likely settle it; the test was left as the lane hardened it.
+
+### Results
+
+All on the code at `522debf` (this entry's documentation commit changes no
+code), iPhone 17 Pro simulators, Xcode 27.0 (27A266a), the test command in
+`AGENTS.md`:
+
+- **iOS 26.5 (23F77):** unit tests 643/643 (472 at 1.1.1's `4728d73`; 1.2 adds
+  171), UI tests 29/29 (16 at `4728d73`; 1.2 adds 13).
+- **iOS 27.0 (24A434):** unit tests 643/643, UI tests 29/29.
+- **Before `522debf`.** Right after the merge (`07fd388`), unit tests 643/643
+  on iOS 26.5. At `faa8ffe`, iOS 27.0 passed unit 643/643 and UI 29/29, and
+  iOS 26.5 passed unit 643/643 and UI 27/29. The two failures:
+  - `testTurningOnACourseInTheEditorShowsItsLastDay`,
+    `MedsUITests/MedsUITests.swift:975`: "XCTAssertFalse failed - the calendar
+    did not close". It failed alone as well, three runs in five on iOS 26.5
+    with its steps unchanged. `522debf` fixes the test, which then passed ten
+    runs in a row on iOS 26.5 and five on iOS 27.0.
+  - `testAnExtendedReleaseBottleIsNotOfferedAsTheImmediateReleaseOne`,
+    `MedsUITests/MedsUITests.swift:787`: "XCTAssertTrue failed - Current
+    amount cannot be reached". Re-run alone on iOS 26.5 it passed (108
+    seconds), and it passed in every other full run, on both runtimes.
+- **Release builds:** Release for the generic iOS Simulator and for a generic
+  iOS device, unsigned (`CODE_SIGNING_ALLOWED=NO`), both succeed with no
+  warnings, and the app and the widget extension both carry 1.2 (8). Release
+  defines no `DEBUG` condition (`SWIFT_ACTIVE_COMPILATION_CONDITIONS` is set
+  only in the project's Debug configuration); every launch argument the tests
+  use, the new `-seed-course`, `-seed-finished-course`,
+  `-force-planned-through-notice`, `-simulate-scanner` and `-simulate-scan-*`
+  included, is read inside `#if DEBUG`, as is `MedsAppDelegate`'s UI-testing
+  cleanup; and neither Release binary contains any seed, simulate, force or
+  UI-testing argument. The two onboarding arguments remain only as strings
+  compared against an empty list in Release, as in 1.1. The test builds print
+  only Xcode's no-AppIntents metadata-skip message.
+
 ## September 25, 2026 — 1.1.1: small print on iOS 27, and release as identity
 
 Two lanes merged into 1.1.1 after the paperwork in the entry below (`9630c3e`):

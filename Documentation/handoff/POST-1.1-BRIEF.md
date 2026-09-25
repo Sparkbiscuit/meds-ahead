@@ -1,5 +1,34 @@
 # Post-1.1 brief
 
+> Status, September 25, 2026, evening: two releases now stand on local
+> branches, neither pushed nor submitted.
+>
+> **1.1.1** (version 1.1.1, build 7, `fix/1.1.1-supply-accuracy`) covers all
+> of section 1 and, from September 25, the iOS 27 scanner and release form as
+> part of a product's identity. The three OCR tests that read blurred NDC print
+> differently on the iOS 27 simulator now pass there, so that decision is gone.
+> Sections 4 and 6 stand as below: done, except that
+> `LogNextDoseIntent.perform` has no test of its own (1.2 adds a follow-up
+> withdrawal to it, tested through `NotificationIdentifiers.followUpIsAnswered`).
+> Left for 1.1.1: the device script under "1.1.1 gates" in
+> `RELEASE_CHECKLIST.md`, steps 1 to 16, which also closes section 2's open 1.1
+> gates; the accessibility declarations (section 2); the archive and
+> submission.
+>
+> **1.2** is no longer the Spanish release of section 3. It is "First Days
+> Home" (version 1.2, build 8, `feature/first-days-home`), built on 1.1.1 and
+> carrying all of it: courses with a last day, reminders planned by date for a
+> course or a schedule that starts later, optional follow-ups, a weekly count
+> check with a quick count on Today, "Why this date?", Save and Scan Next, and
+> a bottle of something already tracked added as a refill. See
+> `VERIFICATION.md` (September 25, 1.2) and `ARCHITECTURE.md`. It closes none
+> of the numbered items below and reopens none of section 1's fixes. Section 3
+> has not started, and 1.2 adds English copy its catalog will have to cover
+> (`WhyThisDateLedger`, the count-check and follow-up reminders in
+> `NotificationPlanner`, `FinishedCourseNotice`, `QuickCountPrompt`). Left for
+> 1.2: the device script under "1.2 gates" in `RELEASE_CHECKLIST.md`, then the
+> archive and submission after 1.1.1's. Sections 5 and 7 are untouched.
+>
 > Status, September 24–25, 2026: 1.1.1 is version 1.1.1, build 7, still on
 > the local branch `fix/1.1.1-supply-accuracy` (unpushed), and covers all of
 > section 1. 1a, 1c–1g, 1i and 1j are fixed with tests (September 21). 1b:

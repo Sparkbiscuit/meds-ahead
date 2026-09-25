@@ -140,3 +140,54 @@ About 35 minutes, on any day after step 13, with 1.1.1 run from Xcode (a Debug b
 - [ ] In App Store Connect, create version 1.1.1 with build 7 and paste the 1.1.1 What's New from `AppStore/SUBMISSION.md`; the description, keywords and review notes stand, with item 2 true
 - [ ] Confirm App Privacy stays `Data Not Collected`: 1.1.1 adds no collection, no network request and no new Health access
 - [ ] Publish only the accessibility declarations a phone pass verified (`AppStore/CONNECT_ANSWERS.md`): VoiceOver after step 12; Sufficient Contrast only after an Accessibility Inspector pass on a phone, since the `.contrast` audit proved unreliable (`VERIFICATION.md`, September 21); Differentiate Without Color Alone after checking the calendar's glyphs with the setting on
+
+## 1.2 gates
+
+1.2, "First Days Home", is version 1.2, build 8, on the local branch `feature/first-days-home` (unpushed), which carries all of 1.1.1. What it changes and why is in `VERIFICATION.md` under September 25, 2026 (1.2); the designs are in `ARCHITECTURE.md` under "Dated reminders, follow-ups and the weekly count check", "Courses", "Why this date?", "The quick count", "Scanning a dozen bottles" and "The same bottle twice". Verified in the simulator:
+
+- [x] Unit tests 643/643 and UI tests 29/29 on the iPhone 17 Pro simulator, iOS 26.5
+- [x] Unit tests 643/643 and UI tests 29/29 on the iPhone 17 Pro simulator, iOS 27.0
+- [x] Release build for the iOS Simulator and for a generic iOS device (unsigned), with no warnings; app and widget extension both 1.2 (8); no DEBUG launch argument, seed or hook is in either Release binary
+- [x] No `@Model` change since 1.1: `Shared/Models.swift` is untouched, so there is no migration to verify
+- [x] Today's new cards, the course's words on Supply, the detail screen and Why This Date, and the planned-through notice, in light and dark and at Accessibility XXXL, from screenshots and UI tests
+
+### Device script
+
+About three hours across three days, on the spare iPhone on iOS 26, plus twenty minutes on an iPhone on iOS 27, after five minutes of setup a week ahead. Every medication below is a made-up test entry, and the bottles in steps 6 and 7 are any labelled bottles that can sit on a test phone: vitamins, over-the-counter bottles, empty vials. Never run this on a phone that holds anyone's real medications. Run 1.2 from Xcode over the build already on the phone, without deleting it. Write down what each step shows, pass or fail, before moving on.
+
+**A week before, any time (5 min)**
+
+1. **Set up the count check.** Archive every medication left from earlier scripts. Add "Count Check Test", 40 tablets on hand, one at 22:30 every day, with Dose reminders off and Refill reminders on, and do not count it again. In Settings, Weekly Count Check is on (the default) and Remind Again If Not Logged is off. Its question is due at 10:00 seven days later, which is day 1 below.
+
+**Day 1**
+
+2. **A course ending tomorrow, on Supply and the widget (10 min, by 09:00).** Add "Course Test", 12 tablets, one at 09:30 and one at 21:00, Course ends on, Last day tomorrow. Pass: the schedule footer says "Reminders stop after the last day."; Supply's row reads "Enough to finish the course on" tomorrow; the detail screen's forecast says the same with the tablets left after its last dose. Put Runs Out Next (medium) and Next Dose (small) on the Home Screen. Pass: Runs Out Next shows Course Test with a tick after any medication with a date.
+3. **Taken on a dated reminder from a locked phone (5 min).** Lock the phone by 09:25. At 09:30 Course Test's reminder arrives: touch and hold, Taken. Pass: its Recent Activity shows one dose, "Logged from reminder", at 09:30 today, and the count is 11.
+4. **The weekly count check and the quick count (10 min).** Leave the phone locked at 10:00. Pass: a reminder titled "Quick count" arrives at 10:00. Tap it. Pass: Today shows the missed-doses card with Count Check Test's 22:30 doses, and below it "Quick count: Count Check Test" with "Log or skip its missed doses above first, so they don't come off the new count." Turn on VoiceOver: the card reads its question and that line, then its two buttons. Turn it off, skip those doses on the missed-doses card, then Count Now. Pass: the count sheet names Count Check Test and its field is empty, since doses are assumed. Type 35 and save. Pass: the quick count card is gone and does not come back when you leave Today and return.
+5. **Follow-ups (2 hours, mostly waiting, 10:10 to 12:40).** In Settings, turn on Remind Again If Not Logged. Add "Follow-up Test" (one at 10:30), "Logged Test" (one at 11:15) and "Widget Follow-up Test" (one at 12:00), 20 tablets each, each alone at its time.
+   - At 10:30 leave the reminder. Pass: at 11:00 a second one arrives, "10:30 AM dose not logged yet", saying to check before giving it in case someone already did. Taken on it from the Lock Screen. Pass: Follow-up Test shows one dose, "Logged from reminder".
+   - At 11:15, Taken on Logged Test from Today. Pass: nothing arrives at 11:45.
+   - From 11:50 do not open Meds Ahead. At 12:00, when the Next Dose widget shows Widget Follow-up Test with Taken, tap Taken on the widget. Pass: nothing arrives at 12:30; opened afterwards, Recent Activity shows one dose, "Logged from widget".
+6. **Twelve bottles in one session (25 min).** Add > Scan a Label, and scan twelve bottles one after another. For the first, enter what is on hand and one tablet at 22:15 every day; for the rest, turn on Taken as needed so they add no reminders. Enter an amount and tap Add on each. Pass: after each Add a new, empty scanner opens with nothing of the last bottle in it; the bar under the camera names the bottles saved, newest first, and from the sixth on the newest leads and the oldest names are the ones cut short. Tap Done after the twelfth. Pass: Medications lists all twelve. Write down how long the twelve took.
+7. **The same bottle twice (10 min).** A second bottle of one product from step 6: the same drug and strength, another fill or another box. Add > Scan a Label and scan it. Pass: the review shows "Already in Meds Ahead:" with that medication and "Add this bottle to" it. Tap it, enter the bottle's amount, and add it. Pass: Medications still lists the medication once; its Recent Activity shows a refill of exactly that amount; the scanner's bar says "Added to" it. If the label shows a later expiry or more refills left than the first bottle's, the sheet says the earlier expiry and the lower number stay. If you have them, an extended-release bottle of a drug tracked in its immediate-release form gets no banner, and a generic bottle of a tracked brand shows the brand in parentheses.
+8. **Why This Date against a counted bottle (10 min).** The first bottle from step 6. Count what is in it, and Correct Count with that number. Take one tablet out into a dish and tap Take Now. Open Why this date? from its detail screen, then from a touch and hold on its Supply row. Pass: it starts from the count you made and its time, shows 1 taken, and the number on record is your count less one; count the bottle again and it agrees. The date it ends on is the date Supply shows. Put the tablet back and record nothing for it.
+9. **The evening dose and its follow-up (5 min).** At 21:00 Course Test's reminder arrives; leave it. Pass: at 21:30 its follow-up arrives. Taken on it.
+
+**Day 2, the course's last day**
+
+10. **Skip on a dated reminder (5 min).** Lock the phone before 09:30. At 09:30, Skip from Course Test's reminder. Pass: one skipped dose, the count unchanged. At 21:00, Taken on its reminder. Pass: that evening Supply still reads "Enough to finish the course on" today.
+
+**Day 3**
+
+11. **Reminders stop after the last day (10 min).** Do not open Meds Ahead before 10:05. Pass: no Course Test reminder at 09:30 and no follow-up at 10:00. Then open it. Pass: Today shows "Course Test's course finished on" yesterday, with Not Now and Archive; Supply's row says "Course finished" and the day; Runs Out Next no longer lists it. Turn on VoiceOver: the card reads its title and line together, then "Keep Course Test for now" and "Archive Course Test". Turn it off and tap Archive. Pass: it leaves Today and Supply, is under archived in Medications, and its Recent Activity has no new entry.
+12. **VoiceOver on the new screens (15 min).** The course controls in the editor (Course ends, Last day, the footer); Settings' Remind Again If Not Logged and Weekly Count Check with their footers; Today's missed-doses card; Why This Date, where each line reads as one sentence with the signs said as words; the scanner's bar and Done; the "Already in Meds Ahead" banner and the Add this bottle sheet.
+13. **iOS 27 (20 min).** On an iPhone running iOS 27, run 1.2 from Xcode. Add a course ending tomorrow and repeat step 3; turn on follow-ups and repeat the first part of step 5; scan three bottles in one session as in step 6; repeat step 7 with one of them; and put both widgets on the Home Screen. Pass: the same results as on iOS 26. If the 1.1.1 scanning steps 14 to 16 have not run on this phone, run them now.
+
+### Release
+
+- [ ] Every step above passes, or its failure is written down and decided
+- [ ] 1.1.1 is merged into `main` first (its own release steps above); then merge `feature/first-days-home` into `main` and push
+- [ ] Archive build 8 from that commit with automatic signing, validate in Organizer, and upload
+- [ ] In App Store Connect, create version 1.2 with build 8; paste the 1.2 What's New and the review notes from `AppStore/SUBMISSION.md`, with item 2 true of the passes above
+- [ ] Confirm App Privacy stays `Data Not Collected`: 1.2 adds no collection, no network request and no new Health access; the new settings and cards remember their state in the app's own `UserDefaults`, which the privacy manifest already declares
+- [ ] Publish only the accessibility declarations a phone pass verified, as for 1.1.1, with step 12 added to VoiceOver's
