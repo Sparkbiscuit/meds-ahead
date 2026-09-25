@@ -197,14 +197,59 @@ final class ForecastEngineTests: XCTestCase {
         XCTAssertTrue(result.explanation.contains("as-needed use"), result.explanation)
     }
 
-    /// A forecast runs on every screen and in the widget, so it weighs at most
-    /// 400 days of unlogged doses, however old the count.
-    func testTheLookBackStopsAtFourHundredDays() {
-        let added = calendar.date(byAdding: .day, value: -600, to: september(6, 7))!
+    /// Stopping at a fixed look-back dropped the oldest unlogged dose each day
+    /// as a new one came in, so an old count brought the slide back: here a
+    /// count 500 days ago, refills since, and nothing logged.
+    func testAnOldCountStillWeighsEveryUnloggedDose() throws {
+        let now = september(6, 7)
+        let added = try XCTUnwrap(calendar.date(byAdding: .day, value: -500, to: now))
         let medication = Medication(name: "Example", createdAt: added)
         let schedule = DoseSchedule(medicationID: medication.id, minutesAfterMidnight: 8 * 60, doseQuantity: 1, startDate: added)
-        let opening = InventoryEvent(medicationID: medication.id, date: added, delta: 1_000, reason: .openingCount)
-        XCTAssertEqual(forecast(medication, [schedule], [opening], now: september(6, 7)).assumedDoses, 400)
+        var inventory = [InventoryEvent(medicationID: medication.id, date: added, delta: 60, reason: .openingCount)]
+        for refill in 1...9 {
+            inventory.append(InventoryEvent(medicationID: medication.id, date: try XCTUnwrap(calendar.date(byAdding: .day, value: 55 * refill, to: added)),
+                                            delta: 60, reason: .refill))
+        }
+
+        let today = forecast(medication, [schedule], inventory, now: now)
+        XCTAssertEqual(today.currentSupply, 600)
+        XCTAssertEqual(today.assumedDoses, 500)
+        XCTAssertEqual(today.daysRemaining, 99, "600 in and 500 assumed out leaves 100 doses, the first of them this morning")
+        for later in [1, 7, 30] {
+            let then = forecast(medication, [schedule], inventory, now: try XCTUnwrap(calendar.date(byAdding: .day, value: later, to: now)))
+            XCTAssertEqual(then.depletionDate, today.depletionDate, "\(later) days on, with nothing logged, the date has not moved")
+        }
+    }
+
+    /// Past doses stopped at the edge of the due window and doses to come
+    /// started at now, so a dose inside its window was in neither and the
+    /// run-out moved a dose later for half an hour. When that dose was the
+    /// day's last, the refill alert moved a day and was then never planned.
+    func testTheRunOutHoldsStillWhileADoseIsDue() {
+        let (medication, schedules, opening) = twiceDaily()
+        let doses = (1...12).flatMap { day in schedules.map { logged(.taken, $0, at: september(day, $0.minutesAfterMidnight / 60)) } }
+        let dates = [september(13, 7, 50), september(13, 8, 10), september(13, 8, 40)].map {
+            forecast(medication, schedules, [opening], doses, now: $0).depletionDate
+        }
+        XCTAssertEqual(dates, Array(repeating: september(15, 20), count: 3))
+
+        // A dose logged a little early is in the ledger, and not also still to come.
+        let early = DoseEvent(medicationID: medication.id, scheduleID: schedules[0].id, scheduledAt: september(13, 8),
+                              recordedAt: september(13, 7, 45), doseQuantity: 1, status: .taken)
+        let loggedEarly = forecast(medication, schedules, [opening], doses + [early], now: september(13, 7, 50))
+        XCTAssertEqual(loggedEarly.currentSupply, 5)
+        XCTAssertEqual(loggedEarly.depletionDate, september(15, 20))
+    }
+
+    /// On the day a medication is added, a dose given well after its time has
+    /// no slot and is logged with Take Now. It stands for no other dose, so an
+    /// evening that goes unlogged is still assumed.
+    func testALateFirstDoseDoesNotStandForTheEvening() {
+        let (medication, schedules, opening) = twiceDaily(addedAt: september(1, 9))
+        let lateMorning = DoseEvent(medicationID: medication.id, recordedAt: september(1, 9, 5), doseQuantity: 1, status: .taken)
+        let result = forecast(medication, schedules, [opening], [lateMorning], now: september(2, 7))
+        XCTAssertEqual(result.currentSupply, 29)
+        XCTAssertEqual(result.assumedDoses, 1, "the evening of the 1st")
     }
 
     func testSkippedDoseDoesNotReduceSupply() {

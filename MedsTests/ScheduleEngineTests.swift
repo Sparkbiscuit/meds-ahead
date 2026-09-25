@@ -191,6 +191,86 @@ final class ScheduleEngineTests: XCTestCase {
         XCTAssertEqual(history.last?.date, gmt(10, 7))
     }
 
+    // MARK: - Unlogged doses
+
+    /// `unloggedDoses` does not work out the time of a dose its own day's log
+    /// already accounts for. It must still answer exactly as asking
+    /// `loggedEvent` about every dose `doses` lists would: across weekdays, a
+    /// first day, an end date, the change to daylight saving time, and logs a
+    /// time-zone change carried onto the neighbouring day.
+    func testUnloggedDosesAnswersAsAskingAboutEveryDoseWould() {
+        let calendar = calendar("America/New_York")
+        func date(_ month: Int, _ day: Int, _ hour: Int, _ minute: Int = 0) -> Date {
+            calendar.date(from: DateComponents(year: 2026, month: month, day: day, hour: hour, minute: minute))!
+        }
+        let medicationID = UUID()
+        let schedules = [
+            DoseSchedule(medicationID: medicationID, minutesAfterMidnight: 8 * 60, doseQuantity: 1, startDate: date(2, 20, 15)),
+            // 02:30 does not exist on March 8th.
+            DoseSchedule(medicationID: medicationID, minutesAfterMidnight: 2 * 60 + 30, doseQuantity: 0.5, startDate: date(2, 20, 15)),
+            DoseSchedule(medicationID: medicationID, minutesAfterMidnight: 21 * 60, doseQuantity: 2, weekdayMask: 0b0101010,
+                         startDate: date(2, 25, 9), endDate: date(3, 20, 0)),
+            DoseSchedule(medicationID: UUID(), minutesAfterMidnight: 12 * 60, doseQuantity: 1, startDate: date(2, 1, 0))
+        ]
+        let every = ScheduleEngine.doses(schedules: schedules, medicationID: medicationID, from: date(2, 18, 0), through: date(3, 31, 23), calendar: calendar)
+        var logs: [DoseEvent] = []
+        for (index, dose) in every.enumerated() {
+            let shift: TimeInterval
+            let status: DoseEventStatus
+            switch index % 5 {
+            case 0: (shift, status) = (0, .taken)
+            case 1: (shift, status) = (0, .skipped)
+            case 2: (shift, status) = (-7 * 60 * 60, .taken)
+            case 3: (shift, status) = (7 * 60 * 60, .taken)
+            default: continue
+            }
+            logs.append(DoseEvent(medicationID: medicationID, scheduleID: dose.scheduleID, scheduledAt: dose.date.addingTimeInterval(shift),
+                                  recordedAt: dose.date, doseQuantity: dose.quantity, status: status))
+        }
+        let now = date(3, 25, 12)
+
+        for (from, through) in [
+            (date(2, 18, 0), date(3, 31, 23)),
+            (date(2, 20, 15), date(3, 9, 7, 59)),
+            (date(3, 7, 22), date(3, 26, 3)),
+            (date(3, 24, 1), date(3, 26, 20))
+        ] {
+            let expected = ScheduleEngine.doses(schedules: schedules, medicationID: medicationID, from: from, through: through, calendar: calendar)
+                .filter { ScheduleEngine.loggedEvent(for: $0, in: logs, now: now, calendar: calendar) == nil }
+            let unlogged = ScheduleEngine.unloggedDoses(schedules: schedules, medicationID: medicationID, from: from, through: through,
+                                                        doseEvents: logs, now: now, calendar: calendar)
+            XCTAssertFalse(unlogged.isEmpty)
+            XCTAssertEqual(unlogged.map(\.id), expected.map(\.id), "\(from) through \(through)")
+        }
+    }
+
+    /// A dose logged outside every slot stands for the unlogged dose nearest it
+    /// that day, within two hours, and for one dose at most, however the range
+    /// is asked about.
+    func testALogOutsideEverySlotStandsForTheNearestDoseWithinReach() {
+        let calendar = calendar("GMT")
+        let schedules = morningAndEvening(startingAt: gmt(1, 0))
+        let medicationID = schedules[0].medicationID
+        func outside(_ hour: Int, _ minute: Int = 0) -> DoseEvent {
+            DoseEvent(medicationID: medicationID, recordedAt: gmt(10, hour, minute), doseQuantity: 1, status: .taken)
+        }
+        func unlogged(_ logs: [DoseEvent], from: Date? = nil, through: Date? = nil) -> [Int] {
+            hours(ScheduleEngine.unloggedDoses(schedules: schedules, medicationID: medicationID, from: from ?? gmt(10, 0),
+                                               through: through ?? gmt(10, 23, 59), doseEvents: logs, now: gmt(11, 9), calendar: calendar))
+        }
+
+        XCTAssertEqual(unlogged([outside(18, 30)]), [8], "the evening dose, taken early")
+        XCTAssertEqual(unlogged([outside(14)]), [8, 20], "hours from either dose, it may as well be an extra one")
+        XCTAssertEqual(unlogged([outside(19), outside(19, 30)]), [8], "one log stands for one dose")
+        let evening = DoseEvent(medicationID: medicationID, scheduleID: schedules[1].id, scheduledAt: gmt(10, 20),
+                                recordedAt: gmt(10, 20), doseQuantity: 1, status: .taken)
+        XCTAssertEqual(unlogged([evening, outside(19)]), [8], "a logged dose is not stood for twice")
+
+        let early = [outside(9, 30)]
+        XCTAssertEqual(unlogged(early, through: gmt(10, 12)) + unlogged(early, from: gmt(10, 12, 1)), unlogged(early))
+        XCTAssertEqual(unlogged(early), [20])
+    }
+
     func testDoseTimingStateBoundaries() {
         let now = Date(timeIntervalSince1970: 1_000_000)
 
