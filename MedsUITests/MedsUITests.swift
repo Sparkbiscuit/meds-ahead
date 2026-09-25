@@ -795,7 +795,10 @@ final class MedsUITests: XCTestCase {
             let ndc = app.textFields["ndc-entry"]
             scrollUp(to: ndc, "the NDC field")
             ndc.tap()
-            ndc.typeText(code)
+            // Return puts the keyboard away. Left up, it covers the lower
+            // rows, and a swipe meant to bring Current amount up past it
+            // could carry the row past the part of the form a tap can reach.
+            ndc.typeText(code + "\n")
             let use = app.buttons["use-ndc-product"]
             XCTAssertTrue(use.waitForExistence(timeout: 5))
             scrollUp(to: use, "Use This Product")
