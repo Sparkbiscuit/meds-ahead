@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 import XCTest
 @testable import Meds
@@ -188,5 +189,111 @@ final class CourseDisplayTests: XCTestCase {
             "Finished early", "Finished late",
             "Aspirin", "Zinc"
         ])
+    }
+
+    // MARK: - Today
+
+    private func finishedCards(_ courses: [Course], setAside: Set<String> = [], now: Date? = nil) -> [FinishedCourseNotice.Item] {
+        FinishedCourseNotice.items(
+            medications: courses.map(\.medication),
+            schedules: courses.flatMap(\.schedules),
+            inventoryEvents: courses.flatMap(\.inventory),
+            doseEvents: courses.flatMap(\.doses),
+            setAside: setAside,
+            now: now ?? self.now,
+            calendar: calendar
+        )
+    }
+
+    /// Finished on the 9th: offered on the 10th through the 12th, and not
+    /// before its last day is over or after the third day.
+    func testTodayOffersACourseForThreeDaysAfterItsLastDay() throws {
+        let course = finished
+        XCTAssertTrue(finishedCards([course], now: september(9, 21)).isEmpty, "still running on its last evening")
+        for day in 10...12 {
+            XCTAssertEqual(finishedCards([course], now: september(day, 9)).map(\.medicationID), [course.medication.id], "the \(day)th")
+        }
+        XCTAssertTrue(finishedCards([course], now: september(13, 9)).isEmpty, "four days on")
+
+        let item = try XCTUnwrap(finishedCards([course]).first)
+        XCTAssertEqual(item.end, lastDay(9))
+        XCTAssertEqual(FinishedCourseNotice.title(for: item, calendar: calendar), "Amoxicillin's course finished on Sep 9.")
+    }
+
+    /// Nothing is offered for a medication that is not on a course, for a
+    /// course still running, archived, as needed, or for one set aside.
+    func testTodayOffersOnlyAFinishedCourseNobodySetAside() {
+        XCTAssertTrue(finishedCards([covered, runsOutFirst, course("Ongoing", count: 30, through: nil)]).isEmpty)
+
+        let archived = makeFinished()
+        archived.medication.isArchived = true
+        XCTAssertTrue(finishedCards([archived]).isEmpty)
+
+        let asNeeded = makeFinished()
+        asNeeded.medication.isAsNeeded = true
+        XCTAssertTrue(finishedCards([asNeeded]).isEmpty)
+
+        let course = makeFinished()
+        let key = FinishedCourseNotice.key(medicationID: course.medication.id, end: lastDay(9), calendar: calendar)
+        XCTAssertTrue(finishedCards([course], setAside: [key]).isEmpty)
+        let otherCourse = FinishedCourseNotice.key(medicationID: course.medication.id, end: lastDay(3), calendar: calendar)
+        XCTAssertEqual(finishedCards([course], setAside: [otherCourse]).count, 1, "set aside for an earlier course, not for this one")
+    }
+
+    /// A course whose supply ran short of its last day ended with doses
+    /// missing, and an offer to archive it would read as a clean finish.
+    /// One whose count covered the rest, logged or not, finished.
+    func testTodayOffersNothingForACourseThatRanOutFirst() {
+        let ranShort = course(count: 16, through: 9, loggedThrough: september(8, 9))
+        XCTAssertTrue(forecast(ranShort).courseFinished, "the forecast calls it finished all the same")
+        XCTAssertTrue(finishedCards([ranShort]).isEmpty)
+
+        let notLoggedButEnough = course(count: 18, through: 9)
+        XCTAssertEqual(finishedCards([notLoggedButEnough]).count, 1, "18 counted for the 18 doses the course asked for")
+        let notLoggedAndShort = course(count: 17, through: 9)
+        XCTAssertTrue(finishedCards([notLoggedAndShort]).isEmpty)
+
+        let refilled = course(count: 16, through: 9, loggedThrough: september(9, 23))
+        let withRefill = Course(medication: refilled.medication, schedules: refilled.schedules,
+                                inventory: refilled.inventory + [InventoryEvent(medicationID: refilled.medication.id, date: september(8, 10), delta: 10, reason: .refill)],
+                                doses: refilled.doses)
+        XCTAssertEqual(finishedCards([withRefill]).count, 1, "a refill during the course saw it through")
+    }
+
+    /// Archive on the card marks the medication archived, as the detail
+    /// screen's menu does, and writes nothing to its ledger: restored, it
+    /// has the same history.
+    @MainActor
+    func testArchivingAFinishedCourseWritesNoLedgerEvent() throws {
+        let schema = Schema([Medication.self, DoseSchedule.self, DoseEvent.self, InventoryEvent.self])
+        let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)])
+        let context = container.mainContext
+        let course = makeFinished()
+        context.insert(course.medication)
+        course.schedules.forEach(context.insert)
+        course.inventory.forEach(context.insert)
+        course.doses.forEach(context.insert)
+        try context.save()
+        let inventoryBefore = try context.fetchCount(FetchDescriptor<InventoryEvent>())
+        let dosesBefore = try context.fetchCount(FetchDescriptor<DoseEvent>())
+        XCTAssertEqual(finishedCards([course]).count, 1)
+
+        try FinishedCourseNotice.archive(course.medication, in: context, now: now)
+
+        XCTAssertTrue(course.medication.isArchived)
+        XCTAssertEqual(course.medication.updatedAt, now)
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<InventoryEvent>()), inventoryBefore)
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<DoseEvent>()), dosesBefore)
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<DoseSchedule>()), 2, "its schedules stay for the calendar")
+        XCTAssertTrue(finishedCards([course]).isEmpty, "archived, it is not offered again")
+    }
+
+    func testTheSetAsideListKeepsEachCourseOnce() {
+        let first = FinishedCourseNotice.adding("a", to: "")
+        XCTAssertEqual(first, "a")
+        let both = FinishedCourseNotice.adding("b", to: first)
+        XCTAssertEqual(FinishedCourseNotice.setAside(in: both), ["a", "b"])
+        XCTAssertEqual(FinishedCourseNotice.adding("a", to: both), both)
+        XCTAssertEqual(FinishedCourseNotice.setAside(in: ""), [])
     }
 }
