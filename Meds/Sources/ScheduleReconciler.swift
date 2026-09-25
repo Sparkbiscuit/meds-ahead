@@ -93,6 +93,14 @@ enum ScheduleReconciler {
     /// moved, set or cleared rewrites the past too once the earlier of the
     /// two days is before today: a course ended three days back takes the
     /// unlogged doses since out of what the forecast assumes was taken.
+    ///
+    /// A last day that had passed, moved later or cleared, asks whatever was
+    /// assumed before: the schedule keeps its start, so the days since its
+    /// old end come back holding doses nobody was scheduled to take, and the
+    /// forecast would assume them taken. `assumedDoses` cannot speak for
+    /// them, since a finished course's forecast assumes nothing. A count now
+    /// sets the anchor after them. An edit that leaves the course finished
+    /// asks nothing, since its forecast weighs no doses at all.
     static func asksForCount(
         assumedDoses: Int,
         before: [UUID: ScheduleDefinition],
@@ -100,9 +108,19 @@ enum ScheduleReconciler {
         now: Date = .now,
         calendar: Calendar = .autoupdatingCurrent
     ) -> Bool {
-        guard assumedDoses > 0 else { return false }
         let kept = Dictionary(after.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let today = calendar.startOfDay(for: now)
+        let reopensPast = before.contains { id, old in
+            guard let schedule = kept[id], let oldEnd = old.endDate else { return false }
+            let oldDay = calendar.startOfDay(for: oldEnd)
+            guard oldDay < today else { return false }
+            return schedule.endDate.map { calendar.startOfDay(for: $0) > oldDay } ?? true
+        }
+        if reopensPast, let medicationID = after.first?.medicationID,
+           !ScheduleEngine.isCourseFinished(schedules: after, medicationID: medicationID, now: now, calendar: calendar) {
+            return true
+        }
+        guard assumedDoses > 0 else { return false }
         return before.contains { id, old in
             guard let schedule = kept[id] else { return true }
             return schedule.doseQuantity != old.doseQuantity || schedule.weekdayMask != old.weekdayMask
