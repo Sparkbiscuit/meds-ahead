@@ -102,6 +102,7 @@ struct TodayView: View {
                 LazyVStack(alignment: .leading, spacing: 18) {
                     header(now: now)
                     notificationBanner
+                    plannedThroughNotice(now: now)
                     pickupsCard(now: now)
                     missedDosesCard(now: now)
                     if activeMedications.isEmpty {
@@ -262,6 +263,30 @@ struct TodayView: View {
                 },
                 onRetry: { Task { await replanNotifications() } }
             )
+        }
+    }
+
+    /// Reminders for a course or a schedule starting soon are planned a day
+    /// at a time, and only as far as the cap allows. When that runs out
+    /// within a few days, the way to keep them coming is to open the app.
+    @ViewBuilder
+    private func plannedThroughNotice(now: Date) -> some View {
+        if let day = NotificationHealth.shared.plannedThroughNotice(now: now) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "calendar.badge.clock")
+                    .font(.title3)
+                    .foregroundStyle(.orange)
+                    .accessibilityHidden(true)
+                Text("Reminders are planned through \(day.formatted(.dateTime.weekday(.wide).month(.wide).day())). Open Meds Ahead before then to keep them coming.")
+                    .font(.subheadline)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .cardSurface()
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("planned-through-notice")
         }
     }
 

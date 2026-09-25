@@ -32,6 +32,14 @@ struct ScheduleNotificationPlan: Sendable {
     let minutesAfterMidnight: Int
     let doseQuantity: Double
     let weekdayMask: Int
+    /// A course that has ended must stop ringing, and a schedule that starts
+    /// later must not ring before it does.
+    var startDate: Date = .distantPast
+    var endDate: Date? = nil
+    /// The days, as start-of-day dates from yesterday through tomorrow, whose
+    /// slot is already logged. A reminder that has rung stays in Notification
+    /// Center only while its dose is still unlogged.
+    var loggedDays: Set<Date> = []
 }
 
 enum PlannedNotificationKind: Equatable, Sendable {
@@ -60,6 +68,9 @@ struct PlannedNotification: Equatable, Sendable {
     let medicationID: UUID?
     let scheduleID: UUID?
     let groupedDoseCount: Int
+    /// The scheduled moment a one-shot dose request stands for. A reminder
+    /// action resolves its dose from this, not from when it was delivered.
+    var slotDate: Date? = nil
 
     var supportsDoseQuickActions: Bool {
         kind == .dose && groupedDoseCount == 1 && medicationID != nil && scheduleID != nil
@@ -84,6 +95,10 @@ struct NotificationPlanOutcome: Equatable, Sendable {
     /// whenever a dose is skipped, and every day once nothing is left, while
     /// the warning already given is just as true.
     let retainedPrefixes: Set<String>
+    /// The last day every dated reminder is planned for, when a dated one is
+    /// still wanted after it: past the planning horizon, or cut by the cap.
+    /// Nothing after it rings unless the app is opened and plans again.
+    var plannedThrough: Date? = nil
 
     func retains(_ identifier: String) -> Bool {
         retainedIdentifiers.contains(identifier) || retainedPrefixes.contains { identifier.hasPrefix($0) }
@@ -101,6 +116,20 @@ enum NotificationPlanner {
 
     /// How far ahead of a package's expiration date the one reminder comes.
     static let expirationLeadDays = 7
+
+    /// The days, from today, that dated dose reminders are planned for. A dated
+    /// reminder is a one-shot request for one day and time, and they share the
+    /// cap with everything else; a week covers several openings of the app,
+    /// each of which plans the week again.
+    static let datedHorizonDays = 7
+
+    /// Dated reminders cut by the cap this soon are reported with the repeating
+    /// ones that did not fit, so Today says some reminders weren't set.
+    static let droppedDoseReportWindow: TimeInterval = 48 * 60 * 60
+
+    /// How long after its moment a dose request that has rung is worth keeping
+    /// in Notification Center while its dose is still unlogged.
+    static let passedDoseRetention: TimeInterval = 24 * 60 * 60
 
     static func notifications(
         for plan: MedicationNotificationPlan,
@@ -125,6 +154,12 @@ enum NotificationPlanner {
     ) -> NotificationPlanOutcome {
         var notifications: [PlannedNotification] = []
         var doseSlots: [DoseSlot: Set<DoseMember>] = [:]
+        var datedSlots: [Date: Set<DoseMember>] = [:]
+        var retainedIdentifiers: Set<String> = []
+        var retainedPrefixes: Set<String> = []
+        var datedPastHorizon = false
+        let today = calendar.startOfDay(for: now)
+        let horizon = (0..<datedHorizonDays).compactMap { calendar.date(byAdding: .day, value: $0, to: today) }
 
         for plan in plans where !plan.isArchived && plan.doseRemindersEnabled && !plan.isAsNeeded {
             for schedule in plan.schedules {
@@ -138,13 +173,38 @@ enum NotificationPlanner {
                     quantity: schedule.doseQuantity,
                     detailedNotifications: plan.detailedNotifications
                 )
-                for weekdayIndex in 0..<7 where schedule.weekdayMask & (1 << weekdayIndex) != 0 {
-                    let slot = DoseSlot(
-                        weekday: weekdayIndex + 1,
-                        hour: hour,
-                        minute: minute
-                    )
-                    doseSlots[slot, default: []].insert(member)
+                switch reach(of: schedule, today: today, calendar: calendar) {
+                case .ended:
+                    break
+                case .later:
+                    datedPastHorizon = true
+                case .steady:
+                    for weekdayIndex in 0..<7 where schedule.weekdayMask & (1 << weekdayIndex) != 0 {
+                        let slot = DoseSlot(
+                            weekday: weekdayIndex + 1,
+                            hour: hour,
+                            minute: minute
+                        )
+                        doseSlots[slot, default: []].insert(member)
+                    }
+                case let .dated(continuesPastHorizon):
+                    datedPastHorizon = datedPastHorizon || continuesPastHorizon
+                    for day in horizon {
+                        guard let slot = slotDate(of: schedule, on: day, calendar: calendar), slot > now else { continue }
+                        datedSlots[slot, default: []].insert(member)
+                    }
+                }
+
+                // A dated request that has rung is never planned again, so a
+                // replan (a Taken on another reminder's lock-screen button is
+                // one) would sweep it out of Notification Center. It stays
+                // while its dose is unlogged, as a repeating one would.
+                for offset in -1...0 {
+                    guard let day = calendar.date(byAdding: .day, value: offset, to: today),
+                          let slot = slotDate(of: schedule, on: day, calendar: calendar),
+                          slot <= now, now.timeIntervalSince(slot) < passedDoseRetention,
+                          !schedule.loggedDays.contains(calendar.startOfDay(for: slot)) else { continue }
+                    retainedIdentifiers.insert(NotificationIdentifiers.dose(at: slot, calendar: calendar))
                 }
             }
         }
@@ -195,9 +255,25 @@ enum NotificationPlanner {
             }
         }
 
+        // One request per day and time across every dated schedule. A steady
+        // schedule at the same time keeps its own repeating request, which
+        // cannot be silenced on particular days, so that day and time rings
+        // twice: two reminders are the price of never going quiet.
+        let dated = datedSlots.keys.sorted().compactMap { slot -> PlannedNotification? in
+            guard let members = datedSlots[slot], !members.isEmpty else { return nil }
+            let time = calendar.dateComponents([.hour, .minute], from: slot)
+            return doseNotification(
+                identifier: NotificationIdentifiers.dose(at: slot, calendar: calendar),
+                members: members,
+                trigger: .date(slot),
+                hour: time.hour ?? 0,
+                minute: time.minute ?? 0,
+                calendar: calendar,
+                slotDate: slot
+            )
+        }
+
         var refillNotifications: [PlannedNotification] = []
-        var retainedIdentifiers: Set<String> = []
-        var retainedPrefixes: Set<String> = []
         for plan in plans where !plan.isArchived && plan.refillRemindersEnabled {
             if let expirationDate = plan.expirationDate {
                 let expirationDay = calendar.startOfDay(for: expirationDate)
@@ -317,11 +393,62 @@ enum NotificationPlanner {
             guard case let .date(left) = lhs.trigger, case let .date(right) = rhs.trigger else { return false }
             return left < right
         }
+        // Repeating dose requests first: they keep ringing whether or not the
+        // app is opened again. Then the dated ones, soonest first.
+        let doseRequests = notifications + dated
+        let droppedDated = dated.dropFirst(max(0, maximumScheduledRequests - notifications.count))
+        let reportBefore = now.addingTimeInterval(droppedDoseReportWindow)
+        var plannedThrough = datedPastHorizon ? horizon.last : nil
+        if let firstDropped = droppedDated.first?.slotDate,
+           let lastWholeDay = calendar.date(byAdding: .day, value: -1, to: calendar.startOfDay(for: firstDropped)) {
+            plannedThrough = min(plannedThrough ?? lastWholeDay, lastWholeDay)
+        }
         return NotificationPlanOutcome(
-            notifications: Array((notifications + refillNotifications).prefix(maximumScheduledRequests)),
-            droppedDoseReminders: max(0, notifications.count - maximumScheduledRequests),
+            notifications: Array((doseRequests + refillNotifications).prefix(maximumScheduledRequests)),
+            droppedDoseReminders: max(0, notifications.count - maximumScheduledRequests)
+                + droppedDated.filter { ($0.slotDate ?? .distantFuture) < reportBefore }.count,
             retainedIdentifiers: retainedIdentifiers,
-            retainedPrefixes: retainedPrefixes
+            retainedPrefixes: retainedPrefixes,
+            plannedThrough: plannedThrough
+        )
+    }
+
+    /// How a schedule's first and last days bear on the week being planned.
+    private enum Reach {
+        /// Its last day has passed.
+        case ended
+        /// Running today and through the whole horizon: repeating requests say
+        /// it exactly, and go on saying it if the app is not opened again. One
+        /// that ends later would ring past its end in that case, which is the
+        /// safe way to be wrong; it turns dated once its end comes in reach.
+        case steady
+        /// Starting or ending within the horizon: one-shot requests on the days
+        /// it has a slot.
+        case dated(continuesPastHorizon: Bool)
+        /// Starting after the horizon: planned once the horizon reaches it.
+        case later
+    }
+
+    private static func reach(of schedule: ScheduleNotificationPlan, today: Date, calendar: Calendar) -> Reach {
+        let endDay = schedule.endDate.map { calendar.startOfDay(for: $0) }
+        if let endDay, endDay < today { return .ended }
+        let afterHorizon = calendar.date(byAdding: .day, value: datedHorizonDays, to: today) ?? today
+        let continuesPastHorizon = endDay.map { $0 >= afterHorizon } ?? true
+        let startDay = calendar.startOfDay(for: schedule.startDate)
+        if startDay <= today, continuesPastHorizon { return .steady }
+        return startDay < afterHorizon ? .dated(continuesPastHorizon: continuesPastHorizon) : .later
+    }
+
+    /// Which days a schedule has a dose is `ScheduleEngine`'s answer, never
+    /// the planner's own.
+    private static func slotDate(of schedule: ScheduleNotificationPlan, on day: Date, calendar: Calendar) -> Date? {
+        ScheduleEngine.slotDate(
+            minutesAfterMidnight: schedule.minutesAfterMidnight,
+            weekdayMask: schedule.weekdayMask,
+            startDate: schedule.startDate,
+            endDate: schedule.endDate,
+            on: day,
+            calendar: calendar
         )
     }
 
@@ -406,7 +533,8 @@ enum NotificationPlanner {
         trigger: PlannedNotificationTrigger,
         hour: Int,
         minute: Int,
-        calendar: Calendar
+        calendar: Calendar,
+        slotDate: Date? = nil
     ) -> PlannedNotification {
         let ordered = members.sorted { lhs, rhs in
             if lhs.displayName != rhs.displayName { return lhs.displayName < rhs.displayName }
@@ -433,7 +561,8 @@ enum NotificationPlanner {
             trigger: trigger,
             medicationID: only?.medicationID,
             scheduleID: only?.scheduleID,
-            groupedDoseCount: ordered.count
+            groupedDoseCount: ordered.count,
+            slotDate: slotDate
         )
     }
 
@@ -519,6 +648,7 @@ enum NotificationPlanBuilder {
             now: now,
             calendar: calendar
         )
+        let ownDoseEvents = doseEvents.filter { $0.medicationID == medication.id }
         return MedicationNotificationPlan(
             medicationID: medication.id,
             displayName: medication.displayName,
@@ -538,7 +668,10 @@ enum NotificationPlanBuilder {
                         id: $0.id,
                         minutesAfterMidnight: $0.minutesAfterMidnight,
                         doseQuantity: $0.doseQuantity,
-                        weekdayMask: $0.weekdayMask
+                        weekdayMask: $0.weekdayMask,
+                        startDate: $0.startDate,
+                        endDate: $0.endDate,
+                        loggedDays: loggedDays(of: $0, doseEvents: ownDoseEvents, now: now, calendar: calendar)
                     )
                 },
             refillInProgress: medication.refillStatus != .none,
@@ -549,5 +682,26 @@ enum NotificationPlanBuilder {
             onHand: forecast.currentSupply > 0,
             needsCount: forecast.needsCount
         )
+    }
+
+    /// The days from yesterday through tomorrow whose slot a log already
+    /// accounts for, as `ScheduleEngine` judges it.
+    private static func loggedDays(
+        of schedule: DoseSchedule,
+        doseEvents: [DoseEvent],
+        now: Date,
+        calendar: Calendar
+    ) -> Set<Date> {
+        let today = calendar.startOfDay(for: now)
+        var logged: Set<Date> = []
+        for offset in -1...1 {
+            guard let day = calendar.date(byAdding: .day, value: offset, to: today),
+                  let slot = ScheduleEngine.scheduledDate(for: schedule, on: day, calendar: calendar) else { continue }
+            let dose = ScheduledDose(medicationID: schedule.medicationID, scheduleID: schedule.id, date: slot, quantity: schedule.doseQuantity)
+            if ScheduleEngine.loggedEvent(for: dose, in: doseEvents, now: now, calendar: calendar) != nil {
+                logged.insert(calendar.startOfDay(for: slot))
+            }
+        }
+        return logged
     }
 }

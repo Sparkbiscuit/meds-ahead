@@ -457,4 +457,31 @@ final class MedsUITests: XCTestCase {
         app.buttons["Save Count"].tap()
         XCTAssertTrue(app.staticTexts["20 on hand"].waitForExistence(timeout: 3))
     }
+
+    /// When dated reminders run out within a few days, Today says so and says
+    /// what keeps them coming, readably at the largest text sizes.
+    func testThePlannedThroughNoticeIsShownAndAccessible() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-ui-testing",
+            "-skip-onboarding",
+            "-force-planned-through-notice",
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryAccessibilityXL"
+        ]
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+        let notice = app.descendants(matching: .any)["planned-through-notice"]
+        XCTAssertTrue(notice.waitForExistence(timeout: 5), "the notice never appeared")
+        XCTAssertTrue(notice.label.hasPrefix("Reminders are planned through "), notice.label)
+        XCTAssertTrue(notice.label.hasSuffix("Open Meds Ahead before then to keep them coming."), notice.label)
+        try app.performAccessibilityAudit(for: [
+            .elementDetection,
+            .hitRegion,
+            .sufficientElementDescription,
+            .textClipped,
+            .trait
+        ])
+    }
 }

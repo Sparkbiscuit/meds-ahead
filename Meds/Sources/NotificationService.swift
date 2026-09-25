@@ -57,7 +57,8 @@ actor NotificationService {
             await NotificationHealth.shared.record(
                 authorization: status,
                 planned: planned.count,
-                failed: 0
+                failed: 0,
+                plannedThrough: outcome.plannedThrough
             )
             WidgetCenter.shared.reloadAllTimelines()
             return
@@ -86,6 +87,9 @@ actor NotificationService {
             }
             if let scheduleID = item.scheduleID {
                 userInfo["scheduleID"] = scheduleID.uuidString
+            }
+            if let slotDate = item.slotDate {
+                userInfo[NotificationIdentifiers.slotDateKey] = NotificationIdentifiers.slotDateValue(slotDate)
             }
             userInfo["notificationKind"] = item.kind == .dose ? "dose" : "refill"
             content.userInfo = userInfo
@@ -133,7 +137,8 @@ actor NotificationService {
         await NotificationHealth.shared.record(
             authorization: status,
             planned: planned.count,
-            failed: failed + outcome.droppedDoseReminders
+            failed: failed + outcome.droppedDoseReminders,
+            plannedThrough: outcome.plannedThrough
         )
         // Every change to the ledger ends here, so this is where the widgets
         // learn about it.

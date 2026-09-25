@@ -80,6 +80,45 @@ final class NotificationActionsTests: XCTestCase {
         XCTAssertEqual(try fixture.context.fetchCount(FetchDescriptor<DoseEvent>()), 1)
     }
 
+    /// A dated reminder or a follow-up names its slot. A follow-up for a
+    /// 23:45 dose arrives at 00:15, on a day with a 23:45 dose of its own,
+    /// which is not the dose it asked about.
+    @MainActor
+    func testAReminderNamingItsSlotLogsThatDaysDose() throws {
+        let fixture = try makeFixture()
+        fixture.schedule.minutesAfterMidnight = 23 * 60 + 45
+        try fixture.context.save()
+        let slot = try XCTUnwrap(fixture.calendar.date(bySettingHour: 23, minute: 45, second: 0, of: fixture.scheduledDate))
+        let delivered = slot.addingTimeInterval(ScheduleEngine.dueWindow)
+        XCTAssertFalse(fixture.calendar.isDate(delivered, inSameDayAs: slot))
+
+        let result = try NotificationDoseRecorder.record(
+            status: .taken,
+            medicationID: fixture.medication.id,
+            scheduleID: fixture.schedule.id,
+            notificationDate: delivered,
+            slotDate: slot,
+            in: fixture.context,
+            calendar: fixture.calendar
+        )
+
+        XCTAssertEqual(result, .recorded)
+        let event = try XCTUnwrap(try fixture.context.fetch(FetchDescriptor<DoseEvent>()).first)
+        XCTAssertEqual(event.scheduledAt, slot)
+        XCTAssertEqual(
+            try NotificationDoseRecorder.record(status: .taken, medicationID: fixture.medication.id, scheduleID: fixture.schedule.id,
+                                                notificationDate: delivered, slotDate: slot, in: fixture.context, calendar: fixture.calendar),
+            .alreadyRecorded
+        )
+    }
+
+    func testTheSlotARequestNamesSurvivesItsUserInfo() throws {
+        let slot = Date(timeIntervalSince1970: 1_788_000_000.25)
+        let userInfo: [AnyHashable: Any] = [NotificationIdentifiers.slotDateKey: NotificationIdentifiers.slotDateValue(slot)]
+        XCTAssertEqual(NotificationIdentifiers.slotDate(in: userInfo), slot)
+        XCTAssertNil(NotificationIdentifiers.slotDate(in: [:]))
+    }
+
     func testOnlyMedicationQuickActionsMapToDoseStatuses() {
         XCTAssertEqual(
             MedicationNotificationAction.status(for: MedicationNotificationAction.markTakenIdentifier),
