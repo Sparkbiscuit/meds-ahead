@@ -161,20 +161,33 @@ final class ScheduleEngineTests: XCTestCase {
     }
 
     /// The rule hides slots; it never rewrites the ledger. A dose already
-    /// logged against a slot the rule now hides stays logged and stays charged.
-    func testHidingASlotLeavesTheLedgerAlone() {
+    /// logged against a slot the rule now hides stays logged and stays charged,
+    /// and it stands in for no other dose. Here the morning time was 18:00 when
+    /// it was saved at 15:00, its dose was logged at 18:10, and the time was
+    /// then moved to 08:00, which on the first day is before the schedule
+    /// existed. The log is within reach of the 20:00 dose, which it must not
+    /// cover: that dose went unlogged and is assumed taken.
+    func testHidingASlotLeavesTheLedgerAlone() throws {
         let calendar = calendar("GMT")
         let schedules = morningAndEvening(startingAt: gmt(10, 15))
         let medicationID = schedules[0].medicationID
+        let medication = Medication(id: medicationID, name: "Furosemide", createdAt: gmt(10, 15))
         let opening = InventoryEvent(medicationID: medicationID, date: gmt(10, 15), delta: 30, reason: .openingCount)
-        let loggedEarlier = DoseEvent(medicationID: medicationID, scheduleID: schedules[0].id, scheduledAt: gmt(10, 8),
-                                      recordedAt: gmt(10, 15, 5), doseQuantity: 1, status: .taken)
-        let events = [loggedEarlier]
+        let loggedEarlier = DoseEvent(medicationID: medicationID, scheduleID: schedules[0].id, scheduledAt: gmt(10, 18),
+                                      recordedAt: gmt(10, 18, 10), doseQuantity: 1, status: .taken)
 
         XCTAssertEqual(hours(ScheduleEngine.doses(schedules: schedules, medicationID: medicationID, onDayOf: gmt(10, 16), calendar: calendar)), [20])
-        XCTAssertEqual(events.map(\.id), [loggedEarlier.id])
-        XCTAssertEqual(loggedEarlier.scheduledAt, gmt(10, 8))
-        XCTAssertEqual(ForecastEngine.rawSupplyBalance(medicationID: medicationID, inventoryEvents: [opening], doseEvents: events), 29)
+
+        let forecast = ForecastEngine.forecast(medication: medication, schedules: schedules, inventoryEvents: [opening],
+                                               doseEvents: [loggedEarlier], now: gmt(11, 7), calendar: calendar)
+        XCTAssertEqual(forecast.currentSupply, 29, "the logged dose stays charged")
+        XCTAssertEqual(forecast.assumedDoses, 1, "the evening's dose on the 10th, and only it")
+        let unlogged = ScheduleEngine.unloggedDoses(schedules: schedules, medicationID: medicationID, from: gmt(10, 15), through: gmt(11, 6, 30),
+                                                    doseEvents: [loggedEarlier], now: gmt(11, 7), calendar: calendar)
+        XCTAssertEqual(unlogged.map(\.date), [gmt(10, 20)])
+        // 28 left after the assumed dose, two a day from the 11th's 08:00.
+        XCTAssertEqual(forecast.depletionDate, gmt(24, 20))
+        XCTAssertEqual(forecast.daysRemaining, 13)
     }
 
     /// Editing a time keeps the schedule and its start date, so only the first

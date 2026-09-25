@@ -335,10 +335,12 @@ final class NotificationPlannerTests: XCTestCase {
         XCTAssertEqual(NotificationService.deliveredIdentifiersToRemove(delivered: [moved, "meds.group.dose.daily.0830"], outcome: outcome), [moved])
     }
 
-    /// The run-out day in a refill alert's identifier moves a day while the
-    /// morning dose is due and not yet logged, after a Skip, and every day once
-    /// nothing is left. Opening the app from the dose reminder, or a Skip on the
-    /// Lock Screen, used to take the only warning out of Notification Center.
+    /// The run-out day in a refill alert's identifier moves a day after a
+    /// Skip, and every day once nothing is left. A Skip on the Lock Screen, or
+    /// a replan the day after running out, used to take the only warning out
+    /// of Notification Center. While the morning dose is due and not yet
+    /// logged the day holds still, so opening the app from the dose reminder
+    /// keeps the very identifier that was delivered.
     @MainActor
     func testADeliveredWarningOutlivesTheRunOutDayMoving() throws {
         func at(_ day: Int, _ hour: Int = 12, _ minute: Int = 0) -> Date {
@@ -353,19 +355,26 @@ final class NotificationPlannerTests: XCTestCase {
                           doseQuantity: 1, status: $0 == last ? status : .taken)
             }
         }
+        func plan(at now: Date, doses: [DoseEvent], inventory: [InventoryEvent] = counted) -> MedicationNotificationPlan {
+            NotificationPlanBuilder.make(medication: medication, schedules: [schedule], inventoryEvents: inventory,
+                                         doseEvents: doses, now: now, calendar: calendar)
+        }
         func outcome(at now: Date, doses: [DoseEvent], inventory: [InventoryEvent] = counted) -> NotificationPlanOutcome {
-            let plan = NotificationPlanBuilder.make(medication: medication, schedules: [schedule], inventoryEvents: inventory,
-                                                    doseEvents: doses, now: now, calendar: calendar)
-            return NotificationPlanner.plan(for: [plan], now: now, calendar: calendar)
+            NotificationPlanner.plan(for: [plan(at: now, doses: doses, inventory: inventory)], now: now, calendar: calendar)
         }
         let delivered = try XCTUnwrap(outcome(at: at(1), doses: logged(through: 1)).notifications.first { $0.kind == .refill }).identifier
+        let deliveredRunOut = try XCTUnwrap(plan(at: at(1), doses: logged(through: 1)).depletionDate)
 
-        let dueNotLogged = outcome(at: at(6, 8, 5), doses: logged(through: 5))
-        XCTAssertFalse(dueNotLogged.notifications.contains { $0.identifier == delivered }, "the run-out day in the identifier has moved")
-        XCTAssertEqual(NotificationService.deliveredIdentifiersToRemove(delivered: [delivered], outcome: dueNotLogged), [],
-                       "opened from the dose reminder before logging it")
-        XCTAssertEqual(NotificationService.deliveredIdentifiersToRemove(delivered: [delivered], outcome: outcome(at: at(6, 8, 5), doses: logged(through: 6, .skipped))), [],
+        XCTAssertEqual(plan(at: at(6, 8, 5), doses: logged(through: 5)).depletionDate, deliveredRunOut,
+                       "the run-out day holds still while the morning dose is due and not yet logged")
+        XCTAssertTrue(outcome(at: at(6, 8, 5), doses: logged(through: 5)).retains(delivered),
+                      "opened from the dose reminder before logging it, the identifier is unchanged and kept")
+
+        let skipped = (at: at(6, 8, 5), doses: logged(through: 6, .skipped))
+        XCTAssertNotEqual(plan(at: skipped.at, doses: skipped.doses).depletionDate, deliveredRunOut, "a skip moves the run-out day")
+        XCTAssertEqual(NotificationService.deliveredIdentifiersToRemove(delivered: [delivered], outcome: outcome(at: skipped.at, doses: skipped.doses)), [],
                        "skipped on the Lock Screen")
+        XCTAssertNotEqual(plan(at: at(11), doses: logged(through: 10)).depletionDate, deliveredRunOut, "at zero the run-out day is every day")
         XCTAssertEqual(NotificationService.deliveredIdentifiersToRemove(delivered: [delivered], outcome: outcome(at: at(11), doses: logged(through: 10))), [],
                        "the day after it ran out, the warning is truer than ever")
 

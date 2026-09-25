@@ -81,8 +81,8 @@ struct NotificationPlanOutcome: Equatable, Sendable {
     let retainedIdentifiers: Set<String>
     /// Refill alerts and refill checks are kept by medication instead, as
     /// identifier prefixes. The run-out day in their identifiers moves a day
-    /// whenever a dose is skipped or not yet logged, and every day once nothing
-    /// is left, while the warning already given is just as true.
+    /// whenever a dose is skipped, and every day once nothing is left, while
+    /// the warning already given is just as true.
     let retainedPrefixes: Set<String>
 
     func retains(_ identifier: String) -> Bool {
