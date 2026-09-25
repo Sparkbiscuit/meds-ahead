@@ -475,6 +475,7 @@ struct MedicationEditorView: View {
         let identity = DuplicateMedicationMatcher.Identity(
             name: name,
             strength: strength,
+            brandName: brandName,
             productIdentifier: productIdentifier,
             productIdentifierType: productIdentifierType,
             rxNormCode: rxNormCode,

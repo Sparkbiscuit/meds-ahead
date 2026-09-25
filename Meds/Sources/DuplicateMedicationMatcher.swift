@@ -12,13 +12,15 @@ enum DuplicateMedicationMatcher {
     struct Identity: Hashable, Sendable {
         var name: String
         var strength: String
+        var brandName: String = ""
         /// A code that filled the identity. Empty for a code that was only read.
         var ndc: String = ""
         var rxNormCodes: Set<String> = []
 
-        init(name: String, strength: String, ndc: String = "", rxNormCodes: Set<String> = []) {
+        init(name: String, strength: String, brandName: String = "", ndc: String = "", rxNormCodes: Set<String> = []) {
             self.name = name
             self.strength = strength
+            self.brandName = brandName
             self.ndc = ndc
             self.rxNormCodes = rxNormCodes.filter { !$0.isEmpty }
         }
@@ -30,6 +32,7 @@ enum DuplicateMedicationMatcher {
         init(
             name: String,
             strength: String,
+            brandName: String,
             productIdentifier: String,
             productIdentifierType: String,
             rxNormCode: String,
@@ -38,6 +41,7 @@ enum DuplicateMedicationMatcher {
             self.init(
                 name: name,
                 strength: strength,
+                brandName: brandName,
                 ndc: nameProvenance == .ndc && productIdentifierType == "NDC" ? productIdentifier : "",
                 rxNormCodes: [rxNormCode, productIdentifierType == "RxNorm" ? productIdentifier : ""]
             )
@@ -47,6 +51,7 @@ enum DuplicateMedicationMatcher {
             self.init(
                 name: draft.name,
                 strength: draft.strength,
+                brandName: draft.brandName,
                 productIdentifier: draft.productIdentifier,
                 productIdentifierType: draft.productIdentifierType,
                 rxNormCode: draft.rxNormCode,
@@ -56,13 +61,25 @@ enum DuplicateMedicationMatcher {
     }
 
     /// Every active medication the identity matches: the same NDC product in any
-    /// package size, the same RxNorm concept, or the same name at the same
-    /// strength. Archived medications are left out; restoring one is its own
-    /// decision.
-    static func matches(for identity: Identity, among medications: [Medication]) -> [Medication] {
+    /// package size, the same clinical drug by RxNorm, or the same name at the
+    /// same strength when nothing says they are different products. Archived
+    /// medications are left out; restoring one is its own decision.
+    static func matches(
+        for identity: Identity,
+        among medications: [Medication],
+        directory: @autoclosure () -> NDCDirectory = .shared,
+        rxNormTable: @autoclosure () -> RxNormTable = .shared
+    ) -> [Medication] {
         let product = productKey(identity.ndc)
+        // The tables are opened only for a draft with codes, which the scanner
+        // or Use This Product has read them for already: a name typed by hand
+        // never waits here on loading them.
+        let directory = product == nil ? nil : directory()
+        let table = identity.rxNormCodes.isEmpty ? nil : rxNormTable()
+        let clinicalDrugs = Set(identity.rxNormCodes.compactMap { table?.clinicalDrugCode(for: $0) })
         let name = nameKey(identity.name)
         let strength = strengthKey(identity.strength)
+        let brand = nameKey(identity.brandName)
         return medications
             .filter { medication in
                 guard !medication.isArchived else { return false }
@@ -74,7 +91,22 @@ enum DuplicateMedicationMatcher {
                    productKey(medication.productIdentifier) == product {
                     return true
                 }
-                if !identity.rxNormCodes.isDisjoint(with: rxNormCodes(of: medication)) { return true }
+                // By clinical drug, as the Health import matches: a generic
+                // bottle is its brand, and a brand's code is not a generic's.
+                let theirClinicalDrugs = Set(rxNormCodes(of: medication).compactMap { table?.clinicalDrugCode(for: $0) })
+                if !clinicalDrugs.isDisjoint(with: theirClinicalDrugs) { return true }
+
+                // Past here only the name links them, and the directory files
+                // products that are not interchangeable under one name and
+                // strength: Prograf and Astagraf XL are both tacrolimus 1 mg
+                // capsules, one taken twice a day and the other once. Anything
+                // that names them as different products outranks the name.
+                if !clinicalDrugs.isEmpty, !theirClinicalDrugs.isEmpty { return false }
+                if let product, let directory, let theirs = identifyingProductKey(of: medication, in: directory), theirs != product {
+                    return false
+                }
+                let theirBrand = nameKey(medication.brandName)
+                if !brand.isEmpty, !theirBrand.isEmpty, brand != theirBrand { return false }
                 return !name.isEmpty && name == nameKey(medication.name) && strength == strengthKey(medication.strength)
             }
             .sorted { lhs, rhs in
@@ -83,12 +115,19 @@ enum DuplicateMedicationMatcher {
             }
     }
 
-    /// "Furosemide 20 mg · for Sam": the medication as the banner names it,
-    /// with whose it is when a person is set, since that is what tells two
-    /// matches apart.
+    /// "Tacrolimus 1 mg (Prograf) · “Morning pill” · for Sam": the medication by
+    /// its own name, which is what the bottle in hand can be checked against,
+    /// then its brand and nickname, and whose it is when a person is set, since
+    /// that is what tells two matches apart.
     static func description(of medication: Medication) -> String {
-        var text = medication.displayName
+        var text = medication.name
         if !medication.strength.isEmpty { text += " \(medication.strength)" }
+        if !medication.brandName.isEmpty, nameKey(medication.brandName) != nameKey(medication.name) {
+            text += " (\(medication.brandName))"
+        }
+        if !medication.nickname.isEmpty, nameKey(medication.nickname) != nameKey(medication.name) {
+            text += " · “\(medication.nickname)”"
+        }
         if !medication.personName.isEmpty { text += " · for \(medication.personName)" }
         return text
     }
@@ -130,6 +169,19 @@ enum DuplicateMedicationMatcher {
         guard !left.isEmpty, !right.isEmpty, left != right else { return false }
         return StrengthComparison.compare(label: lhs, product: rhs) != .equivalent
             && StrengthComparison.compare(label: rhs, product: lhs) != .equivalent
+    }
+
+    /// The product a tracked medication's code names, when the directory lists
+    /// it under the medication's own name and strength. A code the label
+    /// printed but never vouched for is kept on the medication as read, and a
+    /// misreading cannot say that two bottles are different products.
+    private static func identifyingProductKey(of medication: Medication, in directory: NDCDirectory) -> String? {
+        guard medication.productIdentifierType == "NDC" else { return nil }
+        let candidates = NationalDrugCode.candidates(fromRendering: medication.productIdentifier.trimmingCharacters(in: .whitespacesAndNewlines))
+        guard candidates.count == 1, let listed = directory.product(for: candidates[0]),
+              nameKey(NDCIdentification.displayName(for: listed)) == nameKey(medication.name),
+              !strengthsDiffer(listed.strength, medication.strength) else { return nil }
+        return candidates[0].productKey
     }
 
     private static func rxNormCodes(of medication: Medication) -> Set<String> {

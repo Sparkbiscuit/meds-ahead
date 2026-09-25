@@ -640,4 +640,71 @@ final class MedsUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Tacrolimus"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["Prednisone"].exists)
     }
+
+    /// Prograf and Astagraf XL are both tacrolimus 1 mg capsules to the FDA
+    /// directory, one taken twice a day and the other once. An Astagraf XL
+    /// bottle must not be offered as the Prograf already tracked; a generic
+    /// Prograf bottle is, and the banner names the brand it would join.
+    func testAnExtendedReleaseBottleIsNotOfferedAsTheImmediateReleaseOne() {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-ui-testing",
+            "-skip-onboarding",
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryL"
+        ]
+        // Saving asks for notification permission the first time.
+        addUIInterruptionMonitor(withDescription: "Notification permission") { alert in
+            for title in ["Allow", "Don’t Allow", "Don't Allow"] where alert.buttons[title].exists {
+                alert.buttons[title].tap()
+                return true
+            }
+            return false
+        }
+        app.launch()
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+
+        func reviewByCode(_ code: String) {
+            app.tabBars.buttons["Add"].tap()
+            XCTAssertTrue(app.buttons["manual-entry"].waitForExistence(timeout: 3))
+            app.buttons["manual-entry"].tap()
+            let ndc = app.textFields["ndc-entry"]
+            for _ in 0..<10 where !ndc.isHittable { app.swipeUp() }
+            ndc.tap()
+            ndc.typeText(code)
+            let use = app.buttons["use-ndc-product"]
+            XCTAssertTrue(use.waitForExistence(timeout: 5))
+            if !use.isHittable { app.swipeUp() }
+            use.tap()
+            // Back to the top, where the banner sits above the name.
+            let name = app.textFields["medication-name"]
+            for _ in 0..<8 where !name.isHittable { app.swipeDown() }
+            app.swipeDown()
+        }
+
+        reviewByCode("0469-0617-73")
+        let supply = app.textFields["current-supply"]
+        for _ in 0..<6 where !supply.isHittable { app.swipeUp() }
+        supply.tap()
+        supply.typeText("30")
+        app.buttons["save-medication"].tap()
+        app.tap()
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+
+        reviewByCode("0469-0677-73")
+        XCTAssertEqual(app.textFields["medication-brand-name"].value as? String, "Astagraf XL")
+        let banner = app.descendants(matching: .any)["duplicate-banner"]
+        XCTAssertFalse(banner.waitForExistence(timeout: 2), "Astagraf XL offered as the tracked Prograf: \(banner.exists ? banner.label : "")")
+        app.navigationBars.buttons["Cancel"].tap()
+        let discard = app.buttons["Discard"]
+        if discard.waitForExistence(timeout: 2) { discard.tap() }
+        let close = app.buttons["Close"]
+        XCTAssertTrue(close.waitForExistence(timeout: 3))
+        close.tap()
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+
+        reviewByCode("0378-2046-01")
+        XCTAssertTrue(banner.waitForExistence(timeout: 5), "a generic Prograf bottle was not offered to the Prograf tracked")
+        XCTAssertEqual(banner.label, "Already in Meds Ahead: Tacrolimus 1 mg (Prograf)")
+    }
 }
