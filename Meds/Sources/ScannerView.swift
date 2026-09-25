@@ -1194,10 +1194,14 @@ enum StillImageRecognizer {
     /// Reads the image in overlapping tiles at full resolution. A fallback for a
     /// frame whose first pass produced nothing that even looked like the code.
     ///
-    /// A tile finds the line; the zoomed look reads it. The tile hands Vision
-    /// small print at its own few pixels, and iOS 27 reads the last digit of
-    /// such a line wrong ("-07" for "-02") where the zoom reads it right, so the
-    /// tile's own reading is kept only when the zoom finds no code at all.
+    /// A tile finds the line; the zoomed look reads it again. The tile hands
+    /// Vision small print at its own few pixels, and iOS 27 reads the last
+    /// digit of such a line wrong ("-07" for "-02") where the zoom reads it
+    /// right, so the zoom's reading leads. But the zoom misreads a shaken line
+    /// too, so when the tile read a code the zoom did not, both go forward, as
+    /// the first pass's does beside the zoom's: the identification gate asks
+    /// the label between two products, and a package read two ways is left
+    /// off the code rather than guessed.
     private static func tiledCodeLines(in image: CGImage) -> [Line] {
         let imageSize = CGSize(width: image.width, height: image.height)
         guard min(imageSize.width, imageSize.height) >= minimumTiledDimension else { return [] }
@@ -1224,11 +1228,18 @@ enum StillImageRecognizer {
                 }
             }
         }
+        func codes(_ line: Line) -> Set<String> {
+            Set(NationalDrugCode.readings(inLabelText: line.text).map(\.raw))
+        }
         var read: [Line] = []
         for line in found {
             let zoomed = zoomedCodeLines(around: line.box, in: image)
-            for reading in zoomed.isEmpty ? [line] : zoomed
-                where !read.contains(where: { overlap($0.box, reading.box) > 0.5 }) {
+            let tileReadMore = zoomed.isEmpty
+                || !codes(line).isSubset(of: zoomed.reduce(into: Set<String>()) { $0.formUnion(codes($1)) })
+            // Overlapping tiles find one line twice; the same codes on the
+            // same line are one reading.
+            for reading in tileReadMore ? zoomed + [line] : zoomed
+                where !read.contains(where: { overlap($0.box, reading.box) > 0.5 && codes($0) == codes(reading) }) {
                 read.append(reading)
             }
         }

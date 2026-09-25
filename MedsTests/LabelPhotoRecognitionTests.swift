@@ -246,7 +246,11 @@ final class LabelPhotoRecognitionTests: XCTestCase {
     }
 
     /// The tiled fallback on its own: the same small line somewhere in a
-    /// camera-sized frame, found by reading the frame in full-resolution tiles.
+    /// camera-sized frame, found by reading the frame in full-resolution tiles
+    /// and read again by the zoomed look, whose reading leads. Where the tile
+    /// read the line another way (iOS 27 reads its last digit as "-07"), that
+    /// reading goes forward too, for the gate to weigh; it names no other
+    /// product here.
     func testTheTiledFallbackFindsTheSmallestPrintAnywhereInTheFrame() throws {
         let canvas = CGSize(width: 2400, height: 3200)
         let font = UIFont.systemFont(ofSize: 12)
@@ -255,11 +259,14 @@ final class LabelPhotoRecognitionTests: XCTestCase {
         let cgImage = try XCTUnwrap(image.cgImage)
 
         let readings = StillImageRecognizer.tiledCodeReadings(in: cgImage)
+        add(XCTAttachment(string: readings.map(\.text).joined(separator: "\n")))
 
         let reading = try XCTUnwrap(readings.first, "the tiled pass read nothing")
         XCTAssertEqual(NationalDrugCode.readings(inLabelText: reading.text).first?.candidates.map(\.hyphenated), ["64406-0006-02"], reading.text)
         XCTAssertEqual(reading.box.midY, 1 - (origin.y + 7) / canvas.height, accuracy: 0.01)
         XCTAssertGreaterThan(reading.box.midX, 0.6, "printed in the right-hand half")
+        let products = readings.flatMap { NationalDrugCode.readings(inLabelText: $0.text) }.flatMap(\.candidates).map(\.productKey)
+        XCTAssertEqual(Set(products), ["644060006"], "\(readings.map(\.text))")
     }
 
     /// Vision's lower-ranked guesses on their own, on a crisp line so the
