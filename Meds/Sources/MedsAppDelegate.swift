@@ -12,6 +12,22 @@ final class MedsAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
         let center = UNUserNotificationCenter.current()
         center.delegate = self
         MedicationNotificationAction.registerCategories(with: center)
+#if DEBUG
+        // UI tests check where the reminder choices start, and the simulator
+        // keeps UserDefaults between runs: a run stopped after turning one
+        // on must not start every later run, and plan every later test's
+        // reminders, from that choice.
+        if ProcessInfo.processInfo.arguments.contains("-ui-testing") {
+            for key in [
+                NotificationPlanOptions.followUpRemindersKey,
+                NotificationPlanOptions.weeklyCountCheckKey,
+                CountCheckPolicy.plannedMomentKey,
+                CountCheckPolicy.askedMomentKey
+            ] {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+#endif
         return true
     }
 

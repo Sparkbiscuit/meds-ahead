@@ -507,7 +507,8 @@ final class MedsUITests: XCTestCase {
         XCTAssertTrue(countCheck.exists)
         XCTAssertEqual(countCheck.value as? String, "1", "on unless someone turns it off")
 
-        // Settings persist between runs, so the test leaves them as it found them.
+        // The app clears these choices when it starts for a UI test, so a run
+        // stopped here leaves nothing behind for the next.
         followUps.switches.firstMatch.tap()
         XCTAssertEqual(followUps.value as? String, "1")
         followUps.switches.firstMatch.tap()
