@@ -42,14 +42,20 @@ final class NotificationHealth {
     /// Nothing is claimed before the first scheduling pass has actually run, so the
     /// banner cannot flash on launch while the real answer is still being fetched.
     var state: State {
-        guard hasReported, plannedCount > 0 else { return .fine }
+        Self.state(hasReported: hasReported, authorization: authorization, planned: plannedCount, failed: failedCount)
+    }
+
+    /// `state` over plain values, so the rules can be checked without the
+    /// shared instance the app reports to.
+    nonisolated static func state(hasReported: Bool, authorization: UNAuthorizationStatus, planned: Int, failed: Int) -> State {
+        guard hasReported, planned > 0 else { return .fine }
         switch authorization {
         case .denied:
             return .blocked
         case .notDetermined:
             return .unasked
         default:
-            return failedCount > 0 ? .partlyScheduled(failed: failedCount) : .fine
+            return failed > 0 ? .partlyScheduled(failed: failed) : .fine
         }
     }
 
@@ -70,8 +76,21 @@ final class NotificationHealth {
             return calendar.date(byAdding: .day, value: 2, to: calendar.startOfDay(for: now))
         }
 #endif
+        return Self.plannedThroughNotice(hasReported: hasReported, state: state, plannedThrough: plannedThrough, now: now, calendar: calendar)
+    }
+
+    /// `plannedThroughNotice` over plain values. Nothing before the first
+    /// scheduling pass, and nothing while a blocked or unasked permission
+    /// has its own banner: promising reminders iOS will not deliver.
+    nonisolated static func plannedThroughNotice(
+        hasReported: Bool,
+        state: State,
+        plannedThrough: Date?,
+        now: Date,
+        calendar: Calendar
+    ) -> Date? {
         guard hasReported, state != .blocked, state != .unasked else { return nil }
-        return Self.noticeDay(plannedThrough: plannedThrough, now: now, calendar: calendar)
+        return noticeDay(plannedThrough: plannedThrough, now: now, calendar: calendar)
     }
 
     /// A last planned day from today through three days ahead. One already

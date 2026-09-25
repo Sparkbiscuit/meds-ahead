@@ -1,3 +1,4 @@
+import UserNotifications
 import XCTest
 @testable import Meds
 
@@ -253,6 +254,25 @@ final class DatedReminderPlanningTests: XCTestCase {
         XCTAssertNil(NotificationHealth.noticeDay(plannedThrough: at(14), now: now, calendar: calendar))
         XCTAssertNil(NotificationHealth.noticeDay(plannedThrough: at(9), now: now, calendar: calendar), "the banner already says reminders weren't set")
         XCTAssertNil(NotificationHealth.noticeDay(plannedThrough: nil, now: now, calendar: calendar))
+    }
+
+    /// Only when reminders can arrive at all: a blocked or unasked
+    /// permission has its own banner, and a notice beside it would promise
+    /// reminders iOS will not deliver. Nothing before the first pass.
+    func testTheNoticeIsShownOnlyWhenRemindersCanArrive() {
+        func notice(reported: Bool = true, _ authorization: UNAuthorizationStatus, failed: Int = 0) -> Date? {
+            let state = NotificationHealth.state(hasReported: reported, authorization: authorization, planned: 12, failed: failed)
+            return NotificationHealth.plannedThroughNotice(hasReported: reported, state: state, plannedThrough: at(12), now: now, calendar: calendar)
+        }
+        XCTAssertEqual(notice(.authorized), at(12))
+        XCTAssertEqual(notice(.provisional), at(12))
+        XCTAssertEqual(notice(.authorized, failed: 2), at(12), "some requests refused: the ones planned still arrive")
+        XCTAssertNil(notice(.denied), "blocked")
+        XCTAssertNil(notice(.notDetermined), "not yet asked")
+        XCTAssertNil(notice(reported: false, .authorized), "before the first pass")
+        XCTAssertEqual(NotificationHealth.state(hasReported: true, authorization: .denied, planned: 12, failed: 0), .blocked)
+        XCTAssertEqual(NotificationHealth.state(hasReported: true, authorization: .notDetermined, planned: 12, failed: 0), .unasked)
+        XCTAssertEqual(NotificationHealth.state(hasReported: true, authorization: .denied, planned: 0, failed: 0), .fine, "nothing wanted")
     }
 
     // MARK: - From the store
