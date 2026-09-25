@@ -13,21 +13,57 @@ struct ScheduleDefinition: Equatable {
 
 @MainActor
 enum ScheduleReconciler {
+    /// An edit works on the medication's current schedules, `currentSchedules`,
+    /// and leaves a schedule whose last day has passed as it is: its days are
+    /// the history the logs and the calendar were kept against.
+    ///
+    /// A finished course taken up again, every schedule ended and a
+    /// definition that runs today or later, starts again from `startDate` on
+    /// new schedules, and the ended ones stay. Reused, they kept their start,
+    /// so the days between the old last day and today came back holding doses
+    /// nobody was asked to take: Today's missed doses and the calendar listed
+    /// them as not logged, and the forecast assumed them taken. A last day
+    /// moved within the past is a correction to the course that was, and is
+    /// made in place.
     static func reconcile(
         medicationID: UUID,
         definitions: [ScheduleDefinition],
         existing: [DoseSchedule],
         in context: ModelContext,
-        startDate: Date = .now
+        startDate: Date = .now,
+        calendar: Calendar = .autoupdatingCurrent
     ) -> [DoseSchedule] {
-        var available = existing
-            .filter { $0.medicationID == medicationID }
+        let own = existing.filter { $0.medicationID == medicationID }
+        let today = calendar.startOfDay(for: startDate)
+        let courseIsOver = !own.isEmpty && own.allSatisfy { hasEnded($0, before: today, calendar: calendar) }
+        var available = currentSchedules(own, medicationID: medicationID, now: startDate, calendar: calendar)
             .sorted { $0.minutesAfterMidnight < $1.minutesAfterMidnight }
         var assignments = Array<DoseSchedule?>(repeating: nil, count: definitions.count)
 
+        func makeSchedule(_ definition: ScheduleDefinition) -> DoseSchedule {
+            let schedule = DoseSchedule(
+                medicationID: medicationID,
+                minutesAfterMidnight: definition.minutesAfterMidnight,
+                doseQuantity: definition.doseQuantity,
+                weekdayMask: definition.weekdayMask,
+                startDate: startDate,
+                endDate: definition.endDate
+            )
+            context.insert(schedule)
+            return schedule
+        }
+
+        var reopens = false
+        if courseIsOver {
+            for index in definitions.indices where definitions[index].endDate.map({ calendar.startOfDay(for: $0) >= today }) ?? true {
+                assignments[index] = makeSchedule(definitions[index])
+                reopens = true
+            }
+        }
+
         // Preserve exact time matches first so changing one time cannot steal the
         // identity of another schedule whose time did not change.
-        for index in definitions.indices {
+        for index in definitions.indices where assignments[index] == nil {
             guard let match = available.firstIndex(where: {
                 $0.minutesAfterMidnight == definitions[index].minutesAfterMidnight
             }) else { continue }
@@ -40,23 +76,14 @@ enum ScheduleReconciler {
         // make a logged dose look pending again.
         for index in definitions.indices where assignments[index] == nil {
             if available.isEmpty {
-                let definition = definitions[index]
-                let schedule = DoseSchedule(
-                    medicationID: medicationID,
-                    minutesAfterMidnight: definition.minutesAfterMidnight,
-                    doseQuantity: definition.doseQuantity,
-                    weekdayMask: definition.weekdayMask,
-                    startDate: startDate,
-                    endDate: definition.endDate
-                )
-                context.insert(schedule)
-                assignments[index] = schedule
+                assignments[index] = makeSchedule(definitions[index])
             } else {
                 assignments[index] = available.removeFirst()
             }
         }
 
-        available.forEach(context.delete)
+        // A course taken up again keeps the course that was.
+        if !reopens { available.forEach(context.delete) }
 
         for index in definitions.indices {
             guard let schedule = assignments[index] else { continue }
@@ -71,6 +98,32 @@ enum ScheduleReconciler {
         }
 
         return assignments.compactMap { $0 }
+    }
+
+    /// The schedules that say how a medication is taken now: the ones still
+    /// running, or, once every one has ended, the course that ended last. The
+    /// editor loads these, the detail screen and the printed list show them,
+    /// and an edit changes only these. A course taken up again keeps its
+    /// ended schedules as history, and shown beside the new ones they read as
+    /// a second set of times.
+    nonisolated static func currentSchedules(
+        _ schedules: [DoseSchedule],
+        medicationID: UUID,
+        now: Date = .now,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> [DoseSchedule] {
+        let own = schedules.filter { $0.medicationID == medicationID }
+        let today = calendar.startOfDay(for: now)
+        let running = own.filter { !hasEnded($0, before: today, calendar: calendar) }
+        guard running.isEmpty else { return running }
+        guard let lastDay = own.compactMap({ $0.endDate.map(calendar.startOfDay) }).max() else { return own }
+        return own.filter { $0.endDate.map(calendar.startOfDay) == lastDay }
+    }
+
+    /// Whether the schedule's last day is before `today`, read as
+    /// `ScheduleEngine.isCourseFinished` reads a course's.
+    private nonisolated static func hasEnded(_ schedule: DoseSchedule, before today: Date, calendar: Calendar) -> Bool {
+        schedule.endDate.map { calendar.startOfDay(for: $0) < today } ?? false
     }
 
     /// What each schedule held before an edit, taken before `reconcile`
@@ -100,7 +153,10 @@ enum ScheduleReconciler {
     /// forecast would assume them taken. `assumedDoses` cannot speak for
     /// them, since a finished course's forecast assumes nothing. A count now
     /// sets the anchor after them. An edit that leaves the course finished
-    /// asks nothing, since its forecast weighs no doses at all.
+    /// asks nothing, since its forecast weighs no doses at all. `reconcile`
+    /// no longer rewrites an ended schedule this way, since it takes a
+    /// finished course up again on new schedules; the rule stays for any
+    /// caller that does.
     static func asksForCount(
         assumedDoses: Int,
         before: [UUID: ScheduleDefinition],

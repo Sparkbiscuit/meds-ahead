@@ -790,7 +790,10 @@ struct MedicationEditorView: View {
 
     private func loadExistingSchedulesIfNeeded() {
         guard let medication, !didLoadExistingSchedules else { return }
-        let existing = allSchedules.filter { $0.medicationID == medication.id }.sorted { $0.minutesAfterMidnight < $1.minutesAfterMidnight }
+        // A course taken up again keeps its ended schedules as history; the
+        // editor shows only the ones an edit changes.
+        let existing = ScheduleReconciler.currentSchedules(allSchedules, medicationID: medication.id)
+            .sorted { $0.minutesAfterMidnight < $1.minutesAfterMidnight }
         if !existing.isEmpty {
             editableSchedules = existing.map {
                 EditableDoseSchedule(
@@ -887,7 +890,9 @@ struct MedicationEditorView: View {
             }
         }
         let existingSchedules = allSchedules.filter { $0.medicationID == target.id }
-        let scheduledBefore = ScheduleReconciler.snapshot(existingSchedules)
+        // What the edit changes, as the editor showed it; a reopened course's
+        // ended schedules are history the edit leaves alone.
+        let scheduledBefore = ScheduleReconciler.snapshot(ScheduleReconciler.currentSchedules(existingSchedules, medicationID: target.id))
         let newSchedules = ScheduleReconciler.reconcile(
             medicationID: target.id,
             definitions: scheduleDefinitions,
@@ -899,7 +904,12 @@ struct MedicationEditorView: View {
         do {
             try modelContext.save()
             let medicationsForNotifications = allMedications.filter { $0.id != target.id } + [target]
-            let schedulesForNotifications = allSchedules.filter { $0.medicationID != target.id } + newSchedules
+            // As saved, with any history a course taken up again keeps: the
+            // forecast behind the refill alert weighs those days too.
+            let targetID = target.id
+            let savedSchedules = (try? modelContext.fetch(FetchDescriptor<DoseSchedule>(predicate: #Predicate { $0.medicationID == targetID })))
+                ?? newSchedules
+            let schedulesForNotifications = allSchedules.filter { $0.medicationID != target.id } + savedSchedules
             let notificationPlans = NotificationPlanBuilder.makeAll(
                 medications: medicationsForNotifications,
                 schedules: schedulesForNotifications,
