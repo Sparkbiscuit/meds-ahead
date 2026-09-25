@@ -301,6 +301,45 @@ final class CourseTests: XCTestCase {
         XCTAssertTrue(attention(medication, result, now: now).needsAttention)
     }
 
+    /// A course dispensed to the tablet whose last dose goes by unlogged:
+    /// the doses assumed taken use up the supply exactly, and none is left
+    /// to come. That is the course seen through, before its due window
+    /// closes and after, not a count needed for the rest of the evening.
+    func testTheLastDosePassingUnloggedLeavesAnExactCourseCovered() {
+        let (medication, schedules, opening) = twiceDailyCourse(count: 20, through: 10)
+        let day = ForecastEngine.dayText(lastDay(10), calendar: calendar)
+        let allButLast = Array((1...10).flatMap { day in schedules.map { logged($0, on: day) } }.dropLast())
+
+        let inWindow = forecast(medication, schedules, [opening], allButLast, now: september(10, 20, 29))
+        XCTAssertTrue(inWindow.courseCovered)
+        let after = forecast(medication, schedules, [opening], allButLast, now: september(10, 20, 31))
+        XCTAssertFalse(after.needsCount)
+        XCTAssertTrue(after.courseCovered)
+        XCTAssertEqual(after.leftoverAtCourseEnd, 0)
+        XCTAssertEqual(after.assumedDoses, 1)
+        XCTAssertEqual(after.confidence, .estimated)
+        XCTAssertEqual(after.explanation,
+                       "Enough to finish the course on \(day), with 0 tablets left. Assumes the 1 scheduled dose since your last count that wasn't logged was taken.")
+        XCTAssertFalse(attention(medication, after, now: september(10, 20, 31)).needsAttention)
+
+        let nothingLogged = forecast(medication, schedules, [opening], now: september(10, 20, 31))
+        XCTAssertTrue(nothingLogged.courseCovered)
+        XCTAssertEqual(nothingLogged.assumedDoses, 20)
+
+        // Once a day at 08:00: from 08:30 on its last day, not a count needed.
+        let cefalexin = Medication(name: "Cefalexin", form: .tablet, createdAt: september(1, 7))
+        let morning = DoseSchedule(medicationID: cefalexin.id, minutesAfterMidnight: 8 * 60, doseQuantity: 1,
+                                   startDate: september(1, 7), endDate: lastDay(7))
+        let seven = InventoryEvent(medicationID: cefalexin.id, date: september(1, 7), delta: 7, reason: .openingCount)
+        let noon = forecast(cefalexin, [morning], [seven], (1...6).map { logged(morning, on: $0) }, now: september(7, 12))
+        XCTAssertTrue(noon.courseCovered)
+        XCTAssertFalse(noon.needsCount)
+
+        // One tablet short of what the unlogged doses took is still a count.
+        let short = InventoryEvent(medicationID: medication.id, date: september(1, 7), delta: 19, reason: .openingCount)
+        XCTAssertTrue(forecast(medication, schedules, [short], Array(allButLast.dropLast()), now: september(10, 20, 31)).needsCount)
+    }
+
     /// A course is a scheduled medication's: schedules left behind when a
     /// medication was made as-needed do not end it. One whose last day lies
     /// past the forecast window is weighed like any other schedule.

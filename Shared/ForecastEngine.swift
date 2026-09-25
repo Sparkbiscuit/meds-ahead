@@ -332,6 +332,25 @@ enum ForecastEngine {
         let assumedSinceRefill = !assumed.isEmpty && anchor.isRefill
 
         var remaining = supply - assumedQuantity
+        // The assumed doses take a course's supply exactly to nothing and no
+        // dose of it is left to come: its last dose went by unlogged, and the
+        // course was dispensed to the tablet. That is the course seen through,
+        // as it read while that dose was still in its due window.
+        if let courseEnd, let courseLimit, !assumed.isEmpty, remaining <= 0.000_001, remaining >= -0.000_001,
+           unlogged(from: dosesToComeFrom, through: courseLimit).filter({ $0.date > overdueBefore }).isEmpty {
+            return Evaluation(forecast: SupplyForecast(
+                currentSupply: supply,
+                depletionDate: nil,
+                daysRemaining: nil,
+                confidence: .estimated,
+                explanation: courseCoveredText(courseEnd, leftover: 0, form: medication.form, calendar: calendar) + " Assumes \(unloggedText).",
+                assumedDoses: assumed.count,
+                assumedSinceRefill: assumedSinceRefill,
+                courseEndDate: courseEnd,
+                courseCovered: true,
+                leftoverAtCourseEnd: 0
+            ), assumedQuantity: assumedQuantity)
+        }
         // The ledger still shows medication, but not once the doses nobody logged
         // are taken out of it. Nothing on record says how much is really left, so
         // the answer is a count, not a claim that the supply is gone.

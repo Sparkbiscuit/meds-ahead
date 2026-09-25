@@ -510,6 +510,22 @@ final class CourseDisplayTests: XCTestCase {
         XCTAssertEqual(conclusion.detail, "The supply on record ran out before it. Nothing more is scheduled, so nothing needs a refill.")
     }
 
+    /// Every dose given, the last one unlogged, and a count of none made
+    /// that evening: the course was seen through, and is offered as finished.
+    func testACountOfNoneAfterAnUnloggedLastDoseLeavesTheCourseFinished() throws {
+        let given = course(count: 20, through: 10, loggedThrough: september(10, 19))
+        let countedEmpty = InventoryEvent(medicationID: given.medication.id, date: september(10, 21), delta: -1, reason: .correction)
+        let counted = Course(medication: given.medication, schedules: given.schedules, inventory: given.inventory + [countedEmpty], doses: given.doses)
+        let nextMorning = september(11, 9)
+        let over = forecast(counted, now: nextMorning)
+        XCTAssertTrue(over.courseFinished)
+        XCTAssertFalse(FinishedCourseNotice.ranOutFirst(medication: counted.medication, forecast: over, schedules: counted.schedules,
+                                                        inventoryEvents: counted.inventory, doseEvents: counted.doses, now: nextMorning, calendar: calendar))
+        XCTAssertEqual(FinishedCourseNotice.items(medications: [counted.medication], schedules: counted.schedules, inventoryEvents: counted.inventory,
+                                                  doseEvents: counted.doses, setAside: [], now: nextMorning, calendar: calendar).map(\.medicationID),
+                       [counted.medication.id])
+    }
+
     // MARK: - Runs-out widget
 
     func testTheWidgetSaysACourseIsCoveredAndLeavesAFinishedOneOff() throws {
