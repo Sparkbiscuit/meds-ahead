@@ -269,6 +269,66 @@ final class CourseDisplayTests: XCTestCase {
         XCTAssertTrue(finishedCards([countedAfter], now: september(11, 9)).isEmpty, "nor did a count made after it")
     }
 
+    /// `course` with more logged doses and inventory events beside its own.
+    private func adding(_ course: Course, doses: [(day: Int, hour: Int)] = [], inventory: [InventoryEvent] = []) -> Course {
+        let logged = doses.map { dose -> DoseEvent in
+            let slot = ScheduleEngine.doses(schedules: course.schedules, medicationID: course.medication.id,
+                                            onDayOf: september(dose.day), calendar: calendar)
+                .first { calendar.component(.hour, from: $0.date) == dose.hour }!
+            return DoseEvent(medicationID: course.medication.id, scheduleID: slot.scheduleID, scheduledAt: slot.date,
+                             recordedAt: slot.date, doseQuantity: 1, status: .taken)
+        }
+        return Course(medication: course.medication, schedules: course.schedules, inventory: course.inventory + inventory, doses: course.doses + logged)
+    }
+
+    private func refill(_ course: Course, _ amount: Double, at date: Date) -> InventoryEvent {
+        InventoryEvent(medicationID: course.medication.id, date: date, delta: amount, reason: .refill)
+    }
+
+    /// A refill added once the bottle is empty becomes the forecast's anchor,
+    /// and the doses missed before it drop out of every forecast after it.
+    /// Sep 1 to 10, 10 counted, every dose logged until the bottle was empty
+    /// on the 5th, then nothing until a refill on the last afternoon, or
+    /// one on the 8th: either way doses went untaken, and the card must not
+    /// call it a finished course.
+    func testTodayOffersNothingForACourseRefilledAfterItRanOut() {
+        let empty = course(count: 10, through: 10, loggedThrough: september(5, 23))
+        let lastAfternoon = adding(empty, doses: [(10, 20)], inventory: [refill(empty, 30, at: september(10, 15))])
+        XCTAssertTrue(ForecastEngine.forecast(medication: lastAfternoon.medication, schedules: lastAfternoon.schedules,
+                                              inventoryEvents: lastAfternoon.inventory, doseEvents: lastAfternoon.doses,
+                                              now: september(10, 0), calendar: calendar).courseCovered,
+                      "why: seen from its last morning, the refill covers the last day")
+        XCTAssertTrue(finishedCards([lastAfternoon], now: september(11, 9)).isEmpty, "refilled on the last afternoon")
+
+        let midCourse = adding(empty, doses: [(8, 20), (9, 8), (9, 20), (10, 8), (10, 20)],
+                               inventory: [refill(empty, 30, at: september(8, 9))])
+        XCTAssertTrue(finishedCards([midCourse], now: september(11, 9)).isEmpty, "refilled on the 8th, two days after running out")
+
+        // Nobody logged a dose: 10 counted, and 13 were due by the refill on
+        // the 7th, which the forecast would have answered with a count.
+        let unlogged = course(count: 10, through: 10)
+        let late = adding(unlogged, inventory: [refill(unlogged, 10, at: september(7, 12))])
+        XCTAssertTrue(finishedCards([late], now: september(11, 9)).isEmpty, "the doses assumed taken had used up the count")
+    }
+
+    /// A refill in time is how a course dispensed in parts is seen through,
+    /// logged or not, even one picked up the moment the bottle is empty or
+    /// on the last afternoon.
+    func testTodayOffersACourseRefilledInTime() {
+        let unlogged = course(count: 10, through: 10)
+        let early = adding(unlogged, inventory: [refill(unlogged, 10, at: september(5, 12))])
+        XCTAssertEqual(finishedCards([early], now: september(11, 9)).count, 1, "9 of 10 assumed taken when the refill came")
+
+        let emptyAtNight = course(count: 10, through: 10, loggedThrough: september(5, 23))
+        let nextMorning = adding(emptyAtNight, doses: (6...10).flatMap { [($0, 8), ($0, 20)] },
+                                 inventory: [refill(emptyAtNight, 10, at: september(6, 7))])
+        XCTAssertEqual(finishedCards([nextMorning], now: september(11, 9)).count, 1, "refilled before the next dose was due")
+
+        let emptyInTheMorning = course(count: 19, through: 10, loggedThrough: september(10, 8))
+        let lastAfternoon = adding(emptyInTheMorning, doses: [(10, 20)], inventory: [refill(emptyInTheMorning, 10, at: september(10, 15))])
+        XCTAssertEqual(finishedCards([lastAfternoon], now: september(11, 9)).count, 1, "refilled before the last dose")
+    }
+
     /// Archive on the card marks the medication archived, as the detail
     /// screen's menu does, and writes nothing to its ledger: restored, it
     /// has the same history.
