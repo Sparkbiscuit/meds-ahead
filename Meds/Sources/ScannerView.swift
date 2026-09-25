@@ -1064,12 +1064,8 @@ enum StillImageRecognizer {
             where !regions.contains(where: { overlap($0, box) > 0.5 }) {
             regions.append(box)
         }
-        // A listed code the label does not contradict ends the search. One it
-        // contradicts does not: the same drug at its other strength is just
-        // what a shaken line is misread as.
         if !regions.isEmpty,
-           let judge = LabelJudge(label: makeEvidence(lines: lines, barcodes: [], origin: origin)),
-           !readings.contains(where: judge.settles) {
+           let judge = judgeForAlternates(label: makeEvidence(lines: lines, barcodes: barcodes, origin: origin), codesRead: readings) {
             let alternates = alternateCodeLines(around: regions, in: upright, vouchedFor: judge.namesExactly)
             found += alternates
             report += "; the label vouched for \(alternates.count.counted("alternate reading", plural: "alternate readings"))"
@@ -1151,6 +1147,22 @@ enum StillImageRecognizer {
     static func alternateCodeReadings(around boxes: [CGRect], in image: CGImage, label: [ScanEvidence]) -> [CodeLine] {
         guard let judge = LabelJudge(label: label) else { return [] }
         return alternateCodeLines(around: boxes, in: image, vouchedFor: judge.namesExactly).map { CodeLine(text: $0.text, box: $0.box) }
+    }
+
+    static func wouldLookForAlternates(label: [ScanEvidence], codesRead: [NDCReading]) -> Bool {
+        judgeForAlternates(label: label, codesRead: codesRead) != nil
+    }
+
+    /// The judge for a search of lower-ranked guesses, or nil when there is no
+    /// call for one. A listed code the label does not contradict ends it,
+    /// printed or in a barcode: a barcode needs no guess beside it, and a
+    /// guess at another product would only leave the gate two to choose
+    /// between. A code the label contradicts does not end it: the same drug
+    /// at its other strength is just what a shaken line is misread as.
+    private static func judgeForAlternates(label: [ScanEvidence], codesRead: [NDCReading]) -> LabelJudge? {
+        guard let judge = LabelJudge(label: label) else { return nil }
+        let everyCode = codesRead + NDCIdentification.readings(in: label)
+        return everyCode.contains(where: judge.settles) ? nil : judge
     }
 
     /// Cuts the line out of the full-resolution image with room on every side —
