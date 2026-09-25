@@ -130,4 +130,63 @@ final class CourseDisplayTests: XCTestCase {
         let ongoing = course(count: 30, through: nil)
         XCTAssertNil(MedicationDetailView.courseLine(schedules: ongoing.schedules, medicationID: ongoing.medication.id, now: now, calendar: calendar))
     }
+
+    // MARK: - Supply
+
+    func testASupplyRowSaysACourseIsCoveredOrFinished() {
+        XCTAssertEqual(SupplyRowText.summary(for: forecast(covered), isLow: false, refillStatus: nil, calendar: calendar),
+                       "Enough to finish the course on Sep 20")
+        XCTAssertEqual(SupplyRowText.summary(for: forecast(covered), isLow: false, refillStatus: "Refill requested", calendar: calendar),
+                       "Enough to finish the course on Sep 20", "a refill is not what a covered course is waiting on")
+        XCTAssertEqual(SupplyRowText.summary(for: forecast(finished), isLow: false, refillStatus: nil, calendar: calendar), "Course finished Sep 9")
+        XCTAssertEqual(SupplyRowText.caption(for: forecast(covered), form: .tablet), "22 tablets on hand · 5 tablets left after the last dose")
+        XCTAssertEqual(SupplyRowText.caption(for: forecast(finished), form: .tablet), "2 tablets on hand")
+        let oneLeft = SupplyForecast(currentSupply: 4, depletionDate: nil, daysRemaining: nil, confidence: .high, explanation: "",
+                                     courseEndDate: lastDay(20), courseCovered: true, leftoverAtCourseEnd: 1)
+        XCTAssertEqual(SupplyRowText.caption(for: oneLeft, form: .capsule), "4 capsules on hand · 1 capsule left after the last dose")
+    }
+
+    /// Neither a covered course nor a finished one needs anyone; one that
+    /// runs out before its last day keeps the warning.
+    func testOnlyACourseThatRunsOutFirstNeedsAttention() {
+        func attention(_ course: Course) -> SupplyAttention {
+            SupplyAttention(medication: course.medication, forecast: forecast(course), now: now, calendar: calendar)
+        }
+        XCTAssertFalse(attention(covered).needsAttention)
+        XCTAssertFalse(attention(finished).needsAttention)
+        XCTAssertTrue(attention(runsOutFirst).needsAttention)
+        XCTAssertTrue(SupplyRowText.summary(for: forecast(runsOutFirst), isLow: true, refillStatus: nil, calendar: calendar).hasPrefix("Act soon · around "))
+    }
+
+    /// Run-out dates first, soonest first; then courses, running before
+    /// finished, by last day; then the ones nobody can forecast.
+    func testSupplyOrdersCoursesAfterRunOutDatesAndBeforeUnknowns() {
+        func entry(_ name: String, _ forecast: SupplyForecast) -> (Medication, SupplyForecast) { (Medication(name: name), forecast) }
+        func dated(_ days: Int) -> SupplyForecast {
+            SupplyForecast(currentSupply: 10, depletionDate: september(12 + days), daysRemaining: days, confidence: .high, explanation: "")
+        }
+        func courseForecast(end: Int, finished: Bool) -> SupplyForecast {
+            SupplyForecast(currentSupply: 4, depletionDate: nil, daysRemaining: nil, confidence: .high, explanation: "",
+                           courseEndDate: lastDay(end), courseCovered: !finished, courseFinished: finished)
+        }
+        let unknown = SupplyForecast(currentSupply: 10, depletionDate: nil, daysRemaining: nil, confidence: .unknown, explanation: "")
+        let ordered = SupplyView.ordered([
+            entry("Zinc", unknown),
+            entry("Finished late", courseForecast(end: 10, finished: true)),
+            entry("Covered later", courseForecast(end: 25, finished: false)),
+            entry("Furosemide", dated(9)),
+            entry("Finished early", courseForecast(end: 5, finished: true)),
+            entry("Covered soon", courseForecast(end: 15, finished: false)),
+            entry("Count needed", SupplyForecast(currentSupply: 3, depletionDate: now, daysRemaining: 0, confidence: .estimated, explanation: "",
+                                                 assumedDoses: 4, needsCount: true)),
+            entry("Aspirin", unknown),
+            entry("Tacrolimus", dated(3))
+        ])
+        XCTAssertEqual(ordered.map(\.0.displayName), [
+            "Count needed", "Tacrolimus", "Furosemide",
+            "Covered soon", "Covered later",
+            "Finished early", "Finished late",
+            "Aspirin", "Zinc"
+        ])
+    }
 }

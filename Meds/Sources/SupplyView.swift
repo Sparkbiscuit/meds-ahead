@@ -12,7 +12,7 @@ struct SupplyView: View {
     private var active: [Medication] { medications.filter { !$0.isArchived } }
 
     private func ranked(now: Date) -> [(Medication, SupplyForecast)] {
-        active.map { medication in
+        Self.ordered(active.map { medication in
             (
                 medication,
                 ForecastEngine.forecast(
@@ -23,14 +23,26 @@ struct SupplyView: View {
                     now: now
                 )
             )
+        })
+    }
+
+    /// Soonest run-out first; then courses, the ones still running before
+    /// the ones already over, by last day; then the ones nobody can
+    /// forecast. A course has no run-out date, but it is not an unknown
+    /// either: its last day says exactly how long it runs.
+    static func ordered(_ forecasts: [(Medication, SupplyForecast)]) -> [(Medication, SupplyForecast)] {
+        func rank(_ forecast: SupplyForecast) -> Int {
+            if forecast.daysRemaining != nil { return 0 }
+            if forecast.courseCovered { return 1 }
+            if forecast.courseFinished { return 2 }
+            return 3
         }
-        .sorted { lhs, rhs in
-            switch (lhs.1.daysRemaining, rhs.1.daysRemaining) {
-            case let (.some(a), .some(b)): a < b
-            case (.some, .none): true
-            case (.none, .some): false
-            case (.none, .none): lhs.0.displayName < rhs.0.displayName
-            }
+        return forecasts.sorted { lhs, rhs in
+            let (left, right) = (rank(lhs.1), rank(rhs.1))
+            if left != right { return left < right }
+            if let a = lhs.1.daysRemaining, let b = rhs.1.daysRemaining, a != b { return a < b }
+            if let a = lhs.1.courseEndDate, let b = rhs.1.courseEndDate, a != b { return a < b }
+            return lhs.0.displayName < rhs.0.displayName
         }
     }
 
@@ -176,8 +188,10 @@ private struct SupplyRow: View {
     /// VoiceOver element, and the ring and the name's icon each said it too:
     /// "Count needed" three times before the reason. They stay silent then.
     private var gauge: some View {
-        SupplyGauge(daysRemaining: forecast.daysRemaining, leadDays: attention.leadDays, needsCount: forecast.needsCount, size: 54)
-            .accessibilityHidden(forecast.needsCount)
+        // A course's ring says what the summary beside it already says.
+        SupplyGauge(daysRemaining: forecast.daysRemaining, leadDays: attention.leadDays, needsCount: forecast.needsCount,
+                    course: SupplyGauge.Course(forecast), size: 54)
+            .accessibilityHidden(forecast.needsCount || SupplyGauge.Course(forecast) != nil)
     }
 
     private var nameLine: some View {
@@ -215,7 +229,7 @@ private struct SupplyRow: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Text("\(medication.form.quantityText(forecast.currentSupply)) \(SupplyAttention.quantityWords(for: forecast))")
+            Text(SupplyRowText.caption(for: forecast, form: medication.form))
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -223,12 +237,42 @@ private struct SupplyRow: View {
     }
 
     private var summary: String {
+        SupplyRowText.summary(for: forecast, isLow: isLow, refillStatus: RefillStatusText.line(for: medication, now: now))
+    }
+}
+
+/// What a Supply row says, over plain values.
+enum SupplyRowText {
+    /// The row's first line. A course that runs out before its last day
+    /// keeps the attention words; one the supply sees through, or one
+    /// already over, says so rather than the explanation's longer sentence,
+    /// and neither is a refill to chase.
+    static func summary(
+        for forecast: SupplyForecast,
+        isLow: Bool,
+        refillStatus: String?,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> String {
         if isLow { return SupplyAttention.line(for: forecast) }
-        if let status = RefillStatusText.line(for: medication, now: now) { return status }
+        if forecast.courseFinished, let end = forecast.courseEndDate {
+            return "Course finished \(ForecastEngine.dayText(end, calendar: calendar))"
+        }
+        if forecast.courseCovered, let end = forecast.courseEndDate {
+            return "Enough to finish the course on \(ForecastEngine.dayText(end, calendar: calendar))"
+        }
+        if let refillStatus { return refillStatus }
         if let date = forecast.depletionDate {
             return "Runs out around \(date.formatted(.dateTime.month(.abbreviated).day()))"
         }
         return forecast.explanation
+    }
+
+    /// The small line under it: what is on hand, and for a course the
+    /// supply sees through, what its last dose leaves.
+    static func caption(for forecast: SupplyForecast, form: MedicationForm) -> String {
+        let onHand = "\(form.quantityText(forecast.currentSupply)) \(SupplyAttention.quantityWords(for: forecast))"
+        guard forecast.courseCovered, let leftover = forecast.leftoverAtCourseEnd else { return onHand }
+        return "\(onHand) · \(form.quantityText(max(0, leftover))) left after the last dose"
     }
 }
 
