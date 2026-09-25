@@ -140,4 +140,40 @@ enum NotificationDoseRecorder {
         try context.save()
         return .recorded
     }
+
+    /// A reminder's Taken or Skip, then the plans to replan with, whatever
+    /// the result. A reminder the app can no longer resolve is the one most
+    /// in need of withdrawing: a course's repeating request rings past its
+    /// last day when nothing replanned in its final week, and its Taken
+    /// finds no dose to log. Only a replan stops it. One already logged
+    /// where nothing replans, on the widget, still has a reminder pending.
+    static func respond(
+        status: DoseEventStatus,
+        medicationID: UUID,
+        scheduleID: UUID,
+        notificationDate: Date,
+        slotDay: Date? = nil,
+        in context: ModelContext,
+        now: Date = .now,
+        calendar: Calendar = .autoupdatingCurrent
+    ) throws -> (result: NotificationDoseRecordingResult, plans: [MedicationNotificationPlan]) {
+        let result = try record(
+            status: status,
+            medicationID: medicationID,
+            scheduleID: scheduleID,
+            notificationDate: notificationDate,
+            slotDay: slotDay,
+            in: context,
+            calendar: calendar
+        )
+        let plans = NotificationPlanBuilder.makeAll(
+            medications: try context.fetch(FetchDescriptor<Medication>()),
+            schedules: try context.fetch(FetchDescriptor<DoseSchedule>()),
+            inventoryEvents: try context.fetch(FetchDescriptor<InventoryEvent>()),
+            doseEvents: try context.fetch(FetchDescriptor<DoseEvent>()),
+            now: now,
+            calendar: calendar
+        )
+        return (result, plans)
+    }
 }

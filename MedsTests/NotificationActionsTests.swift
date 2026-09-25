@@ -176,6 +176,55 @@ final class NotificationActionsTests: XCTestCase {
                        "the 11th's dose, at 08:00 where the phone is now")
     }
 
+    /// A course whose last day was a week or more away was planned as a
+    /// repeating request, and it rings past the end when nothing replanned
+    /// in the course's last week. Its Taken finds no dose to log, and must
+    /// still replan, or it rings every morning for a course that is over.
+    @MainActor
+    func testTakenOnAReminderForAnEndedCourseLogsNothingAndWithdrawsIt() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        func at(_ day: Int, _ hour: Int) throws -> Date {
+            try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 9, day: day, hour: hour)))
+        }
+        let schema = Schema([Medication.self, DoseSchedule.self, DoseEvent.self, InventoryEvent.self])
+        let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)])
+        let context = container.mainContext
+        let medication = Medication(name: "Course", createdAt: try at(4, 0))
+        let schedule = DoseSchedule(medicationID: medication.id, minutesAfterMidnight: 8 * 60, startDate: try at(4, 0),
+                                    endDate: ScheduleEngine.normalizedEndDate(forDay: try at(17, 0), calendar: calendar))
+        context.insert(medication)
+        context.insert(schedule)
+        try context.save()
+
+        let plannedOnThe9th = NotificationPlanner.plan(
+            for: NotificationPlanBuilder.makeAll(medications: [medication], schedules: [schedule], inventoryEvents: [], doseEvents: [],
+                                                 now: try at(9, 12), calendar: calendar),
+            now: try at(9, 12),
+            calendar: calendar
+        )
+        let stale = try XCTUnwrap(plannedOnThe9th.notifications.first { $0.identifier == "meds.group.dose.daily.0800" })
+        XCTAssertTrue(stale.supportsDoseQuickActions)
+
+        let answered = try NotificationDoseRecorder.respond(
+            status: .taken,
+            medicationID: medication.id,
+            scheduleID: schedule.id,
+            notificationDate: try at(18, 8),
+            in: context,
+            now: try at(18, 8),
+            calendar: calendar
+        )
+        XCTAssertEqual(answered.result, .missingContext)
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<DoseEvent>()), 0, "nothing to log after the last day")
+        let replanned = NotificationPlanner.plan(for: answered.plans, now: try at(18, 8), calendar: calendar)
+        XCTAssertEqual(
+            NotificationService.pendingIdentifiersToRemove(pending: [stale.identifier], planned: Set(replanned.notifications.map(\.identifier))),
+            [stale.identifier],
+            "the replan withdraws the reminder that rang past the course's end"
+        )
+    }
+
     func testOnlyMedicationQuickActionsMapToDoseStatuses() {
         XCTAssertEqual(
             MedicationNotificationAction.status(for: MedicationNotificationAction.markTakenIdentifier),

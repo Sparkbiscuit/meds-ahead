@@ -76,7 +76,7 @@ final class MedsAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
 
         let context = modelContainer.mainContext
         do {
-            let result = try NotificationDoseRecorder.record(
+            let answered = try NotificationDoseRecorder.respond(
                 status: status,
                 medicationID: medicationID,
                 scheduleID: scheduleID,
@@ -84,25 +84,9 @@ final class MedsAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
                 slotDay: NotificationIdentifiers.slotDay(in: response.notification.request.content.userInfo, calendar: .autoupdatingCurrent),
                 in: context
             )
-            guard result == .recorded else { return }
-            let plans = try notificationPlans(in: context)
-            await NotificationService.shared.replaceAllNotifications(for: plans)
+            await NotificationService.shared.replaceAllNotifications(for: answered.plans)
         } catch {
             context.rollback()
         }
-    }
-
-    @MainActor
-    private func notificationPlans(in context: ModelContext) throws -> [MedicationNotificationPlan] {
-        let medications = try context.fetch(FetchDescriptor<Medication>())
-        let schedules = try context.fetch(FetchDescriptor<DoseSchedule>())
-        let inventoryEvents = try context.fetch(FetchDescriptor<InventoryEvent>())
-        let doseEvents = try context.fetch(FetchDescriptor<DoseEvent>())
-        return NotificationPlanBuilder.makeAll(
-            medications: medications,
-            schedules: schedules,
-            inventoryEvents: inventoryEvents,
-            doseEvents: doseEvents
-        )
     }
 }
