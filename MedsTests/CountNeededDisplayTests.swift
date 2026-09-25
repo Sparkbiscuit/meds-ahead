@@ -41,6 +41,18 @@ final class CountNeededDisplayTests: XCTestCase {
         XCTAssertEqual(TodayView.refillAttentionTitle(refillsToCheck: 2, countsNeeded: 1), "2 refills need checking and a count is needed")
     }
 
+    /// Trip Check marked a count needed with a grey question mark, the look of
+    /// "no forecast yet", while every other screen marks it for attention.
+    func testTripCheckMarksACountNeededForAttention() {
+        let mark = TripCheck.uncertainMark(for: countNeeded)
+        XCTAssertEqual(mark.symbol, "exclamationmark.circle.fill")
+        XCTAssertEqual(mark.tint, .orange)
+
+        let noForecast = SupplyForecast(currentSupply: 20, depletionDate: nil, daysRemaining: nil, confidence: .unknown, explanation: "")
+        XCTAssertEqual(TripCheck.uncertainMark(for: noForecast).symbol, "questionmark.circle")
+        XCTAssertEqual(TripCheck.uncertainMark(for: noForecast).tint, .secondary)
+    }
+
     /// Prefilled with the ledger's number, one tap on Save Count confirmed a
     /// count nobody made and cleared the doses the forecast had assumed.
     func testCorrectCountOpensEmptyWhileACountIsNeeded() {
