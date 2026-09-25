@@ -35980,7 +35980,7 @@
 500906512	atomoxetine		25 mg	capsule	
 500906513	atomoxetine		40 mg	capsule	
 500906514	dexlansoprazole		60 mg	capsule	dr
-500906515	metformin er		500 mg	tablet	
+500906515	metformin er		500 mg	tablet	er
 500906516	metformin er		500 mg	tablet	er
 500906517	venlafaxine hydrochloride		75 mg	capsule	er
 500906519	rosuvastatin calcium		20 mg	tablet	
@@ -87359,7 +87359,7 @@
 716100610	simvastatin		40 mg	tablet	
 716100611	simvastatin		80 mg	tablet	
 716100612	lisinopril		10 mg	tablet	
-716100613	metformin er		500 mg	tablet	
+716100613	metformin er		500 mg	tablet	er
 716100615	simvastatin		10 mg	tablet	
 716100617	carisoprodol		350 mg	tablet	
 716100618	pregabalin		150 mg	capsule	

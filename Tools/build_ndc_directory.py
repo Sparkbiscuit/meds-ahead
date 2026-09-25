@@ -260,8 +260,9 @@ def release(row, app_form):
 
     The dosage form is the FDA's own word and settles it. Where it is silent
     the names can still say so: some labelers file an extended-release tablet
-    as TABLET and put "Extended-Release" in the name, and a brand carries its
-    release letters, "Oxtellar XR". The letters only count after a brand's
+    as TABLET and put "Extended-Release" in the name, a brand carries its
+    release letters, "Oxtellar XR", and a repackager can put them in the
+    generic name, "Metformin ER 500 mg". The letters only count after a name's
     first word and only on an oral tablet or capsule, because "Dr. Sheffield"
     and "La Roche-Posay" lead with the same letters on creams and sunscreens.
     """
@@ -278,7 +279,8 @@ def release(row, app_form):
     if extended or "ORAL" not in row.get("ROUTENAME", "").upper() or app_form not in ("tablet", "capsule"):
         return ""
     brand = f'{collapse(row.get("PROPRIETARYNAME", ""))} {collapse(row.get("PROPRIETARYNAMESUFFIX", ""))}'
-    found = {RELEASE_LETTERS[token] for token in tokens(brand)[1:] if token in RELEASE_LETTERS}
+    generic = collapse(row.get("NONPROPRIETARYNAME", ""))
+    found = {RELEASE_LETTERS[token] for name in (brand, generic) for token in tokens(name)[1:] if token in RELEASE_LETTERS}
     return found.pop() if len(found) == 1 else ""
 
 
@@ -452,6 +454,15 @@ def self_test():
     assert released(DOSAGEFORMNAME="TABLET, COATED", ROUTENAME="ORAL", PROPRIETARYNAME="Ambien CR") == "er"
     assert released(DOSAGEFORMNAME="TABLET", ROUTENAME="ORAL", PROPRIETARYNAME="ASPIRIN 325 MG EC") == "dr"
     assert released(DOSAGEFORMNAME="TABLET", ROUTENAME="ORAL", PROPRIETARYNAME="Immediate Release Mucus Relief") == ""
+    # A repackager's listing of 50090-6515: the release is only in the generic name.
+    assert released(DOSAGEFORMNAME="TABLET", ROUTENAME="ORAL", PROPRIETARYNAME="Metformin",
+                    NONPROPRIETARYNAME="Metformin ER 500 mg") == "er"
+    assert released(DOSAGEFORMNAME="TABLET", ROUTENAME="ORAL", PROPRIETARYNAME="Metformin",
+                    NONPROPRIETARYNAME="Metformin Hydrochloride") == ""
+    assert released(DOSAGEFORMNAME="TABLET", ROUTENAME="ORAL", PROPRIETARYNAME="Pain Relief",
+                    NONPROPRIETARYNAME="Aspirin EC 81 mg") == "dr"
+    assert released(DOSAGEFORMNAME="TABLET", ROUTENAME="ORAL", PROPRIETARYNAME="Dr Simi Pain Relief",
+                    NONPROPRIETARYNAME="Acetaminophen") == ""
     # Letters that lead a name, or sit on something that is not an oral tablet or capsule, are not a release.
     assert released(DOSAGEFORMNAME="TABLET, COATED", ROUTENAME="ORAL", PROPRIETARYNAME="Dr Simi Pain Relief") == ""
     assert released(DOSAGEFORMNAME="CREAM", ROUTENAME="TOPICAL", PROPRIETARYNAME="Dr. Sheffield Anti Itch Cream") == ""
