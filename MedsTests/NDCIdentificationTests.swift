@@ -301,11 +301,7 @@ final class NDCIdentificationTests: XCTestCase {
         let rows = self.rows + [("644060005", "dimethyl fumarate", "Tecfidera", "120 mg", "capsule")]
         let directory = directory(rows)
         func namesExactly(_ key: String, _ lines: [String]) throws -> Bool {
-            let label = MedicationLabelInterpreter.offlineDraft(evidence(lines), ndcDirectory: directory)
-            let text = LabelCandidateBuilder.textLines(from: label.evidence).joined(separator: "\n")
-            let code = try XCTUnwrap(NationalDrugCode(canonicalDigits: key + "02"))
-            let product = try XCTUnwrap(directory.product(for: code))
-            return NDCIdentification.labelNamesExactly(.init(code: code, product: product, source: .printedText), draft: label, labelText: text, directory: directory)
+            try labelNamesExactly(key + "02", lines, directory: directory)
         }
         let tecfidera = ["DIMETHYL FUMARATE 240 MG DR CAPSULE", "TAKE 1 CAPSULE BY MOUTH TWICE DAILY"]
 
@@ -334,11 +330,7 @@ final class NDCIdentificationTests: XCTestCase {
         ]
         let directory = directory(rows)
         func namesExactly(_ key: String, _ lines: [String]) throws -> Bool {
-            let label = MedicationLabelInterpreter.offlineDraft(evidence(lines), ndcDirectory: directory)
-            let text = LabelCandidateBuilder.textLines(from: label.evidence).joined(separator: "\n")
-            let code = try XCTUnwrap(NationalDrugCode(canonicalDigits: key + "73"))
-            let product = try XCTUnwrap(directory.product(for: code))
-            return NDCIdentification.labelNamesExactly(.init(code: code, product: product, source: .printedText), draft: label, labelText: text, directory: directory)
+            try labelNamesExactly(key + "73", lines, directory: directory)
         }
         let generic = ["TACROLIMUS 1 MG CAPSULE", "TAKE 1 CAPSULE BY MOUTH TWICE DAILY"]
         XCTAssertFalse(try namesExactly("004690617", generic), "Astagraf XL 1 mg fits the label as well")
@@ -356,6 +348,34 @@ final class NDCIdentificationTests: XCTestCase {
         let astagraf = ["ASTAGRAF XL 1 MG CAPSULE", "TAKE 1 CAPSULE BY MOUTH ONCE DAILY"]
         XCTAssertTrue(try namesExactly("004690677", astagraf))
         XCTAssertFalse(try namesExactly("004690617", astagraf), "the label prints another brand")
+    }
+
+    /// A brand spelled out with its release letters is another medicine than
+    /// the same brand with others, even from another labeler. A label printing
+    /// WELLBUTRIN XL gets no guess at Wellbutrin SR, and one printing the brand
+    /// alone names neither release.
+    func testAGuessNeedsTheWholeBrandTheLabelPrints() throws {
+        let directory = directory([
+            ("001730135", "bupropion hydrochloride", "Wellbutrin SR", "150 mg", "tablet"),
+            ("001870730", "bupropion hydrochloride", "Wellbutrin XL", "150 mg", "tablet")
+        ])
+        let extended = ["WELLBUTRIN XL 150 MG TABLET", "TAKE 1 TABLET BY MOUTH EVERY MORNING"]
+        XCTAssertTrue(try labelNamesExactly("00187073001", extended, directory: directory))
+        XCTAssertFalse(try labelNamesExactly("00173013501", extended, directory: directory), "another release of the brand")
+
+        let brandAlone = ["WELLBUTRIN 150 MG TABLET", "TAKE 1 TABLET BY MOUTH EVERY MORNING"]
+        XCTAssertFalse(try labelNamesExactly("00187073001", brandAlone, directory: directory))
+        XCTAssertFalse(try labelNamesExactly("00173013501", brandAlone, directory: directory))
+    }
+
+    /// Whether a guessed code clears the stricter bar against a label read
+    /// from these lines.
+    private func labelNamesExactly(_ digits: String, _ lines: [String], directory: NDCDirectory) throws -> Bool {
+        let label = MedicationLabelInterpreter.offlineDraft(evidence(lines), ndcDirectory: directory)
+        let text = LabelCandidateBuilder.textLines(from: label.evidence).joined(separator: "\n")
+        let code = try XCTUnwrap(NationalDrugCode(canonicalDigits: digits))
+        let product = try XCTUnwrap(directory.product(for: code))
+        return NDCIdentification.labelNamesExactly(.init(code: code, product: product, source: .printedText), draft: label, labelText: text, directory: directory)
     }
 
     func testAnEmptyDirectoryChangesNothing() {

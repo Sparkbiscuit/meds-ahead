@@ -214,6 +214,12 @@ enum NDCIdentification {
                 return false
             }
             if let printedForm = explicitForm(in: labelText), printedForm != candidate.form { return false }
+            // The brand's name printed without the rest of it names another
+            // release of the brand: "WELLBUTRIN XL" is not Wellbutrin SR.
+            if let brand = brandKey(candidate.brandName), !brand.isSubset(of: labelWords),
+               brand.contains(where: { $0.count >= 4 && labelWords.contains($0) }) {
+                return false
+            }
             if !printedBrands.isEmpty {
                 guard let brand = brandKey(candidate.brandName), printedBrands.contains(brand) else { return false }
             }
@@ -222,10 +228,12 @@ enum NDCIdentification {
         return labelFits(product) && !siblings.contains(where: labelFits)
     }
 
-    /// The words that pick a brand out on a label: "Astagraf XL" is
-    /// "astagraf". Nil when a listing carries no brand, or none worth matching.
+    /// The words that pick a brand out on a label, release letters included:
+    /// "Wellbutrin SR" and "Wellbutrin XL" are different medicines, so a label
+    /// printing "WELLBUTRIN" alone prints neither. Nil when a listing carries
+    /// no brand, or none worth matching.
     private static func brandKey(_ brand: String) -> Set<String>? {
-        let key = Set(words(brand).filter { $0.count >= 4 && !uninformativeTokens.contains($0) })
+        let key = Set(words(brand).filter { $0.count >= 2 && !uninformativeTokens.contains($0) })
         return key.isEmpty ? nil : key
     }
 
