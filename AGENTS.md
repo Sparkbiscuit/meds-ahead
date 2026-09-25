@@ -44,7 +44,11 @@ Violating any of these is a defect, regardless of what the task asked for.
 - **Medication names are gated twice**: vocabulary-confirmed, or
   `strengthAnchored`. A merely name-shaped line is dropped on purpose.
 - **Notification planning is global** and consolidates same-time slots across
-  medications. Never schedule per-medication requests.
+  medications. Never schedule per-medication requests. The one exception is
+  deliberate: a schedule that starts or ends within the week gets dated
+  one-shot requests, so on a shared time it rings beside the steady
+  schedules' repeating request rather than silencing it. Reminders may ring
+  too long; they must never go quiet.
 - **An NDC never fills a field on its own word.** A code read by OCR must be
   corroborated by the label; a code from any source is refused when the label
   contradicts it; a refused code stays visible as the product code and fills
