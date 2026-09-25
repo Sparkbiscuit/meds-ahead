@@ -380,6 +380,12 @@ enum HealthDoseSync {
         var adopted = 0
         var updated = 0
         var removed = 0
+
+        /// Whether the pass changed a dose on record here. Reminders are
+        /// planned from those doses, so a pass that did is followed by a
+        /// replan wherever it runs, or a follow-up asks about a dose this
+        /// phone now has logged.
+        var changedDoses: Bool { inserted + adopted + updated + removed > 0 }
     }
 
     /// Where the shared medications and their doses come from: Health in the

@@ -132,6 +132,23 @@ final class HealthDoseSyncTests: XCTestCase {
         XCTAssertEqual(try events(in: fixture).compactMap(\.healthSampleID), [brandDose.sampleID, genericDose.sampleID])
     }
 
+    /// Settings' Check Now replans only after a pass that changed a dose
+    /// here: reminders are planned from those doses.
+    func testAPassThatChangesADoseAsksForAReplan() async throws {
+        let fixture = try makeFixture(createdAt: date(1, 0))
+        let dose = record(date(10, 9))
+        let source = source(shared: [entry("zoloft")]) { _ in [dose] }
+
+        let first = await HealthDoseSync.run(in: fixture.context, now: now, source: source)
+        XCTAssertEqual(first?.changedDoses, true, "a dose brought over")
+        let second = await HealthDoseSync.run(in: fixture.context, now: now, source: source)
+        XCTAssertEqual(second?.changedDoses, false, "nothing new")
+
+        XCTAssertTrue(HealthDoseSync.Outcome(linkedMedications: 1, removed: 1).changedDoses, "a dose undone in Health")
+        XCTAssertTrue(HealthDoseSync.Outcome(linkedMedications: 1, updated: 1).changedDoses)
+        XCTAssertTrue(HealthDoseSync.Outcome(linkedMedications: 1, adopted: 1).changedDoses)
+    }
+
     func testAnEntryThatDescribesTwoMedicationsHereTouchesNeither() throws {
         let fixture = try makeFixture(createdAt: date(1, 0))
         let second = Medication(name: "Sertraline for someone else", createdAt: date(1, 0), rxNormCode: "312938")

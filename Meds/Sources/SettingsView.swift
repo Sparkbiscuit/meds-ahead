@@ -216,6 +216,8 @@ struct SettingsView: View {
             healthCheckState = .done("No medication here is linked to one shared from Health yet.")
             return
         }
+        // Settings is a sheet, so closing it replans nothing.
+        if outcome.changedDoses { replanNotifications() }
         var parts: [String] = []
         if outcome.inserted > 0 { parts.append("\(outcome.inserted) brought over") }
         if outcome.removed > 0 { parts.append("\(outcome.removed) removed") }
