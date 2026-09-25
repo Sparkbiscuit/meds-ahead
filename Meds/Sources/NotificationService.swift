@@ -70,13 +70,22 @@ actor NotificationService {
         return content
     }
 
+    static func countCheckMoment(in planned: [PlannedNotification]) -> Date? {
+        planned.lazy.compactMap { item -> Date? in
+            guard item.kind == .countCheck, case let .date(moment) = item.trigger else { return nil }
+            return moment
+        }.first
+    }
+
     func replaceAllNotifications(
         for plans: [MedicationNotificationPlan],
         requestAuthorization: Bool = false
     ) async {
         let center = UNUserNotificationCenter.current()
-        let outcome = NotificationPlanner.plan(for: plans, options: .stored())
+        let now = Date.now
+        let outcome = NotificationPlanner.plan(for: plans, now: now, options: .stored(now: now))
         let planned = outcome.notifications
+        CountCheckPolicy.remember(planned: Self.countCheckMoment(in: planned), now: now, in: .standard)
         let plannedIdentifiers = Set(planned.map(\.identifier))
         let pending = await center.pendingNotificationRequests()
         let delivered = await center.deliveredNotifications()

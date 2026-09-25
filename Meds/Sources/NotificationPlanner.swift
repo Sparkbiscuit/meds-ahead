@@ -89,7 +89,8 @@ struct PlannedNotification: Equatable, Sendable {
     }
 }
 
-/// The reminder choices made once, for the whole app, in Settings.
+/// The reminder choices made once, for the whole app, in Settings, and what
+/// planning remembers from one pass to the next.
 struct NotificationPlanOptions: Equatable, Sendable {
     static let followUpRemindersKey = "followUpRemindersEnabled"
     static let weeklyCountCheckKey = "weeklyCountCheckEnabled"
@@ -98,12 +99,16 @@ struct NotificationPlanOptions: Equatable, Sendable {
     /// other phone is unlogged on this one, and its follow-up still rings.
     var followUpReminders = false
     var weeklyCountCheck = true
+    /// The last count check whose moment has come; the next comes a week or
+    /// more after it.
+    var lastCountCheck: Date? = nil
 
-    static func stored(in defaults: UserDefaults = .standard) -> NotificationPlanOptions {
+    static func stored(in defaults: UserDefaults = .standard, now: Date = .now) -> NotificationPlanOptions {
         NotificationPlanOptions(
             followUpReminders: defaults.bool(forKey: followUpRemindersKey),
             // Never set means never turned off.
-            weeklyCountCheck: defaults.object(forKey: weeklyCountCheckKey) as? Bool ?? true
+            weeklyCountCheck: defaults.object(forKey: weeklyCountCheckKey) as? Bool ?? true,
+            lastCountCheck: CountCheckPolicy.lastAsked(in: defaults, now: now)
         )
     }
 }
@@ -462,7 +467,7 @@ enum NotificationPlanner {
                 retainedPrefixes.insert(NotificationIdentifiers.countCheckPrefix(medicationID: candidate.medicationID))
             }
             if let target = CountCheckPolicy.target(from: candidates, now: now, calendar: calendar),
-               let moment = CountCheckPolicy.moment(for: target, after: now, calendar: calendar) {
+               let moment = CountCheckPolicy.moment(for: target, after: now, lastAsked: options.lastCountCheck, calendar: calendar) {
                 let detailed = plans.first { $0.medicationID == target.medicationID }?.detailedNotifications ?? false
                 refillNotifications.append(
                     PlannedNotification(

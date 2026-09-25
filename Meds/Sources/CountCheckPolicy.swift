@@ -42,20 +42,61 @@ enum CountCheckPolicy {
     }
 
     /// 10:00 on the first day a whole number of weeks after the count's day
-    /// whose 10:00 is still ahead. Weekly from the count, whenever the plan is
-    /// made, so the question never comes two days running.
-    static func moment(for candidate: Candidate, after now: Date, calendar: Calendar = .autoupdatingCurrent) -> Date? {
+    /// whose 10:00 is still ahead, and a week or more after the last question
+    /// about any medication. Weekly from the count, whenever the plan is made,
+    /// so the question never comes two days running, even when the one to
+    /// ask about changes.
+    static func moment(
+        for candidate: Candidate,
+        after now: Date,
+        lastAsked: Date? = nil,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> Date? {
         guard let lastCountDate = candidate.lastCountDate else { return nil }
         let countDay = calendar.startOfDay(for: lastCountDate)
-        var weeks = max(1, SupplyAttention.days(from: countDay, to: now, calendar: calendar) / intervalDays)
-        // At most two steps: the week `now` falls in can have passed 10:00.
+        let notBefore = lastAsked.flatMap { calendar.date(byAdding: .day, value: intervalDays, to: calendar.startOfDay(for: $0)) }
+        let from = max(now, notBefore ?? now)
+        var weeks = max(1, SupplyAttention.days(from: countDay, to: from, calendar: calendar) / intervalDays)
+        // At most two steps: the week `from` falls in can have passed 10:00,
+        // or begun before the week after the last question.
         for _ in 0..<3 {
             guard let day = calendar.date(byAdding: .day, value: weeks * intervalDays, to: countDay),
                   let moment = calendar.date(bySettingHour: hour, minute: 0, second: 0, of: day) else { return nil }
-            if moment > now { return moment }
+            if moment > now, notBefore.map({ day >= $0 }) ?? true { return moment }
             weeks += 1
         }
         return nil
+    }
+
+    // MARK: - The last question asked
+
+    /// The count check planned, and the last one whose moment has come,
+    /// remembered between planning passes. The week is the reminder's, not
+    /// each medication's: two medications counted a day apart were otherwise
+    /// asked about on two mornings running.
+    static let plannedMomentKey = "countCheckPlannedMoment"
+    static let askedMomentKey = "countCheckAskedMoment"
+
+    /// The latest count check whose moment has come. One still ahead may be
+    /// replaced by a question about another medication, so it is not asked
+    /// until its moment passes.
+    static func lastAsked(in defaults: UserDefaults, now: Date) -> Date? {
+        [askedMomentKey, plannedMomentKey]
+            .compactMap { defaults.object(forKey: $0) as? Date }
+            .filter { $0 <= now }
+            .max()
+    }
+
+    /// After every planning pass, with the moment it planned, if any.
+    static func remember(planned moment: Date?, now: Date, in defaults: UserDefaults) {
+        if let asked = lastAsked(in: defaults, now: now) {
+            defaults.set(asked, forKey: askedMomentKey)
+        }
+        if let moment {
+            defaults.set(moment, forKey: plannedMomentKey)
+        } else {
+            defaults.removeObject(forKey: plannedMomentKey)
+        }
     }
 
     static func candidate(
