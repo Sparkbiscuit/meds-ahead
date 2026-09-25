@@ -78,6 +78,199 @@ final class ScheduleEngineTests: XCTestCase {
         XCTAssertEqual(ScheduleEngine.loggedStatus(for: try slot(schedule, day: 9, calendar: calendar), in: [logged], now: now, calendar: calendar), .taken)
     }
 
+    // MARK: - First day
+
+    private func gmt(_ day: Int, _ hour: Int, _ minute: Int = 0) -> Date {
+        calendar("GMT").date(from: DateComponents(year: 2026, month: 9, day: day, hour: hour, minute: minute))!
+    }
+
+    private func hours(_ doses: [ScheduledDose]) -> [Int] {
+        doses.map { calendar("GMT").component(.hour, from: $0.date) }
+    }
+
+    private func morningAndEvening(startingAt start: Date) -> [DoseSchedule] {
+        let medicationID = UUID()
+        return [
+            DoseSchedule(medicationID: medicationID, minutesAfterMidnight: 8 * 60, doseQuantity: 1, startDate: start),
+            DoseSchedule(medicationID: medicationID, minutesAfterMidnight: 20 * 60, doseQuantity: 1, startDate: start)
+        ]
+    }
+
+    /// A medication added at 15:00 was never due at 08:00 that day: offered
+    /// anyway, it read as overdue and "Mark all due" charged the new count.
+    func testATimeThatPassedBeforeTheScheduleExistedIsNoDose() {
+        let calendar = calendar("GMT")
+        let schedules = morningAndEvening(startingAt: gmt(10, 15))
+        let medicationID = schedules[0].medicationID
+
+        let today = ScheduleEngine.doses(schedules: schedules, medicationID: medicationID, onDayOf: gmt(10, 16), calendar: calendar)
+        XCTAssertEqual(hours(today), [20])
+        XCTAssertNil(ScheduleEngine.scheduledDate(for: schedules[0], on: gmt(10, 12), calendar: calendar))
+        XCTAssertNil(
+            ScheduleEngine.actionableDose(schedules: schedules, medicationID: medicationID, doseEvents: [], now: gmt(10, 16), calendar: calendar),
+            "nothing is due or overdue on the afternoon it was added"
+        )
+
+        let tomorrow = ScheduleEngine.doses(schedules: schedules, medicationID: medicationID, onDayOf: gmt(11, 12), calendar: calendar)
+        XCTAssertEqual(hours(tomorrow), [8, 20])
+    }
+
+    /// Ten minutes past a dose's time it is still due, so a medication added
+    /// then keeps it; past the due window it does not.
+    func testADoseStillInsideItsDueWindowIsOffered() {
+        let calendar = calendar("GMT")
+        let justAfter = morningAndEvening(startingAt: gmt(10, 8, 10))
+        XCTAssertEqual(hours(ScheduleEngine.doses(schedules: justAfter, medicationID: justAfter[0].medicationID, onDayOf: gmt(10, 12), calendar: calendar)), [8, 20])
+        let claimed = ScheduleEngine.actionableDose(schedules: justAfter, medicationID: justAfter[0].medicationID, doseEvents: [], now: gmt(10, 8, 10), calendar: calendar)
+        XCTAssertEqual(claimed?.scheduleID, justAfter[0].id)
+
+        let atTheEdge = morningAndEvening(startingAt: gmt(10, 8, 30))
+        XCTAssertEqual(hours(ScheduleEngine.doses(schedules: atTheEdge, medicationID: atTheEdge[0].medicationID, onDayOf: gmt(10, 12), calendar: calendar)), [8, 20])
+
+        let pastIt = morningAndEvening(startingAt: gmt(10, 8, 31))
+        XCTAssertEqual(hours(ScheduleEngine.doses(schedules: pastIt, medicationID: pastIt[0].medicationID, onDayOf: gmt(10, 12), calendar: calendar)), [20])
+    }
+
+    /// A time added to a medication already on a schedule starts when it is
+    /// saved; the times that were already there keep their days.
+    func testATimeAddedLaterStartsWhenItIsSaved() {
+        let calendar = calendar("GMT")
+        var schedules = morningAndEvening(startingAt: gmt(1, 9))
+        let medicationID = schedules[0].medicationID
+        schedules.append(DoseSchedule(medicationID: medicationID, minutesAfterMidnight: 14 * 60, doseQuantity: 1, startDate: gmt(10, 16)))
+
+        XCTAssertEqual(hours(ScheduleEngine.doses(schedules: schedules, medicationID: medicationID, onDayOf: gmt(10, 17), calendar: calendar)), [8, 20])
+        XCTAssertEqual(hours(ScheduleEngine.doses(schedules: schedules, medicationID: medicationID, onDayOf: gmt(11, 12), calendar: calendar)), [8, 14, 20])
+        XCTAssertEqual(hours(ScheduleEngine.doses(schedules: schedules, medicationID: medicationID, onDayOf: gmt(5, 12), calendar: calendar)), [8, 20])
+    }
+
+    /// The next morning's missed-dose list reads the two days before today, and
+    /// must not ask about a dose from before the medication was added.
+    func testTheMissedDoseWindowListsNothingFromBeforeTheScheduleExisted() {
+        let calendar = calendar("GMT")
+        let schedules = morningAndEvening(startingAt: gmt(10, 15))
+        let startOfToday = calendar.startOfDay(for: gmt(11, 9))
+        let window = ScheduleEngine.doses(
+            schedules: schedules,
+            medicationID: schedules[0].medicationID,
+            from: calendar.date(byAdding: .day, value: -2, to: startOfToday)!,
+            through: startOfToday.addingTimeInterval(-1),
+            calendar: calendar
+        )
+        XCTAssertEqual(window.map(\.date), [gmt(10, 20)])
+    }
+
+    /// The rule hides slots; it never rewrites the ledger. A dose already
+    /// logged against a slot the rule now hides stays logged and stays charged.
+    func testHidingASlotLeavesTheLedgerAlone() {
+        let calendar = calendar("GMT")
+        let schedules = morningAndEvening(startingAt: gmt(10, 15))
+        let medicationID = schedules[0].medicationID
+        let opening = InventoryEvent(medicationID: medicationID, date: gmt(10, 15), delta: 30, reason: .openingCount)
+        let loggedEarlier = DoseEvent(medicationID: medicationID, scheduleID: schedules[0].id, scheduledAt: gmt(10, 8),
+                                      recordedAt: gmt(10, 15, 5), doseQuantity: 1, status: .taken)
+        let events = [loggedEarlier]
+
+        XCTAssertEqual(hours(ScheduleEngine.doses(schedules: schedules, medicationID: medicationID, onDayOf: gmt(10, 16), calendar: calendar)), [20])
+        XCTAssertEqual(events.map(\.id), [loggedEarlier.id])
+        XCTAssertEqual(loggedEarlier.scheduledAt, gmt(10, 8))
+        XCTAssertEqual(ForecastEngine.rawSupplyBalance(medicationID: medicationID, inventoryEvents: [opening], doseEvents: events), 29)
+    }
+
+    /// Editing a time keeps the schedule and its start date, so only the first
+    /// day is judged against the moment it was saved; every day since keeps
+    /// its slot at the new time.
+    func testAnEditedTimeKeepsItsPastDays() {
+        let calendar = calendar("GMT")
+        let schedule = DoseSchedule(medicationID: UUID(), minutesAfterMidnight: 20 * 60, doseQuantity: 1, startDate: gmt(1, 15))
+        schedule.minutesAfterMidnight = 7 * 60
+
+        let history = ScheduleEngine.doses(schedules: [schedule], medicationID: schedule.medicationID, from: gmt(1, 0), through: gmt(10, 23), calendar: calendar)
+        XCTAssertEqual(history.count, 9, "the 2nd through the 10th; 07:00 on the 1st was before the schedule existed")
+        XCTAssertEqual(history.first?.date, gmt(2, 7))
+        XCTAssertEqual(history.last?.date, gmt(10, 7))
+    }
+
+    // MARK: - Unlogged doses
+
+    /// `unloggedDoses` does not work out the time of a dose its own day's log
+    /// already accounts for. It must still answer exactly as asking
+    /// `loggedEvent` about every dose `doses` lists would: across weekdays, a
+    /// first day, an end date, the change to daylight saving time, and logs a
+    /// time-zone change carried onto the neighbouring day.
+    func testUnloggedDosesAnswersAsAskingAboutEveryDoseWould() {
+        let calendar = calendar("America/New_York")
+        func date(_ month: Int, _ day: Int, _ hour: Int, _ minute: Int = 0) -> Date {
+            calendar.date(from: DateComponents(year: 2026, month: month, day: day, hour: hour, minute: minute))!
+        }
+        let medicationID = UUID()
+        let schedules = [
+            DoseSchedule(medicationID: medicationID, minutesAfterMidnight: 8 * 60, doseQuantity: 1, startDate: date(2, 20, 15)),
+            // 02:30 does not exist on March 8th.
+            DoseSchedule(medicationID: medicationID, minutesAfterMidnight: 2 * 60 + 30, doseQuantity: 0.5, startDate: date(2, 20, 15)),
+            DoseSchedule(medicationID: medicationID, minutesAfterMidnight: 21 * 60, doseQuantity: 2, weekdayMask: 0b0101010,
+                         startDate: date(2, 25, 9), endDate: date(3, 20, 0)),
+            DoseSchedule(medicationID: UUID(), minutesAfterMidnight: 12 * 60, doseQuantity: 1, startDate: date(2, 1, 0))
+        ]
+        let every = ScheduleEngine.doses(schedules: schedules, medicationID: medicationID, from: date(2, 18, 0), through: date(3, 31, 23), calendar: calendar)
+        var logs: [DoseEvent] = []
+        for (index, dose) in every.enumerated() {
+            let shift: TimeInterval
+            let status: DoseEventStatus
+            switch index % 5 {
+            case 0: (shift, status) = (0, .taken)
+            case 1: (shift, status) = (0, .skipped)
+            case 2: (shift, status) = (-7 * 60 * 60, .taken)
+            case 3: (shift, status) = (7 * 60 * 60, .taken)
+            default: continue
+            }
+            logs.append(DoseEvent(medicationID: medicationID, scheduleID: dose.scheduleID, scheduledAt: dose.date.addingTimeInterval(shift),
+                                  recordedAt: dose.date, doseQuantity: dose.quantity, status: status))
+        }
+        let now = date(3, 25, 12)
+
+        for (from, through) in [
+            (date(2, 18, 0), date(3, 31, 23)),
+            (date(2, 20, 15), date(3, 9, 7, 59)),
+            (date(3, 7, 22), date(3, 26, 3)),
+            (date(3, 24, 1), date(3, 26, 20))
+        ] {
+            let expected = ScheduleEngine.doses(schedules: schedules, medicationID: medicationID, from: from, through: through, calendar: calendar)
+                .filter { ScheduleEngine.loggedEvent(for: $0, in: logs, now: now, calendar: calendar) == nil }
+            let unlogged = ScheduleEngine.unloggedDoses(schedules: schedules, medicationID: medicationID, from: from, through: through,
+                                                        doseEvents: logs, now: now, calendar: calendar)
+            XCTAssertFalse(unlogged.isEmpty)
+            XCTAssertEqual(unlogged.map(\.id), expected.map(\.id), "\(from) through \(through)")
+        }
+    }
+
+    /// A dose logged outside every slot stands for the unlogged dose nearest it
+    /// that day, within two hours, and for one dose at most, however the range
+    /// is asked about.
+    func testALogOutsideEverySlotStandsForTheNearestDoseWithinReach() {
+        let calendar = calendar("GMT")
+        let schedules = morningAndEvening(startingAt: gmt(1, 0))
+        let medicationID = schedules[0].medicationID
+        func outside(_ hour: Int, _ minute: Int = 0) -> DoseEvent {
+            DoseEvent(medicationID: medicationID, recordedAt: gmt(10, hour, minute), doseQuantity: 1, status: .taken)
+        }
+        func unlogged(_ logs: [DoseEvent], from: Date? = nil, through: Date? = nil) -> [Int] {
+            hours(ScheduleEngine.unloggedDoses(schedules: schedules, medicationID: medicationID, from: from ?? gmt(10, 0),
+                                               through: through ?? gmt(10, 23, 59), doseEvents: logs, now: gmt(11, 9), calendar: calendar))
+        }
+
+        XCTAssertEqual(unlogged([outside(18, 30)]), [8], "the evening dose, taken early")
+        XCTAssertEqual(unlogged([outside(14)]), [8, 20], "hours from either dose, it may as well be an extra one")
+        XCTAssertEqual(unlogged([outside(19), outside(19, 30)]), [8], "one log stands for one dose")
+        let evening = DoseEvent(medicationID: medicationID, scheduleID: schedules[1].id, scheduledAt: gmt(10, 20),
+                                recordedAt: gmt(10, 20), doseQuantity: 1, status: .taken)
+        XCTAssertEqual(unlogged([evening, outside(19)]), [8], "a logged dose is not stood for twice")
+
+        let early = [outside(9, 30)]
+        XCTAssertEqual(unlogged(early, through: gmt(10, 12)) + unlogged(early, from: gmt(10, 12, 1)), unlogged(early))
+        XCTAssertEqual(unlogged(early), [20])
+    }
+
     func testDoseTimingStateBoundaries() {
         let now = Date(timeIntervalSince1970: 1_000_000)
 

@@ -23,10 +23,15 @@ enum DoseTimingState: Equatable {
 }
 
 enum ScheduleEngine {
+    /// How long either side of its time a dose counts as due rather than
+    /// upcoming or overdue. The first-day rule in `scheduledDate` measures from
+    /// the same window, so a dose Today would call due is never one it hides.
+    static let dueWindow: TimeInterval = 30 * 60
+
     static func timingState(
         for scheduledAt: Date,
         now: Date = .now,
-        dueWindow: TimeInterval = 30 * 60
+        dueWindow: TimeInterval = ScheduleEngine.dueWindow
     ) -> DoseTimingState {
         // The UI-test override lives here rather than in one screen's own copy, so
         // driving the overdue state cannot make Today and Take Now disagree about
@@ -69,7 +74,16 @@ enum ScheduleEngine {
         guard isActive(schedule, on: day, calendar: calendar) else { return nil }
         let hour = schedule.minutesAfterMidnight / 60
         let minute = schedule.minutesAfterMidnight % 60
-        return calendar.date(bySettingHour: hour, minute: minute, second: 0, of: day)
+        guard let date = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: day) else { return nil }
+        // A time already past when the schedule was saved was never a dose this
+        // app asked for: offered anyway, a medication added at 15:00 showed its
+        // 08:00 dose overdue, "Mark all due" charged it to the count just entered,
+        // and the next morning asked whether it was missed. One still inside its
+        // due window stays, since Today would call it due. Only the start day can
+        // bind, and an edited time keeps its schedule's start date, so the days
+        // before the edit keep their slots.
+        guard date >= schedule.startDate.addingTimeInterval(-dueWindow) else { return nil }
+        return date
     }
 
     /// Every dose scheduled on the calendar day containing `day`. Today, the
@@ -153,6 +167,10 @@ enum ScheduleEngine {
             }
     }
 
+    /// How far from a slot a dose logged outside it may lie and still be that
+    /// slot's dose.
+    static let nearbySlotTolerance: TimeInterval = 2 * 60 * 60
+
     /// The scheduled dose a dose logged elsewhere belongs to: the slot on the same
     /// day nearest to the time it was meant for, when one lies within `tolerance`.
     /// Apple Health keeps its own schedule for a medication, and its times need
@@ -163,7 +181,7 @@ enum ScheduleEngine {
         to date: Date,
         schedules: [DoseSchedule],
         medicationID: UUID,
-        tolerance: TimeInterval = 2 * 60 * 60,
+        tolerance: TimeInterval = nearbySlotTolerance,
         calendar: Calendar = .autoupdatingCurrent
     ) -> ScheduledDose? {
         doses(schedules: schedules, medicationID: medicationID, onDayOf: date, calendar: calendar)
@@ -227,6 +245,108 @@ enum ScheduleEngine {
                 )
             }
             guard let next = calendar.date(byAdding: .day, value: 1, to: day) else { break }
+            day = next
+        }
+        return results.sorted { $0.date < $1.date }
+    }
+
+    /// A medication's dose logs, filed for `unloggedDoses`. A forecast asks
+    /// about every dose since the last count, which can be years of them, and
+    /// `loggedEvent` reads every log it is handed once per dose. A log accounts
+    /// only for a dose on its own day or, within `pastSlotTolerance`, on a
+    /// neighbouring one, so logs naming a slot are filed by schedule and day,
+    /// and the rest by day. File them with the calendar the doses are asked
+    /// about in.
+    struct DoseLogIndex {
+        fileprivate var named: [UUID: [Date: [DoseEvent]]] = [:]
+        fileprivate var outside: [Date: [DoseEvent]] = [:]
+
+        init(doseEvents: [DoseEvent], medicationID: UUID, calendar: Calendar = .autoupdatingCurrent) {
+            for event in doseEvents where event.medicationID == medicationID {
+                if let scheduleID = event.scheduleID {
+                    guard let scheduledAt = event.scheduledAt else { continue }
+                    named[scheduleID, default: [:]][calendar.startOfDay(for: scheduledAt), default: []].append(event)
+                } else {
+                    outside[calendar.startOfDay(for: event.recordedAt), default: []].append(event)
+                }
+            }
+        }
+    }
+
+    /// The doses from `startDate` through `endDate` that no log accounts for,
+    /// in time order. A log naming a schedule accounts for the dose
+    /// `loggedEvent` says it does, taken or skipped. A log outside every slot
+    /// (Take Now with nothing due, or a Health dose no slot was near) accounts
+    /// for the unlogged dose nearest it on its own day when one lies within
+    /// `nearbySlotTolerance`, and for one dose at most: within reach it is that
+    /// dose taken early or late, but hours from any slot it is as likely an
+    /// extra one, and a late first dose on the day a medication was added
+    /// belongs to a slot that day never offered. The pairing is made over the
+    /// whole day, not the range asked about, so asking in pieces gives the same
+    /// answer as asking once. The caller chooses which outside-slot logs count.
+    static func unloggedDoses(
+        schedules: [DoseSchedule],
+        medicationID: UUID,
+        from startDate: Date,
+        through endDate: Date,
+        doseEvents: [DoseEvent],
+        now: Date,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> [ScheduledDose] {
+        unloggedDoses(
+            schedules: schedules,
+            medicationID: medicationID,
+            from: startDate,
+            through: endDate,
+            logs: DoseLogIndex(doseEvents: doseEvents, medicationID: medicationID, calendar: calendar),
+            now: now,
+            calendar: calendar
+        )
+    }
+
+    /// The same, from logs already filed, for a caller asking about more than
+    /// one range of the same medication.
+    static func unloggedDoses(
+        schedules: [DoseSchedule],
+        medicationID: UUID,
+        from startDate: Date,
+        through endDate: Date,
+        logs: DoseLogIndex,
+        now: Date,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> [ScheduledDose] {
+        guard startDate <= endDate else { return [] }
+        let own = schedules.filter { $0.medicationID == medicationID }
+        guard !own.isEmpty else { return [] }
+
+        var results: [ScheduledDose] = []
+        var previous = calendar.startOfDay(for: calendar.date(byAdding: .day, value: -1, to: startDate) ?? startDate)
+        var day = calendar.startOfDay(for: startDate)
+        let lastDay = calendar.startOfDay(for: endDate)
+        while day <= lastDay {
+            guard let following = calendar.date(byAdding: .day, value: 1, to: day) else { break }
+            let next = calendar.startOfDay(for: following)
+            var unlogged = own.compactMap { schedule -> ScheduledDose? in
+                // A log on the dose's own day accounts for it, so its time is
+                // never worked out; that is most of the doses in a logged history.
+                let named = logs.named[schedule.id]
+                guard named?[day] == nil,
+                      let date = scheduledDate(for: schedule, on: day, calendar: calendar) else { return nil }
+                let dose = ScheduledDose(medicationID: medicationID, scheduleID: schedule.id, date: date, quantity: schedule.doseQuantity)
+                if let named, loggedEvent(for: dose, in: (named[previous] ?? []) + (named[next] ?? []), now: now, calendar: calendar) != nil {
+                    return nil
+                }
+                return dose
+            }
+            for event in (logs.outside[day] ?? []).sorted(by: { $0.recordedAt < $1.recordedAt }) {
+                let distance = { (dose: ScheduledDose) in abs(dose.date.timeIntervalSince(event.recordedAt)) }
+                guard let nearest = unlogged.indices
+                    .filter({ distance(unlogged[$0]) <= nearbySlotTolerance })
+                    .min(by: { distance(unlogged[$0]) < distance(unlogged[$1]) }) else { continue }
+                unlogged.remove(at: nearest)
+            }
+            results += unlogged.filter { $0.date >= startDate && $0.date <= endDate }
+            previous = day
             day = next
         }
         return results.sorted { $0.date < $1.date }

@@ -45,7 +45,11 @@ enum DemoData {
         context.insert(InventoryEvent(medicationID: dimethyl.id, delta: 12, reason: .openingCount))
         context.insert(InventoryEvent(medicationID: melatonin.id, delta: 118, reason: .openingCount))
 
-        let start = Calendar.autoupdatingCurrent.date(byAdding: .day, value: -days, to: .now) ?? .now
+        // From the start of the day, not the moment of seeding: a schedule offers
+        // no dose whose time had passed when it was saved, and the UI tests need
+        // today's 08:00 and 20:00 doses whatever time of day they run.
+        let calendar = Calendar.autoupdatingCurrent
+        let start = calendar.startOfDay(for: calendar.date(byAdding: .day, value: -days, to: .now) ?? .now)
         for medication in [furosemide, dimethyl] {
             context.insert(DoseSchedule(medicationID: medication.id, minutesAfterMidnight: 8 * 60, doseQuantity: 1, startDate: start))
             context.insert(DoseSchedule(medicationID: medication.id, minutesAfterMidnight: 20 * 60, doseQuantity: 1, startDate: start))
