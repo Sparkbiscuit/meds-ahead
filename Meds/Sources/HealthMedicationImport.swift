@@ -50,7 +50,9 @@ enum HealthMedicationMapper {
         draft.strength = ScanParser.normalizedStrength(text) ?? ""
         let bracketedBrand = text.firstMatch(of: bracketedBrandPattern).map { String($0.1).trimmingCharacters(in: .whitespaces) }
         let cleaned = cleanedName(from: text)
-        let identity = resolvedIdentity(cleaned, bracketedBrand: bracketedBrand)
+        let nameWords = Set(cleaned.lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init))
+        let release = ReleaseForm.evidence(in: text, namedBy: nameWords)
+        let identity = resolvedIdentity(cleaned, bracketedBrand: bracketedBrand, release: release)
         draft.name = identity.name
         draft.brandName = identity.brand
         draft.form = form(for: summary.form) ?? ScanParser.inferForm(from: text)
@@ -80,13 +82,25 @@ enum HealthMedicationMapper {
     /// sertraline beside it rather than stand alone as the generic. A name neither
     /// knows is kept exactly as the person typed it: it is their word for their
     /// medication, not a reading to gate.
-    static func resolvedIdentity(_ cleaned: String, bracketedBrand: String?) -> (name: String, brand: String) {
-        if let pair = MedicationBrandIndex.resolve(cleaned) {
+    ///
+    /// The release words are set aside with the form, so the one the text
+    /// states comes in separately: "Tacrolimus ER" in Health is not Prograf,
+    /// and keeps its ER when the table's brand is withheld for that reason.
+    static func resolvedIdentity(
+        _ cleaned: String,
+        bracketedBrand: String?,
+        release: ReleaseForm.Evidence = .init()
+    ) -> (name: String, brand: String) {
+        let letters = release.modified.map(release.printedLetters(for:))
+        if let pair = MedicationBrandIndex.resolve(letters.map { ReleaseForm.name(cleaned, keeping: $0) } ?? cleaned, release: release.modified) {
             return (MedicationBrandIndex.displayName(forGeneric: pair.generic), pair.brand)
+        }
+        if let letters, bracketedBrand == nil, let pair = MedicationBrandIndex.resolve(cleaned) {
+            return (ReleaseForm.name(MedicationBrandIndex.displayName(forGeneric: pair.generic), keeping: letters), "")
         }
         if let match = MedicationVocabulary.exactMatch(for: cleaned) {
             let generic = MedicationBrandIndex.displayName(forGeneric: match)
-            return (generic, bracketedBrand ?? MedicationBrandIndex.brandName(forGeneric: match) ?? "")
+            return (generic, bracketedBrand ?? MedicationBrandIndex.brandName(forGeneric: match, release: release.modified) ?? "")
         }
         if let bracketedBrand, let pair = MedicationBrandIndex.resolve(bracketedBrand) {
             return (MedicationBrandIndex.displayName(forGeneric: pair.generic), pair.brand)
@@ -131,8 +145,13 @@ enum HealthMedicationMapper {
         }
         let keys = Set([draft.name, draft.brandName].map(key).filter { $0.count >= 4 })
         guard !keys.isEmpty else { return nil }
+        // Astagraf XL and Prograf share the name tacrolimus, and are not one
+        // medication: a name only matches within one release, with a name that
+        // states none read as the table's reference product.
+        let release = MedicationBrandIndex.release(ofName: draft.name, brand: draft.brandName) ?? .immediate
         return active.first { medication in
             !keys.isDisjoint(with: [key(medication.name), key(medication.brandName), key(medication.nickname)])
+                && (MedicationBrandIndex.release(ofName: medication.name, brand: medication.brandName) ?? .immediate) == release
         }
     }
 
