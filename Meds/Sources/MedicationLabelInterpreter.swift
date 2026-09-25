@@ -145,7 +145,7 @@ enum MedicationLabelInterpreter {
             let response = try await session.respond(
                 to: prompt(evidence: evidence, candidates: candidates),
                 generating: LabelFieldSelection.self,
-                options: GenerationOptions(sampling: .greedy, temperature: 0, maximumResponseTokens: 96)
+                options: GenerationOptions(samplingMode: .greedy, temperature: 0, maximumResponseTokens: 96)
             )
             return applying(response.content, candidates: candidates, to: deterministicDraft)
         } catch {
