@@ -207,11 +207,19 @@ struct TodayView: View {
                 }
                 .font(.headline)
                 ForEach(inProgress, id: \.0.id) { medication, forecast, needsAttention in
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    // Side by side at the largest sizes, the name and the status
+                    // column squeezed each other until words broke mid-word,
+                    // the warning among them; stacked, as the missed-dose rows
+                    // and Supply's rows are, each keeps the card's width.
+                    let stacked = dynamicTypeSize.isAccessibilitySize
+                    let rowLayout = stacked
+                        ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+                        : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 8))
+                    rowLayout {
                         Text(medication.displayName)
                             .font(.subheadline.weight(.semibold))
-                        Spacer(minLength: 8)
-                        VStack(alignment: .trailing, spacing: 2) {
+                        if !stacked { Spacer(minLength: 8) }
+                        VStack(alignment: stacked ? .leading : .trailing, spacing: 2) {
                             if needsAttention {
                                 Text(SupplyAttention.line(for: forecast))
                                     .font(.subheadline.weight(.semibold))
@@ -221,7 +229,7 @@ struct TodayView: View {
                                 .font(.subheadline)
                                 .foregroundStyle(medication.refillStatus == .ready && !needsAttention ? AppTheme.accent : .secondary)
                         }
-                        .multilineTextAlignment(.trailing)
+                        .multilineTextAlignment(stacked ? .leading : .trailing)
                     }
                     .accessibilityElement(children: .combine)
                 }
@@ -331,7 +339,7 @@ struct TodayView: View {
                 }
 
                 if missed.count > shown.count {
-                    Text("\(missed.count - shown.count) more are waiting in each medication's history.")
+                    Text(Self.moreMissedText(missed.count - shown.count))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -344,6 +352,11 @@ struct TodayView: View {
             .padding(18)
             .cardSurface()
         }
+    }
+
+    /// The line under the missed doses the card has no room to list.
+    static func moreMissedText(_ count: Int) -> String {
+        "\(count.counted("more is", plural: "more are")) waiting in each medication's history."
     }
 
     private func header(now: Date) -> some View {

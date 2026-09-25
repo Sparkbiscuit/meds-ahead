@@ -113,6 +113,12 @@ final class MedicationQuantityTextTests: XCTestCase {
         XCTAssertEqual(3.counted("reminder", plural: "reminders"), "3 reminders")
     }
 
+    /// Four missed doses with room for three read "1 more are waiting".
+    func testTheMissedDoseCardCountsWhatItCouldNotList() {
+        XCTAssertEqual(TodayView.moreMissedText(1), "1 more is waiting in each medication's history.")
+        XCTAssertEqual(TodayView.moreMissedText(4), "4 more are waiting in each medication's history.")
+    }
+
     /// The low-supply stepper starts at 1, and a gauge can reach a single day.
     func testASingleDayReadsAsADay() {
         XCTAssertEqual(SupplyGauge(daysRemaining: 1, leadDays: 7).accessibilityText, "1 day of supply remaining")
