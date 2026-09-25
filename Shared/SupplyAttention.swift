@@ -95,7 +95,10 @@ struct SupplyAttention: Equatable, Sendable {
         let inProgress = medication.refillStatus != .none
         self.init(
             daysRemaining: forecast.daysRemaining,
-            onHand: forecast.currentSupply > 0,
+            // A course finished, or covered to its last dose, needs nothing
+            // more on hand: an empty bottle is how a course dispensed to the
+            // tablet ends, not a supply to warn about.
+            onHand: forecast.currentSupply > 0 || forecast.courseFinished || forecast.courseCovered,
             needsCount: forecast.needsCount,
             refillLeadDays: medication.refillLeadDays,
             refillsRemaining: medication.refillsRemaining,
