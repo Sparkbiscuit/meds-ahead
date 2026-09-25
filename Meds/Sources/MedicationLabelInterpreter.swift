@@ -94,7 +94,7 @@ enum MedicationLabelInterpreter {
         switch verdict {
         case .accepted:
             result = NDCIdentification.applying(match, to: labelDraft, labelText: labelText, rxNormTable: rxNormTable)
-            result.identification = .accepted(code: code)
+            result.identification = .accepted(code: match.recordedCode)
         case .uncorroborated:
             result.identification = .uncorroborated(code: code, product: NDCIdentification.summary(of: match.product))
         case .contradicted:

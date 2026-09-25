@@ -273,6 +273,27 @@ final class NDCIdentificationTests: XCTestCase {
         XCTAssertEqual(draft.productIdentifier, "54405-005-02", "the code as read, ready to check against the bottle")
     }
 
+    /// The directory and the label vouch for the product, never the package,
+    /// so a package read two ways is left off rather than guessed: the product
+    /// NDC names the drug exactly, and a wrong package code on the shared list
+    /// names a bottle no pharmacy dispensed.
+    func testAPackageReadTwoWaysIsLeftOffTheCode() {
+        let label = ["DIMETHYL FUMARATE 240 MG DR CAPSULE", "NDC 64406-006-02", "MFR: BIOGEN NDC 64406-006-07"]
+        let split = draft(label)
+        XCTAssertEqual(split.nameProvenance, .ndc)
+        XCTAssertEqual(split.brandName, "Tecfidera")
+        XCTAssertEqual(split.productIdentifier, "64406-0006")
+        XCTAssertEqual(split.productIdentifierType, "NDC")
+        XCTAssertEqual(split.identification, .accepted(code: "64406-0006"))
+
+        let agreed = draft(["DIMETHYL FUMARATE 240 MG DR CAPSULE", "NDC 64406-006-02", "NDC 64406000602"])
+        XCTAssertEqual(agreed.productIdentifier, "64406-0006-02", "two layouts of one code agree on the package")
+        XCTAssertEqual(agreed.rxNormCode, split.rxNormCode, "the RxNorm concept is the product's either way")
+
+        let scanned = draft(label, barcode: "0100364406006029")
+        XCTAssertEqual(scanned.productIdentifier, "64406-0006-02", "a barcode's check digit covers the package")
+    }
+
     func testAnEmptyDirectoryChangesNothing() {
         let draft = MedicationLabelInterpreter.offlineDraft(
             evidence(["SERTRALINE HCL 50 MG TABLET", "NDC 0093-1039-01"]),

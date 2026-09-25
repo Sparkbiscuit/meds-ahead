@@ -527,11 +527,15 @@ struct MedicationEditorView: View {
     @ViewBuilder
     private var identificationNote: some View {
         if nameProvenance == .ndc {
+            // A code kept without its package segment looks misread next to the
+            // bottle's; saying why stops someone from "correcting" it.
+            let packageWithheld = productIdentifierType == "NDC" && productIdentifier.split(separator: "-").count == 2
             summaryNote(
                 title: "Identified by its NDC",
                 symbol: "checkmark.seal.fill",
                 tint: AppTheme.accent,
                 message: "The name, strength and form come from the FDA directory entry for the code on this label. Check that they match the bottle."
+                    + (packageWithheld ? " The code’s last digits were read more than one way, so only the product part is kept." : "")
             )
         } else {
             switch draftIdentification {

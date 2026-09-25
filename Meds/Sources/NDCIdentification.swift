@@ -14,6 +14,18 @@ enum NDCIdentification {
         let code: NationalDrugCode
         let product: NDCProduct
         let source: NDCReadingSource
+        /// False when printed readings of this product disagree on the package
+        /// digits. The directory and the label vouch for the product, never the
+        /// package, so a reading that differs only there has nothing to settle it.
+        var packageIsSettled = true
+
+        /// The code a medication keeps and the shared list prints. A package
+        /// read two ways is left off rather than guessed: the product NDC names
+        /// the drug exactly, and a wrong package code handed to a pharmacist
+        /// names a bottle that was never dispensed.
+        var recordedCode: String {
+            packageIsSettled ? code.hyphenated : code.productHyphenated
+        }
     }
 
     enum Verdict: Hashable, Sendable {
@@ -66,6 +78,7 @@ enum NDCIdentification {
     ) -> (match: Match, verdict: Verdict)? {
         guard !directory.isEmpty else { return nil }
         var byProduct: [String: Match] = [:]
+        var printedPackages: [String: Set<String>] = [:]
         var order: [String] = []
         for reading in readings(in: evidence) {
             let hits = reading.candidates.compactMap { code in
@@ -74,10 +87,16 @@ enum NDCIdentification {
             guard Set(hits.map(\.product.productKey)).count == 1, let hit = hits.first else { continue }
             let key = hit.product.productKey
             if byProduct[key] == nil { order.append(key) }
+            if hit.source == .printedText { printedPackages[key, default: []].insert(String(hit.code.digits.suffix(2))) }
             // A barcode reading of the same product outranks a printed one.
             if byProduct[key] == nil || (hit.source == .barcode && byProduct[key]?.source != .barcode) {
                 byProduct[key] = hit
             }
+        }
+        // A barcode's check digit covers the package; printed digits are settled
+        // only when every reading of the product agrees on them.
+        for (key, match) in byProduct where match.source == .printedText && (printedPackages[key]?.count ?? 0) > 1 {
+            byProduct[key]?.packageIsSettled = false
         }
         let judged = order.compactMap { key in byProduct[key].map { ($0, verdict(for: $0, against: draft, labelText: labelText)) } }
         guard !judged.isEmpty else { return nil }
@@ -175,7 +194,7 @@ enum NDCIdentification {
         result.strength = displayStrength(for: product, labelStrength: draft.strength)
         result.form = product.form
         result.nameProvenance = .ndc
-        result.productIdentifier = match.code.hyphenated
+        result.productIdentifier = match.recordedCode
         result.productIdentifierType = "NDC"
         result.rxNormCode = rxNormTable.product(for: match.code)?.rxcui ?? ""
         return result
