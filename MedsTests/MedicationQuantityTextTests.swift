@@ -189,4 +189,17 @@ final class MedicationQuantityTextTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(syrupEntry.scheduleLines.first).contains("— 2.5 mL ·"), syrupEntry.scheduleLines.joined())
         XCTAssertTrue(syrupEntry.supplyLine.hasPrefix("150 mL on hand"), syrupEntry.supplyLine)
     }
+
+    /// The editor's Current amount opened on grouped text: "1.497,5" in a region
+    /// that groups with ".", which one deleted fraction turned into 1.497. It
+    /// now opens on the supply sheets' ungrouped text.
+    func testTheEditorsCurrentAmountOpensUngrouped() {
+        let draft = MedicationDraft(name: "Lactulose", currentSupply: 1497.5, source: .manual)
+        XCTAssertEqual(draft.initialCurrentAmountText, SupplyChangeQuantity.text(for: 1497.5))
+        if let grouping = Locale.autoupdatingCurrent.groupingSeparator, !grouping.isEmpty {
+            XCTAssertFalse(draft.initialCurrentAmountText.contains(grouping), draft.initialCurrentAmountText)
+        }
+        XCTAssertEqual(Double.medicationQuantity(from: draft.initialCurrentAmountText), 1497.5)
+        XCTAssertEqual(MedicationDraft(name: "Lactulose", currentSupply: 30, source: .manual).initialCurrentAmountText, "30")
+    }
 }

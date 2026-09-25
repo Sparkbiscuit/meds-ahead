@@ -623,7 +623,9 @@ struct MedicationEditorView: View {
             let quantityText = quantity.medicationQuantityText
             let isInUse = Double.medicationQuantity(from: currentSupplyText) == quantity
             Button {
-                currentSupplyText = quantityText
+                // Written ungrouped, as the field's prefill is, so a label's
+                // 1497.5 cannot be half-edited from "1.497,5" into 1.497.
+                currentSupplyText = SupplyChangeQuantity.text(for: quantity)
             } label: {
                 // The checkmark sits inline in the text: as a Label's icon it
                 // broke "Using" mid-word at the largest text sizes.
@@ -844,10 +846,12 @@ extension MedicationDraft {
     }
 
     /// What Current amount starts as. A scanned draft's number is the label's,
-    /// so that field starts blank.
+    /// so that field starts blank. Otherwise it opens as the supply sheets do,
+    /// ungrouped: a region that groups with "." showed 1497.5 as "1.497,5", and
+    /// deleting only the fraction saved 1.497.
     var initialCurrentAmountText: String {
         guard source != .scanned else { return "" }
-        return currentSupply?.medicationQuantityText ?? ""
+        return currentSupply.map { SupplyChangeQuantity.text(for: $0) } ?? ""
     }
 }
 
