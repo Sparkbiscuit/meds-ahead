@@ -69,7 +69,7 @@ For version 1.1.1, build 7. A draft: read it against the build before pasting in
 ```
 Fixes to the counts, dates and warnings:
 
-- If a refill you marked as requested or ready runs two days late, or is due after your supply runs out, the low-supply warning comes back, and Meds Ahead asks whether the refill has arrived.
+- If a refill you marked as requested or ready runs two days late, is due after your supply runs out, or your supply is nearly gone, the low-supply warning comes back, and Meds Ahead asks whether the refill has arrived.
 - Refill and expiration alerts stay in Notification Center while they are still true, instead of disappearing the next time the app opens.
 - The run-out date no longer drifts later when doses go unlogged. Meds Ahead counts unlogged scheduled doses as taken, says so, and asks for a count when it can't tell what is left.
 - A scanned label's count is offered with a Use button instead of filled in, because it is what the bottle held when full.
