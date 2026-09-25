@@ -62,8 +62,10 @@ final class AddBottleRecordTests: XCTestCase {
     func testTheLabelsValuesAreTakenWhenAsked() throws {
         let context = try makeContext()
         let medication = try trackedFurosemide(in: context)
-        let expiry = Date(timeIntervalSince1970: 1_830_000_000)
+        let expiry = Date(timeIntervalSince1970: 1_780_000_000)
         let updates = AddBottleRecord.LabelUpdates(refillsRemaining: 0, expirationDate: expiry, rxNumber: "RX-2")
+        XCTAssertEqual(updates.changes(to: medication), updates, "an earlier expiry and fewer refills are all taken")
+        XCTAssertEqual(updates.kept(by: medication, locale: british), [])
 
         AddBottleRecord.record(quantity: 60, note: "", labelUpdates: updates, to: medication, in: context)
         try context.save()
@@ -71,6 +73,35 @@ final class AddBottleRecordTests: XCTestCase {
         XCTAssertEqual(medication.refillsRemaining, 0)
         XCTAssertEqual(medication.expirationDate, expiry)
         XCTAssertEqual(medication.rxNumber, "RX-2")
+    }
+
+    /// The pills already counted may be from the earlier bottle, and a label
+    /// from an earlier fill shows refills since used. Either value would move
+    /// a reminder later, so the medication keeps its own, and the sheet says so.
+    @MainActor
+    func testALaterExpiryAndMoreRefillsAreNotTaken() throws {
+        let context = try makeContext()
+        let medication = try trackedFurosemide(in: context)
+        let onFile = try XCTUnwrap(medication.expirationDate)
+        let later = Date(timeIntervalSince1970: 1_830_000_000)
+        let updates = AddBottleRecord.LabelUpdates(refillsRemaining: 5, expirationDate: later, rxNumber: "RX-1")
+        XCTAssertTrue(updates.changes(to: medication).isEmpty, "nothing here would change the record, the Rx number included")
+        XCTAssertEqual(updates.kept(by: medication, locale: british, calendar: Calendar(identifier: .gregorian)), [
+            "Refills left stay at 2, fewer than this label's 5",
+            "Expiry stays \(onFile.formatted(Date.FormatStyle(date: .abbreviated, time: .omitted).locale(british))), earlier than this label's"
+        ])
+
+        AddBottleRecord.record(quantity: 60, note: "", labelUpdates: updates, to: medication, in: context)
+        try context.save()
+
+        XCTAssertEqual(medication.refillsRemaining, 2)
+        XCTAssertEqual(medication.expirationDate, onFile)
+        XCTAssertEqual(medication.rxNumber, "RX-1")
+
+        // Nothing on file yet: the label's values are all there is.
+        let blank = Medication(name: "Furosemide", strength: "20 mg")
+        XCTAssertEqual(updates.changes(to: blank), updates)
+        XCTAssertEqual(updates.kept(by: blank, locale: british), [])
     }
 
     /// The toggle offers only what the label read, at the values the review

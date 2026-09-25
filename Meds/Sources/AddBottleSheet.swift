@@ -44,6 +44,39 @@ enum AddBottleRecord {
             return "Also update \(fields.formatted(.list(type: .and).locale(locale))) from this label"
         }
 
+        /// What of this label the medication takes. A later expiry and a higher
+        /// refill count stay out, and so does anything already on file: the
+        /// earlier bottle's pills may still be in the count, and a label from
+        /// an earlier fill shows refills since used. Either would move a
+        /// reminder later, and a reminder may come early but never late.
+        func changes(to medication: Medication, calendar: Calendar = .autoupdatingCurrent) -> LabelUpdates {
+            var changes = LabelUpdates()
+            if let refillsRemaining, medication.refillsRemaining.map({ refillsRemaining < $0 }) ?? true {
+                changes.refillsRemaining = refillsRemaining
+            }
+            if let expirationDate, medication.expirationDate.map({
+                calendar.compare(expirationDate, to: $0, toGranularity: .day) == .orderedAscending
+            }) ?? true {
+                changes.expirationDate = expirationDate
+            }
+            if !rxNumber.isEmpty, rxNumber != medication.rxNumber { changes.rxNumber = rxNumber }
+            return changes
+        }
+
+        /// What the label read that the medication keeps its own value for,
+        /// said beside the toggle so the label's number is not simply missing.
+        func kept(by medication: Medication, locale: Locale = .autoupdatingCurrent, calendar: Calendar = .autoupdatingCurrent) -> [String] {
+            var lines: [String] = []
+            if let refillsRemaining, let current = medication.refillsRemaining, refillsRemaining > current {
+                lines.append("Refills left stay at \(current), fewer than this label's \(refillsRemaining)")
+            }
+            if let expirationDate, let current = medication.expirationDate,
+               calendar.compare(expirationDate, to: current, toGranularity: .day) == .orderedDescending {
+                lines.append("Expiry stays \(current.formatted(Date.FormatStyle(date: .abbreviated, time: .omitted).locale(locale))), earlier than this label's")
+            }
+            return lines
+        }
+
         /// The values themselves, one per line, so the toggle says what it writes.
         func lines(locale: Locale = .autoupdatingCurrent) -> [String] {
             var lines: [String] = []
@@ -63,7 +96,8 @@ enum AddBottleRecord {
     ///
     /// Refills left changes only when the label says what it is: a bottle added
     /// here may be the second bottle of one fill rather than a new fill, so
-    /// counting it as a refill used would be a guess.
+    /// counting it as a refill used would be a guess. Only the label's values
+    /// that `changes(to:)` lets through are written.
     @discardableResult
     static func record(
         quantity: Double,
@@ -79,10 +113,10 @@ enum AddBottleRecord {
         // as Add Refill has it.
         medication.refillStatus = .none
         medication.refillStatusDate = nil
-        if let labelUpdates {
-            if let refills = labelUpdates.refillsRemaining { medication.refillsRemaining = refills }
-            if let expiration = labelUpdates.expirationDate { medication.expirationDate = expiration }
-            if !labelUpdates.rxNumber.isEmpty { medication.rxNumber = labelUpdates.rxNumber }
+        if let changes = labelUpdates?.changes(to: medication) {
+            if let refills = changes.refillsRemaining { medication.refillsRemaining = refills }
+            if let expiration = changes.expirationDate { medication.expirationDate = expiration }
+            if !changes.rxNumber.isEmpty { medication.rxNumber = changes.rxNumber }
         }
         medication.updatedAt = now
         return event
@@ -116,8 +150,20 @@ struct AddBottleSheet: View {
     @State private var appliesLabelUpdates = true
     @State private var showingSaveError = false
     @State private var savedCount = 0
+    /// Worked out once, as the sheet opens: saving writes these values to the
+    /// medication, and the sheet should not redraw itself while it closes.
+    @State private var labelChanges: AddBottleRecord.LabelUpdates?
+    @State private var labelKept: [String]
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    init(request: AddBottleRequest, onAdded: @escaping (Medication) -> Void) {
+        self.request = request
+        self.onAdded = onAdded
+        let changes = request.labelUpdates?.changes(to: request.medication)
+        _labelChanges = State(initialValue: changes?.isEmpty == false ? changes : nil)
+        _labelKept = State(initialValue: request.labelUpdates?.kept(by: request.medication) ?? [])
+    }
 
     private var medication: Medication { request.medication }
 
@@ -150,20 +196,24 @@ struct AddBottleSheet: View {
                     Text("Count what is in it now. It joins the count for \(medication.displayName), so skip this if the bottle was counted already.")
                 }
 
-                if let labelUpdates = request.labelUpdates {
+                if let labelChanges {
                     Section {
                         Toggle(isOn: $appliesLabelUpdates) {
                             VStack(alignment: .leading, spacing: 3) {
-                                Text(labelUpdates.toggleTitle())
+                                Text(labelChanges.toggleTitle())
                                     .fixedSize(horizontal: false, vertical: true)
-                                Text(labelUpdates.lines().joined(separator: "\n"))
+                                Text(labelChanges.lines().joined(separator: "\n"))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                         }
                         .accessibilityIdentifier("apply-label-updates")
+                    } footer: {
+                        if !labelKept.isEmpty { keptText }
                     }
+                } else if !labelKept.isEmpty {
+                    Section { keptText.font(.subheadline) }
                 }
             }
             .scrollDismissesKeyboard(.interactively)
@@ -222,6 +272,12 @@ struct AddBottleSheet: View {
         Task { await NotificationService.shared.replaceAllNotifications(for: plans) }
         savedCount += 1
         return true
+    }
+
+    private var keptText: some View {
+        Text(labelKept.joined(separator: "\n"))
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("label-values-kept")
     }
 
     /// The same offer the review screen makes: the label's count one tap away,
