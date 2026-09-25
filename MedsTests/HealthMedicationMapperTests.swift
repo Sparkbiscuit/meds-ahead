@@ -138,6 +138,67 @@ final class HealthMedicationMapperTests: XCTestCase {
         XCTAssertTrue(HealthDoseSync.groups(of: [entry], matching: [prograf], table: .shared).isEmpty)
     }
 
+    /// A release the entry states stays with it for a drug the brand table
+    /// does not know, or whose brand is not the one on file, so an
+    /// extended-release entry never reads as the immediate-release
+    /// medication already here.
+    @MainActor
+    func testAReleaseStaysWithAnyDrug() {
+        let nifedipine = HealthMedicationMapper.draft(for: summary("Nifedipine ER 30 mg"))
+        XCTAssertEqual(nifedipine.name, "Nifedipine ER")
+        XCTAssertNil(HealthMedicationMapper.existingMedication(for: nifedipine, among: [Medication(name: "Nifedipine", strength: "10 mg")]))
+
+        let wellbutrin = HealthMedicationMapper.draft(for: summary("Wellbutrin XL 150 mg"))
+        XCTAssertEqual(MedicationBrandIndex.release(ofName: wellbutrin.name, brand: wellbutrin.brandName), .extended)
+        XCTAssertNil(HealthMedicationMapper.existingMedication(
+            for: wellbutrin, among: [Medication(name: "Bupropion", brandName: "Wellbutrin", strength: "75 mg")]
+        ))
+
+        let rxNormName = HealthMedicationMapper.draft(for: summary("24 HR tacrolimus 1 MG Extended Release Oral Capsule"))
+        XCTAssertEqual(rxNormName.name, "Tacrolimus ER", "RxNorm's leading duration is not part of the name")
+        XCTAssertEqual(rxNormName.brandName, "")
+    }
+
+    /// An entry whose name states no release, coded as an extended-release
+    /// product, is that product: not lent Prograf, and not the Prograf on file.
+    @MainActor
+    func testAnEntryTakesItsReleaseFromItsCode() {
+        XCTAssertEqual(HealthMedicationMapper.release(ofRxNormCode: "1431982"), .extended, "Astagraf XL 1 mg")
+        XCTAssertEqual(HealthMedicationMapper.release(ofRxNormCode: "1431980"), .extended, "tacrolimus 1 mg extended-release")
+        XCTAssertEqual(HealthMedicationMapper.release(ofRxNormCode: "108513"), .immediate, "Prograf 1 mg")
+        XCTAssertNil(HealthMedicationMapper.release(ofRxNormCode: "999999999"))
+
+        var astagraf = summary("Tacrolimus 1 mg", rxNormCode: "1431982")
+        astagraf.codedRelease = HealthMedicationMapper.release(ofRxNormCode: "1431982")
+        let coded = HealthMedicationMapper.draft(for: astagraf)
+        XCTAssertEqual(coded.name, "Tacrolimus ER")
+        XCTAssertEqual(coded.brandName, "", "never Prograf")
+
+        let prograf = Medication(name: "Tacrolimus", brandName: "Prograf", strength: "1 mg", rxNormCode: "108513")
+        XCTAssertNil(HealthMedicationMapper.existingMedication(for: coded, among: [prograf], rxNormTable: .shared))
+
+        var prografEntry = summary("Tacrolimus 1 mg", rxNormCode: "108513")
+        prografEntry.codedRelease = HealthMedicationMapper.release(ofRxNormCode: "108513")
+        let immediate = HealthMedicationMapper.draft(for: prografEntry)
+        XCTAssertEqual(immediate.name, "Tacrolimus")
+        XCTAssertEqual(immediate.brandName, "Prograf")
+        XCTAssertEqual(HealthMedicationMapper.existingMedication(for: immediate, among: [prograf], rxNormTable: .shared)?.id, prograf.id)
+    }
+
+    /// Codes on both sides that name different clinical drugs are two
+    /// medications, whatever their names say.
+    @MainActor
+    func testCodesThatDisagreeAreNotJoinedByName() {
+        let entry = HealthMedicationMapper.draft(for: summary("Melatonin 5 mg", rxNormCode: "900001"))
+        XCTAssertNil(HealthMedicationMapper.existingMedication(for: entry, among: [Medication(name: "Melatonin", rxNormCode: "900002")]))
+
+        let uncoded = Medication(name: "Melatonin")
+        XCTAssertEqual(HealthMedicationMapper.existingMedication(for: entry, among: [uncoded])?.id, uncoded.id, "a name still matches a medication without a code")
+        let typed = HealthMedicationMapper.draft(for: summary("Melatonin 5 mg"))
+        let coded = Medication(name: "Melatonin", rxNormCode: "900002")
+        XCTAssertEqual(HealthMedicationMapper.existingMedication(for: typed, among: [coded])?.id, coded.id, "and an entry without one")
+    }
+
     func testFormWordsAndRoutesAreNotPartOfTheName() {
         XCTAssertEqual(HealthMedicationMapper.cleanedName(from: "Metoprolol succinate 25 MG Extended Release Oral Tablet"), "Metoprolol succinate")
         XCTAssertEqual(HealthMedicationMapper.cleanedName(from: "Insulin glargine 100 units/mL injection pen"), "Insulin glargine")
