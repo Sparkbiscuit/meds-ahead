@@ -97,6 +97,16 @@ enum MedicationListDocument {
         // would tell a pharmacist the supply is gone when nobody knows.
         if let reason = SupplyAttention.countNeededReason(for: forecast) {
             supplyLine = "\(onHand) · count needed: \(reason)"
+        } else if let reason = SupplyAttention.assumedDosesReason(for: forecast) {
+            // The date already takes out doses nobody logged. Printed without
+            // them, "30 on record" beside a date four days out tells the reader
+            // one of the two is wrong.
+            if let date = forecast.depletionDate, forecast.currentSupply > 0 {
+                let assumption = forecast.assumedDoses == 1 ? "if it was taken" : "if they were taken"
+                supplyLine = "\(onHand) · \(reason) · runs out around \(date.formatted(date: .abbreviated, time: .omitted)) \(assumption)"
+            } else {
+                supplyLine = "\(onHand) · \(reason)"
+            }
         } else if let date = forecast.depletionDate, forecast.currentSupply > 0 {
             supplyLine = "\(onHand) · runs out around \(date.formatted(date: .abbreviated, time: .omitted))"
         } else {

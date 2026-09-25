@@ -192,7 +192,7 @@ private struct SupplyRow: View {
                 .font(.subheadline)
                 .foregroundStyle(isLow ? .orange : .secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            if let reason = SupplyAttention.countNeededReason(for: forecast) {
+            if let reason = SupplyAttention.assumedDosesReason(for: forecast) {
                 Text(reason)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)

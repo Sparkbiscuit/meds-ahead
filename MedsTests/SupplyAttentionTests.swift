@@ -170,7 +170,24 @@ final class SupplyAttentionTests: XCTestCase {
 
         let low = SupplyForecast(currentSupply: 4, depletionDate: day(5), daysRemaining: 4, confidence: .estimated, explanation: "", assumedDoses: 3)
         XCTAssertNil(SupplyAttention.countNeededReason(for: low), "an estimate with supply to spare needs no count")
-        XCTAssertEqual(SupplyAttention.quantityWords(for: low), "on hand")
         XCTAssertTrue(SupplyAttention.line(for: low).hasPrefix("Act soon · around "))
+    }
+
+    /// Doses assumed short of a count needed still make the ledger's number
+    /// only what was recorded: the run-out date beside it has already taken
+    /// them out, so "on hand" and the date could not both be true.
+    func testAnyAssumedDoseMakesTheLedgerOnlyWhatWasRecorded() {
+        let assuming = SupplyForecast(currentSupply: 4, depletionDate: day(5), daysRemaining: 4, confidence: .estimated, explanation: "", assumedDoses: 3)
+        XCTAssertEqual(SupplyAttention.quantityWords(for: assuming), "on record")
+        XCTAssertEqual(SupplyAttention.assumedDosesReason(for: assuming), "3 doses since the last count weren't logged")
+        XCTAssertNil(SupplyAttention.countNeededReason(for: assuming))
+
+        let one = SupplyForecast(currentSupply: 4, depletionDate: day(5), daysRemaining: 4, confidence: .estimated, explanation: "",
+                                 assumedDoses: 1, assumedSinceRefill: true)
+        XCTAssertEqual(SupplyAttention.assumedDosesReason(for: one), "1 dose since the last refill wasn't logged")
+
+        let logged = SupplyForecast(currentSupply: 4, depletionDate: day(5), daysRemaining: 4, confidence: .high, explanation: "")
+        XCTAssertEqual(SupplyAttention.quantityWords(for: logged), "on hand")
+        XCTAssertNil(SupplyAttention.assumedDosesReason(for: logged))
     }
 }

@@ -146,16 +146,25 @@ struct SupplyAttention: Equatable, Sendable {
     /// Why a count is needed, short enough to sit under "Count needed"; nil
     /// when none is. The forecast's own explanation is the long form.
     static func countNeededReason(for forecast: SupplyForecast) -> String? {
-        guard forecast.needsCount else { return nil }
+        forecast.needsCount ? assumedDosesReason(for: forecast) : nil
+    }
+
+    /// The doses the run-out date assumes were taken, short enough to sit
+    /// beside the ledger's number; nil when it assumes none. Without it, "30
+    /// on record" beside a date four days out reads as a contradiction.
+    static func assumedDosesReason(for forecast: SupplyForecast) -> String? {
+        guard forecast.assumedDoses > 0 else { return nil }
         let since = forecast.assumedSinceRefill ? "since the last refill" : "since the last count"
         return forecast.assumedDoses == 1
             ? "1 dose \(since) wasn't logged"
             : "\(forecast.assumedDoses) doses \(since) weren't logged"
     }
 
-    /// What the ledger's number is called beside it. While a count is needed
-    /// nobody knows it is what is on hand, only that it is what was recorded.
+    /// What the ledger's number is called beside it. Once the forecast assumes
+    /// any unlogged dose was taken, nobody knows the ledger's number is what is
+    /// on hand, only that it is what was recorded; the run-out date beside it
+    /// has already taken those doses out.
     static func quantityWords(for forecast: SupplyForecast) -> String {
-        forecast.needsCount ? "on record" : "on hand"
+        forecast.needsCount || forecast.assumedDoses > 0 ? "on record" : "on hand"
     }
 }

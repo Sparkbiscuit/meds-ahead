@@ -68,6 +68,37 @@ final class MedicationListDocumentTests: XCTestCase {
         XCTAssertFalse(entry.supplyLine.contains("runs out"))
     }
 
+    /// Short of a count needed, the run-out date still takes out the doses
+    /// nobody logged. "30 tablets on hand · runs out around Sep 30" cannot
+    /// both be true at one a day, and a clinic reading the sheet would take
+    /// the 30 as fact; the sheet says what was recorded and what it assumes.
+    func testAnAssumedRunOutSaysWhatItAssumed() throws {
+        var utc = calendar
+        utc.timeZone = TimeZone(secondsFromGMT: 0)!
+        let counted = try XCTUnwrap(utc.date(from: DateComponents(year: 2026, month: 9, day: 1, hour: 7)))
+        let now = try XCTUnwrap(utc.date(from: DateComponents(year: 2026, month: 9, day: 26, hour: 7)))
+        let medication = Medication(name: "Furosemide", createdAt: counted)
+        let schedule = DoseSchedule(medicationID: medication.id, minutesAfterMidnight: 8 * 60, doseQuantity: 1, startDate: counted)
+        let opening = InventoryEvent(medicationID: medication.id, date: counted, delta: 30, reason: .openingCount)
+
+        let entry = try XCTUnwrap(MedicationListDocument.entries(
+            medications: [medication], schedules: [schedule], inventoryEvents: [opening], doseEvents: [], now: now, calendar: utc
+        ).first)
+        let runOut = try XCTUnwrap(utc.date(from: DateComponents(year: 2026, month: 9, day: 30, hour: 8)))
+        XCTAssertEqual(entry.supplyLine,
+                       "30 tablets on record · 25 doses since the last count weren't logged · runs out around \(runOut.formatted(date: .abbreviated, time: .omitted)) if they were taken")
+
+        let logged = (1...25).map { day in
+            DoseEvent(medicationID: medication.id, scheduleID: schedule.id, scheduledAt: utc.date(byAdding: .hour, value: 1 + (day - 1) * 24, to: counted),
+                      recordedAt: utc.date(byAdding: .hour, value: 1 + (day - 1) * 24, to: counted)!, doseQuantity: 1, status: .taken)
+        }
+        let caughtUp = try XCTUnwrap(MedicationListDocument.entries(
+            medications: [medication], schedules: [schedule], inventoryEvents: [opening], doseEvents: logged, now: now, calendar: utc
+        ).first)
+        XCTAssertEqual(caughtUp.supplyLine, "5 tablets on hand · runs out around \(runOut.formatted(date: .abbreviated, time: .omitted))",
+                       "with every dose logged, the ledger is what is on hand")
+    }
+
     /// A pharmacy can act on an NDC and a clinic on an RxNorm code; a pharmacy's
     /// own barcode payload means nothing to anyone else and stays off the sheet.
     func testExactProductCodesPrintAndBarcodePayloadsDoNot() {
