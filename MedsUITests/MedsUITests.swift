@@ -705,6 +705,54 @@ final class MedsUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Prednisone"].exists)
     }
 
+    /// A review thrown away returns to a new scanner, not the one that read
+    /// the discarded label, so the next bottle is read on its own.
+    func testDiscardingAReviewLeavesNothingOfItInTheScanner() {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-ui-testing",
+            "-skip-onboarding",
+            "-simulate-scanner",
+            "-simulate-scan-name", "Tacrolimus",
+            "-simulate-scan-strength", "1 mg",
+            "-simulate-scan-quantity", "60",
+            "-simulate-scan-name", "Prednisone",
+            "-simulate-scan-strength", "5 mg",
+            "-simulate-scan-quantity", "30",
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryL"
+        ]
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["Add"].tap()
+        XCTAssertTrue(app.buttons["scan-label"].waitForExistence(timeout: 3))
+        app.buttons["scan-label"].tap()
+        let simulate = app.buttons["simulate-scan"]
+        XCTAssertTrue(simulate.waitForExistence(timeout: 5))
+        simulate.tap()
+        app.buttons["Review"].tap()
+        let name = app.textFields["medication-name"]
+        XCTAssertTrue(name.waitForExistence(timeout: 15), "review screen never appeared")
+        XCTAssertEqual(name.value as? String, "Tacrolimus")
+
+        app.navigationBars.buttons["Cancel"].tap()
+        let discard = app.buttons["Discard"]
+        XCTAssertTrue(discard.waitForExistence(timeout: 3))
+        discard.tap()
+        XCTAssertTrue(simulate.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Clear Scan"].isEnabled, "the scanner still holds the discarded label")
+        XCTAssertFalse(app.descendants(matching: .any)["setup-tally"].exists, "nothing was added")
+
+        simulate.tap()
+        app.buttons["Review"].tap()
+        XCTAssertTrue(name.waitForExistence(timeout: 15))
+        XCTAssertEqual(name.value as? String, "Prednisone")
+        app.buttons["Scan evidence"].tap()
+        XCTAssertTrue(app.staticTexts["PREDNISONE 5 MG"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.staticTexts["TACROLIMUS 1 MG"].exists, "the discarded label reached this review")
+    }
+
     /// Prograf and Astagraf XL are both tacrolimus 1 mg capsules to the FDA
     /// directory, one taken twice a day and the other once. An Astagraf XL
     /// bottle must not be offered as the Prograf already tracked; a generic

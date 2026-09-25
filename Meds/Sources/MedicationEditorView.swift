@@ -34,6 +34,9 @@ struct MedicationEditorView: View {
     /// while the forecast was assuming unlogged doses: only a count can say
     /// what those doses took, so the presenter asks for one.
     private let onAskForCount: (() -> Void)?
+    /// Called in place of closing the review when it is thrown away, so the
+    /// add flow can move on from the scanner that read it.
+    private let onDiscard: (() -> Void)?
 
     @Query private var allMedications: [Medication]
     @Query private var allSchedules: [DoseSchedule]
@@ -86,7 +89,8 @@ struct MedicationEditorView: View {
         draft: MedicationDraft = MedicationDraft(),
         onSaved: ((Medication) -> Void)? = nil,
         onAddBottle: ((AddBottleRequest) -> Void)? = nil,
-        onAskForCount: (() -> Void)? = nil
+        onAskForCount: (() -> Void)? = nil,
+        onDiscard: (() -> Void)? = nil
     ) {
         self.medication = medication
         self.draftEvidence = draft.evidence
@@ -100,6 +104,7 @@ struct MedicationEditorView: View {
         self.onSaved = onSaved
         self.onAddBottle = onAddBottle
         self.onAskForCount = onAskForCount
+        self.onDiscard = onDiscard
         let resolvedForm = medication?.form ?? draft.form
         _name = State(initialValue: medication?.name ?? draft.name)
         _nickname = State(initialValue: medication?.nickname ?? draft.nickname)
@@ -463,7 +468,7 @@ struct MedicationEditorView: View {
                     if !isEditing && hasUnsavedRequiredData {
                         showingDiscardConfirmation = true
                     } else {
-                        dismiss()
+                        discard()
                     }
                 }
             }
@@ -489,7 +494,7 @@ struct MedicationEditorView: View {
             isPresented: $showingDiscardConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Discard", role: .destructive) { dismiss() }
+            Button("Discard", role: .destructive) { discard() }
         } message: {
             Text("The information you reviewed or entered will not be saved.")
         }
@@ -498,6 +503,10 @@ struct MedicationEditorView: View {
             reconcileNames(after: oldValue)
         }
         .task { loadExistingSchedulesIfNeeded() }
+    }
+
+    private func discard() {
+        if let onDiscard { onDiscard() } else { dismiss() }
     }
 
     /// Worked out from the fields as they stand, so a manual entry meets the
@@ -1463,7 +1472,8 @@ struct AddMedicationFlow: View {
                         onAddBottle: { request in
                             bottleDraft = draft
                             bottleRequest = request
-                        }
+                        },
+                        onDiscard: draft.source == .scanned ? { navigation.discard() } : nil
                     )
                 case .healthImport:
                     if #available(iOS 26.0, *) {
@@ -1546,6 +1556,18 @@ extension AddMedicationFlow {
             path = [.scanner(scannersShown)]
             scannersShown += 1
             return .scanNext
+        }
+
+        /// A scanned review thrown away is followed by a new scanner too,
+        /// with nothing added to the tally. The scanner it came from still
+        /// holds the discarded bottle's text, and would read the next bottle
+        /// together with it: a tacrolimus label set aside as already counted
+        /// named the prednisone bottle after it, and offered to add its count
+        /// to tacrolimus. The back button still returns to that scanner, to
+        /// add another photo of the same label.
+        mutating func discard() {
+            path = [.scanner(scannersShown)]
+            scannersShown += 1
         }
     }
 }

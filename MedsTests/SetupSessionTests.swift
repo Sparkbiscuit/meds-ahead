@@ -87,6 +87,28 @@ final class SetupSessionTests: XCTestCase {
         XCTAssertEqual(navigation.path, [.scanner(3)])
     }
 
+    /// A review thrown away, often a bottle found to be counted already,
+    /// leaves a scanner no earlier bottle used, and adds nothing to the
+    /// tally: the scanner it came from still holds the discarded label.
+    func testDiscardingAReviewLeavesAScannerNoEarlierBottleUsed() {
+        var navigation = AddMedicationFlow.Navigation()
+        navigation.scan()
+        let counted = scannedDraft("Tacrolimus 1 mg")
+        navigation.path.append(.editor(counted))
+        XCTAssertEqual(navigation.finish(.added("Tacrolimus"), from: counted), .scanNext)
+
+        let alreadyCounted = scannedDraft("Tacrolimus 1 mg")
+        navigation.path.append(.editor(alreadyCounted))
+        navigation.discard()
+        XCTAssertEqual(navigation.path, [.scanner(2)], "not the scanner that read the discarded label")
+        XCTAssertEqual(navigation.tally.summary(locale: british), "1 added: Tacrolimus", "nothing was added")
+
+        let next = scannedDraft("Prednisone 5 mg")
+        navigation.path.append(.editor(next))
+        XCTAssertEqual(navigation.finish(.added("Prednisone"), from: next), .scanNext)
+        XCTAssertEqual(navigation.path, [.scanner(3)])
+    }
+
     func testAnythingEnteredByHandStillClosesTheFlow() {
         var navigation = AddMedicationFlow.Navigation()
         let manual = MedicationDraft(name: "Furosemide", strength: "20 mg")
