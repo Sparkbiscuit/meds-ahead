@@ -191,6 +191,41 @@ final class DatedReminderPlanningTests: XCTestCase {
                        ["meds.group.dose.date.20260910.0800"], "Today and the missed-dose list ask about it after a day")
     }
 
+    /// The morning a course's end comes within the week, its reminder rings
+    /// under the repeating name planned the day before. A replan that
+    /// afternoon (a Taken on another reminder's lock-screen button) plans the
+    /// course dated, and must not take the rung reminder with it.
+    func testAReminderThatRangBeforeItsScheduleTurnedDatedStaysWhileUnlogged() {
+        let daily = "meds.group.dose.daily.1400"
+        func course(end: Date?, mask: Int = 0b1111111, logged: Set<Date> = []) -> MedicationNotificationPlan {
+            plan(courseID, name: "Course", schedules: [schedule(14 * 60, mask: mask, start: at(1), end: end, logged: logged)])
+        }
+        let dayBefore = NotificationPlanner.plan(for: [course(end: at(16))], now: at(9, 15), calendar: calendar)
+        XCTAssertTrue(dayBefore.notifications.contains { $0.identifier == daily }, "steady the day before")
+
+        let afternoon = NotificationPlanner.plan(for: [course(end: at(16))], now: at(10, 15), calendar: calendar)
+        XCTAssertFalse(afternoon.notifications.contains { $0.identifier == daily }, "dated from this morning")
+        XCTAssertEqual(NotificationService.deliveredIdentifiersToRemove(delivered: [daily], outcome: afternoon), [])
+
+        let endSetAfterItRang = NotificationPlanner.plan(for: [course(end: at(10))], now: at(10, 15), calendar: calendar)
+        XCTAssertEqual(NotificationService.deliveredIdentifiersToRemove(delivered: [daily], outcome: endSetAfterItRang), [],
+                       "an end set today, after today's reminder rang")
+
+        let answered = NotificationPlanner.plan(for: [course(end: at(16), logged: [at(10)])], now: at(10, 15), calendar: calendar)
+        XCTAssertEqual(NotificationService.deliveredIdentifiersToRemove(delivered: [daily], outcome: answered), [daily])
+
+        // Thursdays and Mondays: it rang as Thursday's weekly request.
+        let weekly = NotificationPlanner.plan(for: [course(end: at(16), mask: (1 << 4) | (1 << 1))], now: at(10, 15), calendar: calendar)
+        XCTAssertEqual(
+            NotificationService.deliveredIdentifiersToRemove(
+                delivered: ["meds.group.dose.weekly.5.1400", "meds.group.dose.weekly.2.1400"],
+                outcome: weekly
+            ),
+            ["meds.group.dose.weekly.2.1400"],
+            "Monday's is not a dose from yesterday or today"
+        )
+    }
+
     // MARK: - Today's notice
 
     func testTheNoticeNamesADayFromTodayThroughThreeDaysAhead() {

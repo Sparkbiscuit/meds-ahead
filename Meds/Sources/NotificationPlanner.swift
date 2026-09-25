@@ -210,7 +210,8 @@ enum NotificationPlanner {
                     quantity: schedule.doseQuantity,
                     detailedNotifications: plan.detailedNotifications
                 )
-                switch reach(of: schedule, today: today, calendar: calendar) {
+                let reach = reach(of: schedule, today: today, calendar: calendar)
+                switch reach {
                 case .ended:
                     break
                 case .later:
@@ -245,6 +246,17 @@ enum NotificationPlanner {
                     let age = now.timeIntervalSince(slot)
                     if slot <= now, age < passedDoseRetention {
                         retainedIdentifiers.insert(NotificationIdentifiers.dose(at: slot, calendar: calendar))
+                        // It may have rung under a repeating name while the
+                        // schedule was steady: on the morning its end comes
+                        // within the week, or when an end is set after it
+                        // rang. That name is not planned once the schedule
+                        // stops repeating, and must not take the reminder
+                        // with it. A steady schedule's own is planned anyway.
+                        if !reach.repeats {
+                            let time = DoseTime(hour: hour, minute: minute)
+                            retainedIdentifiers.insert(dailyIdentifier(time))
+                            retainedIdentifiers.insert(weeklyIdentifier(weekday: calendar.component(.weekday, from: day), time))
+                        }
                     }
                     guard options.followUpReminders else { continue }
                     if slot.addingTimeInterval(ScheduleEngine.dueWindow) > now {
@@ -274,7 +286,7 @@ enum NotificationPlanner {
                memberSets.dropFirst().allSatisfy({ $0 == memberSets[0] }) {
                 notifications.append(
                     doseNotification(
-                        identifier: "meds.group.dose.daily.\(time.code)",
+                        identifier: dailyIdentifier(time),
                         members: memberSets[0],
                         trigger: .daily(hour: time.hour, minute: time.minute),
                         hour: time.hour,
@@ -289,7 +301,7 @@ enum NotificationPlanner {
                 guard let members = doseSlots[slot], !members.isEmpty else { continue }
                 notifications.append(
                     doseNotification(
-                        identifier: "meds.group.dose.weekly.\(slot.weekday).\(time.code)",
+                        identifier: weeklyIdentifier(weekday: slot.weekday, time),
                         members: members,
                         trigger: .weekly(
                             weekday: slot.weekday,
@@ -508,6 +520,10 @@ enum NotificationPlanner {
         case dated(continuesPastHorizon: Bool)
         /// Starting after the horizon: planned once the horizon reaches it.
         case later
+
+        var repeats: Bool {
+            if case .steady = self { true } else { false }
+        }
     }
 
     private static func reach(of schedule: ScheduleNotificationPlan, today: Date, calendar: Calendar) -> Reach {
@@ -531,6 +547,16 @@ enum NotificationPlanner {
             on: day,
             calendar: calendar
         )
+    }
+
+    /// The repeating requests' names, spelled once: a rung one is kept by
+    /// the same name it was planned under.
+    private static func dailyIdentifier(_ time: DoseTime) -> String {
+        "meds.group.dose.daily.\(time.code)"
+    }
+
+    private static func weeklyIdentifier(weekday: Int, _ time: DoseTime) -> String {
+        "meds.group.dose.weekly.\(weekday).\(time.code)"
     }
 
     /// The attention rule as it will stand at `moment`, from the plan's forecast.
