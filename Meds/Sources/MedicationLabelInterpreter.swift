@@ -96,6 +96,7 @@ enum MedicationLabelInterpreter {
             result = NDCIdentification.applying(match, to: labelDraft, labelText: labelText, rxNormTable: rxNormTable)
             result.identification = .accepted(code: match.recordedCode)
         case .uncorroborated:
+            result = NDCIdentification.doubtingBorrowedBrand(of: labelDraft, for: match, labelText: labelText)
             result.identification = .uncorroborated(code: code, product: NDCIdentification.summary(of: match.product))
         case .contradicted:
             result.identification = .contradicted(code: code, product: NDCIdentification.summary(of: match.product))
@@ -201,7 +202,12 @@ enum MedicationLabelInterpreter {
             candidates: candidates.refills,
             fallback: draft.refillsRemaining
         )
-        return draft.nameProvenance == .ndc ? result : withBrandNames(result)
+        // The reading without the model already chose a brand for this name, and
+        // may have withheld the one the table lends: a code for Astagraf XL beside
+        // "TACROLIMUS 1 MG" leaves the release in doubt, and Prograf would settle
+        // it. So only a name the model changed is looked up again.
+        guard draft.nameProvenance != .ndc, result.name != draft.name else { return result }
+        return withBrandNames(result)
     }
 
     /// A label prints one of the two names a medication has. The curated table

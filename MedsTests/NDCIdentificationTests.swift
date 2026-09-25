@@ -424,6 +424,140 @@ final class NDCIdentificationTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(fiveColumns.product(forKey: "004690677")).form, .capsule)
     }
 
+    /// The confirmed hazard: small print swaps 1 and 7, and 0469-0617 read as
+    /// 0469-0677 is Astagraf XL on a Prograf bottle. The name, strength and
+    /// form all agree; the brand and the release do not.
+    func testAPrografLabelRefusesAMisreadAstagrafCode() {
+        let draft = releasedDraft(["PROGRAF 1 MG CAPSULE", "NDC 0469-0677-73", "TAKE 1 CAPSULE BY MOUTH TWICE DAILY"])
+
+        XCTAssertEqual(draft.identification, .contradicted(code: "00469-0677-73", product: "Tacrolimus 1 mg (Astagraf XL)"))
+        XCTAssertEqual(draft.name, "Tacrolimus", "the label's own name stands")
+        XCTAssertEqual(draft.brandName, "Prograf", "the brand the label prints, never the code's")
+        XCTAssertNotEqual(draft.nameProvenance, .ndc)
+        XCTAssertEqual(draft.rxNormCode, "", "a refused code carries no RxNorm concept")
+        XCTAssertEqual(draft.productIdentifier, "0469-0677-73", "kept as read, to check against the bottle")
+
+        let envarsus = releasedDraft(["PROGRAF 1 MG", "NDC 68992-3010-01"])
+        XCTAssertEqual(envarsus.identification, .contradicted(code: "68992-3010-01", product: "Tacrolimus 1 mg (Envarsus XR)"))
+    }
+
+    /// "TACROLIMUS 1 MG CAPSULE" does not say which release. An
+    /// extended-release code beside it fills nothing, and the reference brand
+    /// the label would otherwise borrow, Prograf, is not lent either.
+    func testALabelThatDoesNotSayExtendedReleaseCannotFillAnExtendedReleaseCode() {
+        let draft = releasedDraft(["TACROLIMUS 1 MG CAPSULE", "NDC 0469-0677-73", "TAKE 1 CAPSULE BY MOUTH TWICE DAILY"])
+
+        XCTAssertEqual(draft.identification, .uncorroborated(code: "00469-0677-73", product: "Tacrolimus 1 mg (Astagraf XL)"))
+        XCTAssertNotEqual(draft.nameProvenance, .ndc)
+        XCTAssertEqual(draft.name, "Tacrolimus")
+        XCTAssertEqual(draft.brandName, "", "neither Astagraf XL nor the borrowed Prograf")
+        XCTAssertEqual(draft.rxNormCode, "")
+
+        let generic = releasedDraft(["TACROLIMUS 1 MG CAPSULE", "NDC 71432-2002-01"])
+        XCTAssertEqual(generic.identification, .uncorroborated(code: "71432-2002-01", product: "Tacrolimus 1 mg extended-release"))
+
+        // The same label with the immediate-release code is Prograf, as before.
+        let prograf = releasedDraft(["TACROLIMUS 1 MG CAPSULE", "NDC 0469-0617-73"])
+        XCTAssertEqual(prograf.identification, .accepted(code: "00469-0617-73"))
+        XCTAssertEqual(prograf.brandName, "Prograf")
+    }
+
+    func testALabelThatSaysTheReleaseAcceptsItsOwnCode() {
+        let astagraf = releasedDraft(["ASTAGRAF XL 1 MG CAPSULE", "NDC 0469-0677-73", "TAKE 1 CAPSULE BY MOUTH ONCE DAILY"])
+        XCTAssertEqual(astagraf.identification, .accepted(code: "00469-0677-73"))
+        XCTAssertEqual(astagraf.nameProvenance, .ndc)
+        XCTAssertEqual(astagraf.name, "Tacrolimus")
+        XCTAssertEqual(astagraf.brandName, "Astagraf XL")
+
+        let generic = releasedDraft(["TACROLIMUS ER 1 MG CAPSULE", "NDC 71432-2002-01", "TAKE 1 CAPSULE BY MOUTH ONCE DAILY"])
+        XCTAssertEqual(generic.identification, .accepted(code: "71432-2002-01"))
+        XCTAssertEqual(generic.name, "Tacrolimus ER", "the release stays in the name when the table's brand is another release's")
+        XCTAssertEqual(generic.brandName, "", "never Prograf")
+
+        let phrase = releasedDraft(["TACROLIMUS EXTENDED-RELEASE 1 MG CAPSULE", "NDC 71432-2002-01"])
+        XCTAssertEqual(phrase.identification, .accepted(code: "71432-2002-01"))
+    }
+
+    func testAnExtendedReleaseLabelRefusesAnImmediateReleaseProduct() {
+        let printed = releasedDraft(["TACROLIMUS XL 1 MG CAPSULE", "NDC 0469-0617-73", "TAKE 1 CAPSULE BY MOUTH ONCE DAILY"])
+        XCTAssertEqual(printed.identification, .contradicted(code: "00469-0617-73", product: "Tacrolimus 1 mg (Prograf)"))
+        XCTAssertEqual(printed.name, "Tacrolimus XL", "the label's release, as it prints it")
+        XCTAssertEqual(printed.brandName, "", "an extended-release label is not lent the immediate-release brand")
+
+        // A barcode needs no backing, but it is still refused when the label says otherwise.
+        let scanned = releasedDraft(["TACROLIMUS ER 1 MG CAPSULE"], barcode: "0100304690617730")
+        XCTAssertNotEqual(scanned.nameProvenance, .ndc)
+        XCTAssertEqual(scanned.identification, .contradicted(code: "00469-0617-73", product: "Tacrolimus 1 mg (Prograf)"))
+    }
+
+    /// Metoprolol succinate is only ever extended-release, so its name backs
+    /// the release up whether or not the label prints ER.
+    func testMetoprololSuccinateStillResolvesWithOrWithoutItsLetters() {
+        for lines in [["METOPROLOL SUCCINATE ER 50 MG TAB", "NDC 0615-7824-39"], ["METOPROLOL SUCCINATE 50 MG TABLET", "NDC 0615-7824-39"]] {
+            let draft = releasedDraft(lines)
+            XCTAssertEqual(draft.identification, .accepted(code: "00615-7824-39"), "\(lines)")
+            XCTAssertEqual(draft.name, "Metoprolol succinate")
+            XCTAssertEqual(draft.brandName, "Toprol XL")
+        }
+        let tartrate = releasedDraft(["METOPROLOL SUCCINATE ER 50 MG TAB", "NDC 0678-1234-01"])
+        XCTAssertEqual(tartrate.identification, .contradicted(code: "00678-1234-01", product: "Metoprolol tartrate 50 mg"))
+    }
+
+    /// The FDA files some delayed-release products as plain capsules, and
+    /// Tecfidera is one: a label that says DR does not refuse a listing that
+    /// claims no release. Extended and delayed still refuse each other.
+    func testDelayedReleaseAgainstTheDirectory() {
+        let tecfidera = releasedDraft(["DIMETHYL FUMARATE 240 MG DR CAPSULE", "NDC 64406-006-02"])
+        XCTAssertEqual(tecfidera.identification, .accepted(code: "64406-0006-02"))
+
+        let mycophenolic = releasedDraft(["MYCOPHENOLIC ACID DR 360 MG TABLET", "NDC 16729-189-01"])
+        XCTAssertEqual(mycophenolic.identification, .accepted(code: "16729-0189-01"))
+
+        let named = releasedDraft(["MYCOPHENOLIC ACID 360 MG TABLET", "NDC 16729-189-01"])
+        XCTAssertEqual(named.identification, .accepted(code: "16729-0189-01"), "the table knows mycophenolic acid only as delayed-release")
+
+        let extended = releasedDraft(["MYCOPHENOLIC ACID ER 360 MG TABLET", "NDC 16729-189-01"])
+        XCTAssertEqual(extended.identification, .contradicted(code: "16729-0189-01", product: "Mycophenolic acid 360 mg delayed-release"))
+    }
+
+    /// A brand is refused as another product's only when it is a different
+    /// name for the drug. A variant of the reference brand differs in strength
+    /// or release, which are checked on their own, and a store's brand prints
+    /// the reference brand to compare itself with.
+    func testABrandVariantOrAStoreBrandIsNotAnotherProduct() {
+        let bactrim = releasedDraft(["BACTRIM 800-160 MG TABLET", "NDC 49708-146-01"])
+        XCTAssertEqual(bactrim.identification, .accepted(code: "49708-0146-01"))
+        XCTAssertEqual(bactrim.brandName, "Bactrim DS")
+
+        let store = releasedDraft(["NAPROXEN SODIUM 220 MG TABLET", "COMPARE TO ALEVE", "NDC 49935-220-01"])
+        XCTAssertEqual(store.identification, .accepted(code: "49935-0220-01"))
+    }
+
+    /// "24 HR" is on Zyrtec and Allegra, which are immediate-release, so it
+    /// backs an extended-release product up but never refuses another.
+    func testAnHourCountBacksUpButNeverRefuses() {
+        let zyrtec = releasedDraft(["ZYRTEC 24 HR 10 MG TABLET", "NDC 50090-0001-01"])
+        XCTAssertEqual(zyrtec.identification, .accepted(code: "50090-0001-01"))
+
+        let tacrolimus = releasedDraft(["TACROLIMUS 24 HR 1 MG CAPSULE", "NDC 71432-2002-01"])
+        XCTAssertEqual(tacrolimus.identification, .accepted(code: "71432-2002-01"))
+    }
+
+    /// A guess at a neighbouring code goes forward only when the label rules
+    /// out every other product of the labeler; a release it prints rules out
+    /// the other release.
+    func testAGuessUsesThePrintedReleaseToSetTheOtherApart() throws {
+        let directory = releasedDirectory(tacrolimusRows)
+        func namesExactly(_ digits: String, _ lines: [String]) throws -> Bool {
+            try labelNamesExactly(digits, lines, directory: directory)
+        }
+        XCTAssertTrue(try namesExactly("00469067773", ["TACROLIMUS XL 1 MG CAPSULE", "TAKE 1 CAPSULE BY MOUTH ONCE DAILY"]))
+        XCTAssertFalse(try namesExactly("00469061773", ["TACROLIMUS XL 1 MG CAPSULE"]), "the label says extended-release")
+        XCTAssertFalse(try namesExactly("00469061773", ["TACROLIMUS 1 MG CAPSULE"]), "Astagraf XL fits a label that does not say")
+        XCTAssertFalse(try namesExactly("00469067773", ["TACROLIMUS 1 MG CAPSULE"]), "an extended-release guess needs the label to say so")
+        XCTAssertTrue(try namesExactly("00469061773", ["PROGRAF 1 MG CAPSULE"]))
+    }
+
     func testAnEmptyDirectoryChangesNothing() {
         let draft = MedicationLabelInterpreter.offlineDraft(
             evidence(["SERTRALINE HCL 50 MG TABLET", "NDC 0093-1039-01"]),
@@ -462,6 +596,35 @@ final class NDCIdentificationTests: XCTestCase {
         XCTAssertEqual(refined.strength, "50 mg")
         XCTAssertEqual(refined.nameProvenance, .ndc)
         XCTAssertEqual(refined.directions, "Take 1 tablet by mouth daily", "directions may still be refined")
+    }
+
+    /// The model choosing the same name again must not lend back the brand
+    /// the gate withheld because the code beside it left the release in doubt.
+    @available(iOS 26.0, *)
+    func testTheLanguageModelDoesNotLendBackAWithheldBrand() {
+        let doubted = releasedDraft(["TACROLIMUS 1 MG CAPSULE", "NDC 0469-0677-73", "TAKE 1 CAPSULE BY MOUTH TWICE DAILY"])
+        XCTAssertEqual(doubted.brandName, "")
+        let candidates = LabelInterpretationCandidates(
+            medicationNames: [LabelFieldCandidate(id: 1, value: "TACROLIMUS")],
+            strengths: [LabelFieldCandidate(id: 1, value: "1 mg")],
+            directions: [],
+            quantities: [],
+            refills: []
+        )
+        let selection = LabelFieldSelection(
+            medicationNameID: 1,
+            normalizedMedicationName: "Tacrolimus",
+            strengthID: 1,
+            directionsID: 0,
+            quantityID: 0,
+            refillsID: 0
+        )
+
+        let refined = MedicationLabelInterpreter.applying(selection, candidates: candidates, to: doubted)
+
+        XCTAssertEqual(refined.name, "Tacrolimus")
+        XCTAssertEqual(refined.brandName, "", "not Prograf")
+        XCTAssertEqual(refined.identification, doubted.identification)
     }
 
     func testThePreviewReportsAnExactMatch() {

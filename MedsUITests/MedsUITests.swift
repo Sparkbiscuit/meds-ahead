@@ -498,4 +498,54 @@ final class MedsUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(value.frame.minY, label.frame.maxY - 1, "the reason sits beside its label, not under it")
         XCTAssertGreaterThan(value.frame.width, app.windows.firstMatch.frame.width * 0.6, "the reason is squeezed into a narrow column")
     }
+
+    /// Prograf is immediate-release tacrolimus. Typing a release after the
+    /// name no longer fills it in as the brand, and a code for
+    /// extended-release tacrolimus used from the directory keeps its release
+    /// in the name rather than borrowing Prograf.
+    func testAnExtendedReleaseMedicationIsNotGivenTheImmediateReleaseBrand() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-skip-onboarding"]
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["Add"].tap()
+        XCTAssertTrue(app.buttons["manual-entry"].waitForExistence(timeout: 3))
+        app.buttons["manual-entry"].tap()
+
+        let name = app.textFields["medication-name"]
+        XCTAssertTrue(name.waitForExistence(timeout: 3))
+        name.tap()
+        name.typeText("Tacrolimus")
+        let brand = app.textFields["medication-brand-name"]
+        XCTAssertTrue(brand.waitForExistence(timeout: 3))
+        XCTAssertEqual(brand.value as? String, "Prograf", "the immediate-release name still gets its brand")
+
+        func brandIsBlank() -> Bool {
+            let value = brand.value as? String ?? ""
+            return value.isEmpty || value == brand.placeholderValue
+        }
+        name.typeText(" XL")
+        XCTAssertTrue(brandIsBlank(), "Tacrolimus XL was given \(brand.value ?? "")")
+        // Leaving the field reconciles the two names; that must not bring Prograf back either.
+        app.textFields["Strength"].tap()
+        XCTAssertEqual(name.value as? String, "Tacrolimus XL")
+        XCTAssertTrue(brandIsBlank(), "Tacrolimus XL was given \(brand.value ?? "")")
+
+        let ndc = app.textFields["ndc-entry"]
+        for _ in 0..<8 where !(ndc.exists && ndc.isHittable) { app.swipeUp() }
+        XCTAssertTrue(ndc.isHittable, "the NDC field cannot be reached")
+        ndc.tap()
+        ndc.typeText("71432-2002-01")
+        let listing = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS %@", "Tacrolimus 1 mg extended-release")).firstMatch
+        XCTAssertTrue(listing.waitForExistence(timeout: 5), "the directory's listing does not say its release")
+        let use = app.buttons["use-ndc-product"]
+        XCTAssertTrue(use.waitForExistence(timeout: 3))
+        use.tap()
+
+        for _ in 0..<8 where !(name.exists && name.isHittable) { app.swipeDown() }
+        XCTAssertEqual(name.value as? String, "Tacrolimus ER")
+        XCTAssertTrue(brandIsBlank(), "extended-release tacrolimus was given \(brand.value ?? "")")
+    }
 }

@@ -126,6 +126,46 @@ final class NDCDirectoryBundleTests: XCTestCase {
         XCTAssertEqual(directory.product(forKey: "644060006")?.release, .immediate)
     }
 
+    /// The confirmed hazard, against the file that ships: 0469-0617 misread
+    /// as 0469-0677 on a Prograf label is refused, on a label that does not
+    /// say which release fills nothing, and on an Astagraf XL label is
+    /// accepted.
+    func testAMisreadTacrolimusCodeAgainstTheSnapshot() {
+        func draft(_ lines: [String]) -> MedicationDraft {
+            let capture = UUID()
+            let evidence = lines.enumerated().map { index, value in
+                ScanEvidence(kind: .text, value: value, confidence: 0.9, origin: .cameraCapture, captureID: capture, lineIndex: index)
+            }
+            return MedicationLabelInterpreter.offlineDraft(evidence)
+        }
+
+        let prograf = draft(["RIVERSIDE CHILDREN'S HOSPITAL PHARMACY", "PROGRAF 1 MG CAPSULE", "NDC 0469-0677-73", "TAKE 1 CAPSULE BY MOUTH TWICE DAILY"])
+        XCTAssertEqual(prograf.identification, .contradicted(code: "00469-0677-73", product: "Tacrolimus 1 mg (Astagraf XL)"))
+        XCTAssertEqual(prograf.name, "Tacrolimus")
+        XCTAssertEqual(prograf.brandName, "Prograf")
+        XCTAssertEqual(prograf.rxNormCode, "")
+
+        let plain = draft(["RIVERSIDE CHILDREN'S HOSPITAL PHARMACY", "TACROLIMUS 1 MG CAPSULE", "NDC 0469-0677-73", "TAKE 1 CAPSULE BY MOUTH TWICE DAILY"])
+        XCTAssertEqual(plain.identification, .uncorroborated(code: "00469-0677-73", product: "Tacrolimus 1 mg (Astagraf XL)"))
+        XCTAssertNotEqual(plain.nameProvenance, .ndc)
+        XCTAssertNotEqual(plain.brandName, "Astagraf XL")
+
+        let astagraf = draft(["RIVERSIDE CHILDREN'S HOSPITAL PHARMACY", "ASTAGRAF XL 1 MG CAPSULE", "NDC 0469-0677-73", "TAKE 1 CAPSULE BY MOUTH ONCE DAILY"])
+        XCTAssertEqual(astagraf.identification, .accepted(code: "00469-0677-73"))
+        XCTAssertEqual(astagraf.name, "Tacrolimus")
+        XCTAssertEqual(astagraf.brandName, "Astagraf XL")
+        XCTAssertFalse(astagraf.rxNormCode.isEmpty)
+        XCTAssertNotEqual(
+            RxNormTable.shared.clinicalDrugCode(for: astagraf.rxNormCode),
+            RxNormTable.shared.product(forProductKey: "004690617")?.clinicalDrugCode,
+            "Health and the sync never read the two releases as one clinical drug"
+        )
+
+        let extended = draft(["RIVERSIDE CHILDREN'S HOSPITAL PHARMACY", "TACROLIMUS XL 1 MG CAPSULE", "NDC 0469-0617-73"])
+        XCTAssertEqual(extended.identification, .contradicted(code: "00469-0617-73", product: "Tacrolimus 1 mg (Prograf)"))
+        XCTAssertNotEqual(extended.brandName, "Prograf")
+    }
+
     /// A hospital pharmacy label, end to end against the shipped snapshot.
     func testAHospitalLabelResolvesAgainstTheSnapshot() {
         let capture = UUID()

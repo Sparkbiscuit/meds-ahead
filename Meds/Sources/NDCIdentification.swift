@@ -33,8 +33,8 @@ enum NDCIdentification {
         /// The code resolved, but nothing else on the label backs it up. A barcode
         /// needs no backing; printed digits do.
         case uncorroborated
-        /// The label plainly names a different drug, strength or form than the
-        /// directory does.
+        /// The label plainly names a different drug, strength, form, release or
+        /// brand than the directory does.
         case contradicted
     }
 
@@ -144,6 +144,12 @@ enum NDCIdentification {
     static func summary(of product: NDCProduct) -> String {
         var text = displayName(for: product)
         if !product.strength.isEmpty { text += " " + product.strength }
+        // The release is the one difference between this product and the one
+        // on the bottle when a single digit was misread, so it is said unless
+        // the brand already says it.
+        if let release = product.comparableRelease, release.isModified, ReleaseForm.named(in: product.brandName) != release {
+            text += release == .extended ? " extended-release" : " delayed-release"
+        }
         if !product.brandName.isEmpty { text += " (\(product.brandName))" }
         return text
     }
@@ -169,9 +175,118 @@ enum NDCIdentification {
             return .contradicted
         }
 
+        let labelWords = Set(words(labelText))
+        let reference = referenceBrand(of: product)
+        let release = releaseEvidence(in: labelText, labelWords: labelWords, for: product, reference: reference, draft: draft)
+        if releaseContradicts(release, product: product) || printsAnotherBrand(reference, on: labelWords, product: product) {
+            return .contradicted
+        }
+
         if match.source == .barcode { return .accepted }
         let corroborated = strengthVerdict == .equivalent || namesAgree(labelText: labelText, product: product)
-        return corroborated ? .accepted : .uncorroborated
+        guard corroborated else { return .uncorroborated }
+        return releaseIsBackedUp(release, labelWords: labelWords, product: product, draft: draft) ? .accepted : .uncorroborated
+    }
+
+    // MARK: - Release and brand
+
+    /// What the label says about release on the lines that name this drug.
+    /// Where it says nothing in letters, a reference brand it prints says it
+    /// for it: PROGRAF is immediate-release tacrolimus, as TOPROL XL is
+    /// extended-release metoprolol. The product's own brand printed is the
+    /// label naming this very product, and implies nothing further.
+    private static func releaseEvidence(
+        in labelText: String,
+        labelWords: Set<String>,
+        for product: NDCProduct,
+        reference: String?,
+        draft: MedicationDraft
+    ) -> ReleaseForm.Evidence {
+        let reference = reference ?? ""
+        let nameWords = (words(product.genericName) + words(product.brandName) + words(draft.name) + words(reference))
+            .filter { !uninformativeTokens.contains($0) && !interchangeableSalts.contains($0) }
+        var evidence = ReleaseForm.evidence(in: labelText, namedBy: Set(nameWords))
+        let ownBrandPrinted = brandKey(product.brandName)?.isSubset(of: labelWords) == true
+        if evidence.stated.isEmpty, !ownBrandPrinted,
+           let key = brandKey(reference), key.isSubset(of: labelWords),
+           let implied = MedicationBrandIndex.release(ofName: "", brand: reference) {
+            evidence.stated.insert(implied)
+        }
+        return evidence
+    }
+
+    /// Whether the label states a release the product is not.
+    ///
+    /// A listing that claims no release is refused by a label that says ER,
+    /// and not by one that says DR. The FDA files some delayed-release
+    /// products as plain capsules and tablets, Tecfidera among them, so such a
+    /// listing is no proof against DR; extended release is the one that
+    /// changes how often a dose is taken, and the one Prograf and Astagraf XL
+    /// differ in.
+    private static func releaseContradicts(_ evidence: ReleaseForm.Evidence, product: NDCProduct) -> Bool {
+        guard let release = product.comparableRelease,
+              !evidence.stated.isEmpty, !evidence.stated.contains(release) else { return false }
+        return release.isModified || evidence.stated.contains(.extended)
+    }
+
+    /// A printed code for an extended- or delayed-release product fills
+    /// nothing until the label says that release too: in letters, in a
+    /// phrase, by printing the product's own brand, or by naming a drug the
+    /// table knows only in that release, as metoprolol succinate is only ever
+    /// extended-release. A code misread by one digit lands on the same drug in
+    /// its other release, and the name, strength and form cannot tell the two
+    /// apart.
+    private static func releaseIsBackedUp(
+        _ evidence: ReleaseForm.Evidence,
+        labelWords: Set<String>,
+        product: NDCProduct,
+        draft: MedicationDraft
+    ) -> Bool {
+        guard let release = product.comparableRelease, release.isModified else { return true }
+        if evidence.suggested.contains(release) { return true }
+        if brandKey(product.brandName)?.isSubset(of: labelWords) == true { return true }
+        return (draft.nameProvenance == .vocabulary || draft.nameProvenance == .strengthAnchored)
+            && MedicationBrandIndex.release(ofName: draft.name, brand: "") == release
+    }
+
+    /// The label as read, less a brand the table lent it that the code read
+    /// beside it argues against. "TACROLIMUS 1 MG CAPSULE" borrows Prograf,
+    /// which is immediate-release; a code for Astagraf XL that the label could
+    /// not confirm leaves the release in doubt, and a brand that settles it
+    /// wrongly is worse than none. A brand the label prints is kept.
+    static func doubtingBorrowedBrand(of draft: MedicationDraft, for match: Match, labelText: String) -> MedicationDraft {
+        guard let release = match.product.comparableRelease, release.isModified,
+              !draft.brandName.isEmpty,
+              let borrowed = brandKey(draft.brandName), !borrowed.isSubset(of: Set(words(labelText))),
+              MedicationBrandIndex.release(ofName: "", brand: draft.brandName).map({ $0 != release }) ?? false,
+              namesAgree(labelText: draft.name, product: match.product) else { return draft }
+        var result = draft
+        result.brandName = ""
+        return result
+    }
+
+    /// Whether the label prints this drug's reference brand while the code
+    /// names another brand of it: PROGRAF on the label, Astagraf XL from the
+    /// code. Like a salt, a brand makes a different product; unlike a salt it
+    /// is refused only when the product's own brand is nowhere on the label.
+    /// A store's brand ("CVS Health Ibuprofen") is the generic under a shop's
+    /// name and prints "compare to Advil" beside it, and a variant of the
+    /// reference brand ("Bactrim DS", "Adderall XR") differs from it in
+    /// strength or release, which are checked on their own, so neither is
+    /// held to this.
+    private static func printsAnotherBrand(_ reference: String?, on labelWords: Set<String>, product: NDCProduct) -> Bool {
+        guard let own = brandKey(product.brandName), !own.isSubset(of: labelWords),
+              own.isDisjoint(with: words(product.genericName)),
+              let reference = reference.flatMap(brandKey),
+              !reference.isSubset(of: own), reference.isSubset(of: labelWords) else { return false }
+        return true
+    }
+
+    /// The brand the curated table gives this product's drug, whatever brand
+    /// the listing carries: Prograf for every tacrolimus.
+    private static func referenceBrand(of product: NDCProduct) -> String? {
+        MedicationBrandIndex.brandName(forGeneric: product.genericName)
+            ?? MedicationBrandIndex.brandName(forGeneric: displayName(for: product))
     }
 
     /// The stricter bar for a code that was not the recognizer's first guess:
@@ -181,13 +296,14 @@ enum NDCIdentification {
     /// labeler, which numbers its line in sequence: the same drug at another
     /// strength, or at the same strength in another release. Prograf and
     /// Astagraf XL, immediate- and extended-release tacrolimus, sit one digit
-    /// apart at every strength, and the directory records no release, so a
-    /// label reading "tacrolimus 1 mg capsule" names both and must choose
-    /// neither. So the label's confirmed name and printed strength must be the
-    /// product's, a form or brand it prints must be the product's, nothing on
-    /// it may contradict the product, and none of the labeler's other products
-    /// may fit it as well. A label that prints "Prograf" sets Astagraf XL apart;
-    /// one that prints a brand the product does not carry refuses the guess.
+    /// apart at every strength, so a label reading "tacrolimus 1 mg capsule"
+    /// names both and must choose neither. So the label's confirmed name and
+    /// printed strength must be the product's, a form, brand or release it
+    /// prints must be the product's, nothing on it may contradict the product,
+    /// and none of the labeler's other products may fit it as well. A label
+    /// that prints "Prograf" sets Astagraf XL apart; one that prints "XL" sets
+    /// Prograf apart; one that prints a brand the product does not carry
+    /// refuses the guess.
     static func labelNamesExactly(
         _ match: Match,
         draft: MedicationDraft,
@@ -214,6 +330,10 @@ enum NDCIdentification {
                 return false
             }
             if let printedForm = explicitForm(in: labelText), printedForm != candidate.form { return false }
+            let release = releaseEvidence(in: labelText, labelWords: labelWords, for: candidate, reference: referenceBrand(of: candidate), draft: draft)
+            if releaseContradicts(release, product: candidate) {
+                return false
+            }
             // The brand's name printed without the rest of it names another
             // release of the brand: "WELLBUTRIN XL" is not Wellbutrin SR.
             if let brand = brandKey(candidate.brandName), !brand.isSubset(of: labelWords),
@@ -250,10 +370,7 @@ enum NDCIdentification {
         guard verdict(for: match, against: draft, labelText: labelText) == .accepted else { return draft }
         let product = match.product
         var result = draft
-        result.name = displayName(for: product)
-        result.brandName = product.brandName.isEmpty
-            ? (MedicationBrandIndex.brandName(forGeneric: result.name) ?? draft.brandName)
-            : product.brandName
+        (result.name, result.brandName) = identity(of: product, labelBrand: draft.brandName)
         result.strength = displayStrength(for: product, labelStrength: draft.strength)
         result.form = product.form
         result.nameProvenance = .ndc
@@ -261,6 +378,28 @@ enum NDCIdentification {
         result.productIdentifierType = "NDC"
         result.rxNormCode = rxNormTable.product(for: match.code)?.rxcui ?? ""
         return result
+    }
+
+    /// The name and brand a directory product fills in. A generic listing
+    /// borrows the table's reference brand, and failing that keeps the brand
+    /// the label gave, but never one of another release: generic
+    /// extended-release tacrolimus is not Prograf. When the reference brand is
+    /// withheld for that reason, the name keeps the release instead,
+    /// "Tacrolimus ER", because nothing else on the medication would say it
+    /// and the immediate-release product has the same name.
+    static func identity(of product: NDCProduct, labelBrand: String = "") -> (name: String, brand: String) {
+        let name = displayName(for: product)
+        guard product.brandName.isEmpty else { return (name, product.brandName) }
+        guard let release = product.comparableRelease, release.isModified else {
+            return (name, MedicationBrandIndex.brandName(forGeneric: name) ?? labelBrand)
+        }
+        if let reference = MedicationBrandIndex.brandName(forGeneric: name, release: release) {
+            return (name, reference)
+        }
+        let labelRelease = MedicationBrandIndex.release(ofName: "", brand: labelBrand)
+        let brand = labelRelease == nil || labelRelease == release ? labelBrand : ""
+        let withheld = MedicationBrandIndex.brandName(forGeneric: name) != nil && ReleaseForm.named(in: brand) == nil
+        return (withheld ? ReleaseForm.name(name, keeping: release.abbreviation) : name, brand)
     }
 
     // MARK: - Names
