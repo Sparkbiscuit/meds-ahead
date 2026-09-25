@@ -77,7 +77,8 @@ struct PlannedNotification: Equatable, Sendable {
     let scheduleID: UUID?
     let groupedDoseCount: Int
     /// The scheduled moment a one-shot dose request stands for. A reminder
-    /// action resolves its dose from this, not from when it was delivered.
+    /// action resolves its dose from this moment's day, not from when it was
+    /// delivered.
     var slotDate: Date? = nil
     /// The schedules a follow-up asks about. The widget, which does not
     /// replan, withdraws a follow-up only once all of them are logged.

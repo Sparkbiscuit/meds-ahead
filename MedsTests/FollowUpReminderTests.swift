@@ -157,13 +157,14 @@ final class FollowUpReminderTests: XCTestCase {
         XCTAssertEqual(followUp.identifier, "meds.group.followup.20260910.2345")
         XCTAssertEqual(followUp.trigger, .date(at(11, 0, 15)))
 
-        let userInfo: [AnyHashable: Any] = [NotificationIdentifiers.slotDateKey: NotificationIdentifiers.slotDateValue(try XCTUnwrap(followUp.slotDate))]
+        // Read back from the notification the service builds.
+        let userInfo = NotificationService.content(for: followUp, calendar: calendar).userInfo
         let result = try NotificationDoseRecorder.record(
             status: .taken,
             medicationID: medication.id,
             scheduleID: schedule.id,
             notificationDate: at(11, 0, 15),
-            slotDate: NotificationIdentifiers.slotDate(in: userInfo),
+            slotDay: NotificationIdentifiers.slotDay(in: userInfo, calendar: calendar),
             in: context,
             calendar: calendar
         )

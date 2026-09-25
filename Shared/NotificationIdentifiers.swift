@@ -5,10 +5,13 @@ import Foundation
 /// it does to a planned reminder it does by name; spelled differently in two
 /// places, the name would miss.
 enum NotificationIdentifiers {
-    /// The scheduled moment a dated reminder or a follow-up stands for, kept in
-    /// its userInfo. A follow-up for a 23:45 dose arrives after midnight, so
-    /// the moment it is delivered does not say which day's dose it means.
-    static let slotDateKey = "slotDate"
+    /// The day a dated reminder or a follow-up stands for, as yyyyMMdd, kept
+    /// in its userInfo. A follow-up for a 23:45 dose arrives after midnight,
+    /// so the moment it is delivered does not say which day's dose it means.
+    /// A day, not an instant: the request rings at its time on the phone's
+    /// clock wherever the phone is, and an instant carried to another time
+    /// zone can fall on the day before.
+    static let slotDayKey = "slotDay"
     /// The schedules a follow-up asks about, comma-separated in its userInfo.
     static let memberScheduleIDsKey = "memberScheduleIDs"
 
@@ -44,13 +47,30 @@ enum NotificationIdentifiers {
         return String(format: "%02d%02d", parts.hour ?? 0, parts.minute ?? 0)
     }
 
-    static func slotDateValue(_ slot: Date) -> String {
-        String(slot.timeIntervalSince1970)
+    static func slotDayValue(_ slot: Date, calendar: Calendar) -> String {
+        dayCode(slot, calendar: gregorian(in: calendar))
     }
 
-    static func slotDate(in userInfo: [AnyHashable: Any]) -> Date? {
-        guard let value = userInfo[slotDateKey] as? String, let seconds = Double(value) else { return nil }
-        return Date(timeIntervalSince1970: seconds)
+    /// Midday of the named day in the given calendar, which is the phone's
+    /// own when a reminder is answered. Midday, because a few zones skip a
+    /// midnight.
+    static func slotDay(in userInfo: [AnyHashable: Any], calendar: Calendar) -> Date? {
+        guard let code = userInfo[slotDayKey] as? String, code.count == 8, let value = Int(code), value > 0 else { return nil }
+        return gregorian(in: calendar).date(from: DateComponents(
+            year: value / 10_000,
+            month: value / 100 % 100,
+            day: value % 100,
+            hour: 12
+        ))
+    }
+
+    /// The day's numbers as the Gregorian calendar gives them in the given
+    /// calendar's zone, so a code reads back the same whichever calendar
+    /// the phone is set to.
+    private static func gregorian(in calendar: Calendar) -> Calendar {
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = calendar.timeZone
+        return gregorian
     }
 
     static func memberScheduleIDsValue(_ scheduleIDs: [UUID]) -> String {

@@ -28,7 +28,10 @@ actor NotificationService {
     /// reminder or a follow-up find their dose from this userInfo, and the
     /// widget finds what a follow-up asks about, so it is built, and tested,
     /// on its own.
-    static func content(for item: PlannedNotification) -> UNMutableNotificationContent {
+    static func content(
+        for item: PlannedNotification,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> UNMutableNotificationContent {
         let content = UNMutableNotificationContent()
         content.title = item.title
         content.body = item.body
@@ -49,7 +52,7 @@ actor NotificationService {
             userInfo["scheduleID"] = scheduleID.uuidString
         }
         if let slotDate = item.slotDate {
-            userInfo[NotificationIdentifiers.slotDateKey] = NotificationIdentifiers.slotDateValue(slotDate)
+            userInfo[NotificationIdentifiers.slotDayKey] = NotificationIdentifiers.slotDayValue(slotDate, calendar: calendar)
         }
         if !item.memberScheduleIDs.isEmpty {
             userInfo[NotificationIdentifiers.memberScheduleIDsKey] = NotificationIdentifiers.memberScheduleIDsValue(item.memberScheduleIDs)

@@ -52,7 +52,7 @@ final class MedsAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
                 medicationID: medicationID,
                 scheduleID: scheduleID,
                 notificationDate: response.notification.date,
-                slotDate: NotificationIdentifiers.slotDate(in: response.notification.request.content.userInfo),
+                slotDay: NotificationIdentifiers.slotDay(in: response.notification.request.content.userInfo, calendar: .autoupdatingCurrent),
                 in: context
             )
             guard result == .recorded else { return }

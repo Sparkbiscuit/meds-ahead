@@ -26,13 +26,13 @@ final class NotificationContentTests: XCTestCase {
         let course = plan(name: "Course", schedules: [schedule(8 * 60, start: at(1), end: at(12))])
         let reminder = try XCTUnwrap(NotificationPlanner.plan(for: [course], now: now, calendar: calendar)
             .notifications.first { $0.identifier == "meds.group.dose.date.20260911.0800" })
-        let content = NotificationService.content(for: reminder)
+        let content = NotificationService.content(for: reminder, calendar: calendar)
         let info = userInfo(content)
 
         XCTAssertEqual(info["notificationKind"], "dose")
         XCTAssertEqual(info["medicationID"], course.medicationID.uuidString)
         XCTAssertEqual(info["scheduleID"], course.schedules[0].id.uuidString)
-        XCTAssertEqual(NotificationIdentifiers.slotDate(in: content.userInfo), at(11, 8), "Taken logs the dose this reminder names")
+        XCTAssertEqual(info[NotificationIdentifiers.slotDayKey], "20260911", "Taken logs the dose on the day this reminder names")
         XCTAssertEqual(content.categoryIdentifier, MedicationNotificationAction.doseCategoryIdentifier)
         XCTAssertEqual(content.threadIdentifier, "meds.dose")
         XCTAssertEqual(content.interruptionLevel, .timeSensitive)
@@ -44,10 +44,10 @@ final class NotificationContentTests: XCTestCase {
         let options = NotificationPlanOptions(followUpReminders: true)
         let group = try XCTUnwrap(NotificationPlanner.plan(for: [first, second], now: now, calendar: calendar, options: options)
             .notifications.first { $0.kind == .followUp })
-        let content = NotificationService.content(for: group)
+        let content = NotificationService.content(for: group, calendar: calendar)
 
         XCTAssertEqual(userInfo(content)["notificationKind"], "followUp")
-        XCTAssertEqual(NotificationIdentifiers.slotDate(in: content.userInfo), at(10, 8))
+        XCTAssertEqual(userInfo(content)[NotificationIdentifiers.slotDayKey], "20260910")
         XCTAssertEqual(Set(NotificationIdentifiers.memberScheduleIDs(in: content.userInfo)),
                        [first.schedules[0].id, second.schedules[0].id], "what the widget checks before withdrawing it")
         XCTAssertEqual(content.categoryIdentifier, "", "a group has no single dose to log")
@@ -56,7 +56,7 @@ final class NotificationContentTests: XCTestCase {
 
         let single = try XCTUnwrap(NotificationPlanner.plan(for: [first], now: now, calendar: calendar, options: options)
             .notifications.first { $0.kind == .followUp })
-        let singleContent = NotificationService.content(for: single)
+        let singleContent = NotificationService.content(for: single, calendar: calendar)
         XCTAssertEqual(singleContent.categoryIdentifier, MedicationNotificationAction.doseCategoryIdentifier)
         XCTAssertEqual(userInfo(singleContent)["scheduleID"], first.schedules[0].id.uuidString)
         XCTAssertEqual(NotificationIdentifiers.memberScheduleIDs(in: singleContent.userInfo), [first.schedules[0].id])
@@ -73,11 +73,11 @@ final class NotificationContentTests: XCTestCase {
         )
         let check = try XCTUnwrap(NotificationPlanner.plan(for: [counted], now: now, calendar: calendar)
             .notifications.first { $0.kind == .countCheck })
-        let content = NotificationService.content(for: check)
+        let content = NotificationService.content(for: check, calendar: calendar)
 
         XCTAssertEqual(userInfo(content)["notificationKind"], "countCheck")
         XCTAssertEqual(MedicationNotificationRoute.destination(for: content.userInfo), .today)
-        XCTAssertNil(NotificationIdentifiers.slotDate(in: content.userInfo))
+        XCTAssertNil(userInfo(content)[NotificationIdentifiers.slotDayKey])
         XCTAssertEqual(content.categoryIdentifier, "")
         XCTAssertEqual(content.threadIdentifier, "meds.refill")
         XCTAssertEqual(content.interruptionLevel, .active)
@@ -87,8 +87,8 @@ final class NotificationContentTests: XCTestCase {
         let ongoing = plan(name: "Ongoing", schedules: [schedule(8 * 60)])
         let reminder = try XCTUnwrap(NotificationPlanner.plan(for: [ongoing], now: now, calendar: calendar).notifications.first)
         XCTAssertEqual(reminder.identifier, "meds.group.dose.daily.0800")
-        let content = NotificationService.content(for: reminder)
-        XCTAssertNil(NotificationIdentifiers.slotDate(in: content.userInfo), "its day is the day it rings")
+        let content = NotificationService.content(for: reminder, calendar: calendar)
+        XCTAssertNil(userInfo(content)[NotificationIdentifiers.slotDayKey], "its day is the day it rings")
         XCTAssertEqual(content.categoryIdentifier, MedicationNotificationAction.doseCategoryIdentifier)
     }
 

@@ -77,7 +77,7 @@ enum NotificationDoseRecordingResult: Equatable {
 
 @MainActor
 enum NotificationDoseRecorder {
-    /// `slotDate` is the scheduled moment a dated reminder or a follow-up
+    /// `slotDay` is a moment on the day a dated reminder or a follow-up
     /// names. It decides the day when present: a follow-up for a 23:45 dose
     /// is delivered after midnight, and the delivery's day would be the next
     /// day's dose. The engine still says which dose that day is.
@@ -86,7 +86,7 @@ enum NotificationDoseRecorder {
         medicationID: UUID,
         scheduleID: UUID,
         notificationDate: Date,
-        slotDate: Date? = nil,
+        slotDay: Date? = nil,
         in context: ModelContext,
         calendar: Calendar = .autoupdatingCurrent
     ) throws -> NotificationDoseRecordingResult {
@@ -98,7 +98,7 @@ enum NotificationDoseRecorder {
               schedule.medicationID == medicationID,
               let scheduledAt = ScheduleEngine.scheduledDate(
                 for: schedule,
-                on: slotDate ?? notificationDate,
+                on: slotDay ?? notificationDate,
                 calendar: calendar
               ) else {
             return .missingContext
