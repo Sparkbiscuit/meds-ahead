@@ -350,7 +350,7 @@ struct ScannerScreen: View {
     /// across the frame sits between the label and the person lining it up.
     /// Its text stops growing at the first accessibility size, because every
     /// line it gains is taken from the camera's frame; VoiceOver reads it
-    /// whole, and a long press shows it large.
+    /// whole, and a long press shows it, and Done, large.
     @ViewBuilder
     private var sessionTally: some View {
         if let summary = tally.summary() {
@@ -371,6 +371,7 @@ struct ScannerScreen: View {
                         .buttonBorderShape(.capsule)
                         .tint(.white)
                         .accessibilityHint("Closes Add. Everything listed is saved.")
+                        .accessibilityShowsLargeContentViewer()
                         .accessibilityIdentifier("setup-done")
                 }
             }
