@@ -9,10 +9,18 @@ enum NotificationIdentifiers {
     /// its userInfo. A follow-up for a 23:45 dose arrives after midnight, so
     /// the moment it is delivered does not say which day's dose it means.
     static let slotDateKey = "slotDate"
+    /// The schedules a follow-up asks about, comma-separated in its userInfo.
+    static let memberScheduleIDsKey = "memberScheduleIDs"
 
     /// The one dated reminder for every dose due at this moment.
     static func dose(at slot: Date, calendar: Calendar) -> String {
         "meds.group.dose.date.\(dayCode(slot, calendar: calendar)).\(timeCode(slot, calendar: calendar))"
+    }
+
+    /// The follow-up for every dose due at this moment, named for the dose's
+    /// moment, not its own.
+    static func followUp(at slot: Date, calendar: Calendar) -> String {
+        "meds.group.followup.\(dayCode(slot, calendar: calendar)).\(timeCode(slot, calendar: calendar))"
     }
 
     /// A day as yyyyMMdd in the given calendar.
@@ -34,5 +42,35 @@ enum NotificationIdentifiers {
     static func slotDate(in userInfo: [AnyHashable: Any]) -> Date? {
         guard let value = userInfo[slotDateKey] as? String, let seconds = Double(value) else { return nil }
         return Date(timeIntervalSince1970: seconds)
+    }
+
+    static func memberScheduleIDsValue(_ scheduleIDs: [UUID]) -> String {
+        scheduleIDs.map(\.uuidString).joined(separator: ",")
+    }
+
+    static func memberScheduleIDs(in userInfo: [AnyHashable: Any]) -> [UUID] {
+        guard let value = userInfo[memberScheduleIDsKey] as? String else { return [] }
+        return value.split(separator: ",").compactMap { UUID(uuidString: String($0)) }
+    }
+
+    /// Whether every dose a follow-up asks about is logged, so the widget may
+    /// withdraw it. One follow-up stands for every medication due at its
+    /// moment, and logging one of them must not silence the question about
+    /// the rest. A follow-up that does not say what it asks about, or names a
+    /// schedule this store no longer has, is left to ring.
+    static func followUpIsAnswered(
+        memberScheduleIDs: [UUID],
+        slot: Date,
+        schedules: [DoseSchedule],
+        doseEvents: [DoseEvent],
+        now: Date = .now,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> Bool {
+        guard !memberScheduleIDs.isEmpty else { return false }
+        return memberScheduleIDs.allSatisfy { scheduleID in
+            guard let schedule = schedules.first(where: { $0.id == scheduleID }) else { return false }
+            let dose = ScheduledDose(medicationID: schedule.medicationID, scheduleID: scheduleID, date: slot, quantity: schedule.doseQuantity)
+            return ScheduleEngine.loggedEvent(for: dose, in: doseEvents, now: now, calendar: calendar) != nil
+        }
     }
 }

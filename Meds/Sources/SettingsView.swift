@@ -1,4 +1,5 @@
 import StoreKit
+import SwiftData
 import SwiftUI
 import UIKit
 import UserNotifications
@@ -7,6 +8,7 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = true
+    @AppStorage(NotificationPlanOptions.followUpRemindersKey) private var followUpReminders = false
     @State private var notificationStatus = "Checking…"
     @State private var showingSafety = false
     @State private var showingPrivacy = false
@@ -48,6 +50,13 @@ struct SettingsView: View {
                 Text("Reminders")
             } footer: {
                 Text("Meds Ahead uses local notifications. Delivery also depends on your iPhone notification and Focus settings.")
+            }
+
+            Section {
+                Toggle("Remind Again If Not Logged", isOn: $followUpReminders)
+                    .accessibilityIdentifier("follow-up-reminders")
+            } footer: {
+                Text("A second reminder 30 minutes after a dose time if it isn't logged on this phone. If more than one person gives doses, check with each other first.")
             }
 
             Section {
@@ -138,6 +147,7 @@ struct SettingsView: View {
             guard phase == .active else { return }
             Task { await refreshNotificationStatus() }
         }
+        .onChange(of: followUpReminders) { replanNotifications() }
         .sheet(isPresented: $showingStory) {
             InformationSheet(
                 title: "Why I Made Meds Ahead",
@@ -209,6 +219,17 @@ struct SettingsView: View {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
         return "\(version) (\(build))"
+    }
+
+    /// A reminder choice takes effect now, not at the next launch.
+    private func replanNotifications() {
+        let plans = NotificationPlanBuilder.makeAll(
+            medications: (try? modelContext.fetch(FetchDescriptor<Medication>())) ?? [],
+            schedules: (try? modelContext.fetch(FetchDescriptor<DoseSchedule>())) ?? [],
+            inventoryEvents: (try? modelContext.fetch(FetchDescriptor<InventoryEvent>())) ?? [],
+            doseEvents: (try? modelContext.fetch(FetchDescriptor<DoseEvent>())) ?? []
+        )
+        Task { await NotificationService.shared.replaceAllNotifications(for: plans) }
     }
 
     @MainActor

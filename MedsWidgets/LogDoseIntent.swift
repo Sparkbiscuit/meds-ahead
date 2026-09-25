@@ -1,6 +1,7 @@
 import AppIntents
 import Foundation
 import SwiftData
+import UserNotifications
 import WidgetKit
 
 /// Logs the one dose the next-dose widget offers, from the widget itself.
@@ -9,7 +10,8 @@ import WidgetKit
 /// slot by schedule and scheduled time through `ScheduleEngine`, and a slot
 /// already logged — from Today, from a reminder, from Health — is left alone.
 /// Notifications are replanned by the app the next time it comes forward, as
-/// they are after a reminder action.
+/// they are after a reminder action; only a follow-up for this dose is
+/// withdrawn here, since it would otherwise ask about a dose just logged.
 struct LogNextDoseIntent: AppIntent {
     static let title: LocalizedStringResource = "Log Dose as Taken"
     static let description = IntentDescription("Logs the next scheduled dose as taken in Meds Ahead.")
@@ -54,7 +56,7 @@ struct LogNextDoseIntent: AppIntent {
         }
         let dose = ScheduledDose(medicationID: medicationID, scheduleID: scheduleID, date: scheduledAt, quantity: schedule.doseQuantity)
         guard ScheduleEngine.loggedStatus(for: dose, in: doseEvents) == nil else { return .result() }
-        context.insert(DoseEvent(
+        let event = DoseEvent(
             medicationID: medicationID,
             scheduleID: scheduleID,
             scheduledAt: scheduledAt,
@@ -62,8 +64,30 @@ struct LogNextDoseIntent: AppIntent {
             doseQuantity: schedule.doseQuantity,
             status: .taken,
             note: DoseEventNote.widget
-        ))
+        )
+        context.insert(event)
         try context.save()
+        await withdrawFollowUp(at: scheduledAt, schedules: schedules, doseEvents: doseEvents + [event])
         return .result()
+    }
+
+    /// By the name the planner gave it, and only once every dose it asks
+    /// about is logged: it may stand for other medications due at the same
+    /// moment.
+    @MainActor
+    private func withdrawFollowUp(at slot: Date, schedules: [DoseSchedule], doseEvents: [DoseEvent]) async {
+        let identifier = NotificationIdentifiers.followUp(at: slot, calendar: .autoupdatingCurrent)
+        let center = UNUserNotificationCenter.current()
+        let pending = await center.pendingNotificationRequests().first { $0.identifier == identifier }
+        let delivered = await center.deliveredNotifications().first { $0.request.identifier == identifier }?.request
+        guard let request = pending ?? delivered,
+              NotificationIdentifiers.followUpIsAnswered(
+                  memberScheduleIDs: NotificationIdentifiers.memberScheduleIDs(in: request.content.userInfo),
+                  slot: slot,
+                  schedules: schedules,
+                  doseEvents: doseEvents
+              ) else { return }
+        center.removePendingNotificationRequests(withIdentifiers: [identifier])
+        center.removeDeliveredNotifications(withIdentifiers: [identifier])
     }
 }

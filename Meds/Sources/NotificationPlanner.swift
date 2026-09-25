@@ -44,6 +44,9 @@ struct ScheduleNotificationPlan: Sendable {
 
 enum PlannedNotificationKind: Equatable, Sendable {
     case dose
+    /// A second reminder for a dose still unlogged 30 minutes after its time,
+    /// when chosen in Settings. Rings like a dose reminder.
+    case followUp
     case refill
     /// A package expiring, a week ahead. Planned with the refill alerts, under
     /// the same toggle and the same cap.
@@ -71,9 +74,25 @@ struct PlannedNotification: Equatable, Sendable {
     /// The scheduled moment a one-shot dose request stands for. A reminder
     /// action resolves its dose from this, not from when it was delivered.
     var slotDate: Date? = nil
+    /// The schedules a follow-up asks about. The widget, which does not
+    /// replan, withdraws a follow-up only once all of them are logged.
+    var memberScheduleIDs: [UUID] = []
 
     var supportsDoseQuickActions: Bool {
-        kind == .dose && groupedDoseCount == 1 && medicationID != nil && scheduleID != nil
+        (kind == .dose || kind == .followUp) && groupedDoseCount == 1 && medicationID != nil && scheduleID != nil
+    }
+}
+
+/// The reminder choices made once, for the whole app, in Settings.
+struct NotificationPlanOptions: Equatable, Sendable {
+    static let followUpRemindersKey = "followUpRemindersEnabled"
+
+    /// Off until chosen. With two caregivers, a dose given and logged on the
+    /// other phone is unlogged on this one, and its follow-up still rings.
+    var followUpReminders = false
+
+    static func stored(in defaults: UserDefaults = .standard) -> NotificationPlanOptions {
+        NotificationPlanOptions(followUpReminders: defaults.bool(forKey: followUpRemindersKey))
     }
 }
 
@@ -131,6 +150,11 @@ enum NotificationPlanner {
     /// in Notification Center while its dose is still unlogged.
     static let passedDoseRetention: TimeInterval = 24 * 60 * 60
 
+    /// How far ahead follow-ups are planned. Every log and every opening of
+    /// the app plans them again, so a day ahead is plenty, and it keeps them
+    /// from crowding the cap.
+    static let followUpLookahead: TimeInterval = 24 * 60 * 60
+
     static func notifications(
         for plan: MedicationNotificationPlan,
         now: Date = .now,
@@ -150,11 +174,13 @@ enum NotificationPlanner {
     static func plan(
         for plans: [MedicationNotificationPlan],
         now: Date = .now,
-        calendar: Calendar = .autoupdatingCurrent
+        calendar: Calendar = .autoupdatingCurrent,
+        options: NotificationPlanOptions = NotificationPlanOptions()
     ) -> NotificationPlanOutcome {
         var notifications: [PlannedNotification] = []
         var doseSlots: [DoseSlot: Set<DoseMember>] = [:]
         var datedSlots: [Date: Set<DoseMember>] = [:]
+        var followUpSlots: [Date: Set<DoseMember>] = [:]
         var retainedIdentifiers: Set<String> = []
         var retainedPrefixes: Set<String> = []
         var datedPastHorizon = false
@@ -195,16 +221,28 @@ enum NotificationPlanner {
                     }
                 }
 
-                // A dated request that has rung is never planned again, so a
-                // replan (a Taken on another reminder's lock-screen button is
-                // one) would sweep it out of Notification Center. It stays
-                // while its dose is unlogged, as a repeating one would.
-                for offset in -1...0 {
+                // The unlogged slots from yesterday through tomorrow. A dated
+                // request that has rung is never planned again, so a replan (a
+                // Taken on another reminder's lock-screen button is one) would
+                // sweep it out of Notification Center; it stays while its dose
+                // is unlogged, as a repeating one would, and so does a
+                // follow-up. A follow-up still to come is planned for each.
+                for offset in -1...1 {
                     guard let day = calendar.date(byAdding: .day, value: offset, to: today),
                           let slot = slotDate(of: schedule, on: day, calendar: calendar),
-                          slot <= now, now.timeIntervalSince(slot) < passedDoseRetention,
                           !schedule.loggedDays.contains(calendar.startOfDay(for: slot)) else { continue }
-                    retainedIdentifiers.insert(NotificationIdentifiers.dose(at: slot, calendar: calendar))
+                    let age = now.timeIntervalSince(slot)
+                    if slot <= now, age < passedDoseRetention {
+                        retainedIdentifiers.insert(NotificationIdentifiers.dose(at: slot, calendar: calendar))
+                    }
+                    guard options.followUpReminders else { continue }
+                    if slot.addingTimeInterval(ScheduleEngine.dueWindow) > now {
+                        if slot < now.addingTimeInterval(followUpLookahead) {
+                            followUpSlots[slot, default: []].insert(member)
+                        }
+                    } else if age < passedDoseRetention {
+                        retainedIdentifiers.insert(NotificationIdentifiers.followUp(at: slot, calendar: calendar))
+                    }
                 }
             }
         }
@@ -271,6 +309,11 @@ enum NotificationPlanner {
                 calendar: calendar,
                 slotDate: slot
             )
+        }
+
+        let followUps = followUpSlots.keys.sorted().compactMap { slot -> PlannedNotification? in
+            guard let members = followUpSlots[slot], !members.isEmpty else { return nil }
+            return followUpNotification(slot: slot, members: members, calendar: calendar)
         }
 
         var refillNotifications: [PlannedNotification] = []
@@ -394,8 +437,9 @@ enum NotificationPlanner {
             return left < right
         }
         // Repeating dose requests first: they keep ringing whether or not the
-        // app is opened again. Then the dated ones, soonest first.
-        let doseRequests = notifications + dated
+        // app is opened again. Then the dated ones, soonest first, then the
+        // follow-ups, which only ever repeat a question already asked.
+        let doseRequests = notifications + dated + followUps
         let droppedDated = dated.dropFirst(max(0, maximumScheduledRequests - notifications.count))
         let reportBefore = now.addingTimeInterval(droppedDoseReportWindow)
         var plannedThrough = datedPastHorizon ? horizon.last : nil
@@ -563,6 +607,45 @@ enum NotificationPlanner {
             scheduleID: only?.scheduleID,
             groupedDoseCount: ordered.count,
             slotDate: slotDate
+        )
+    }
+
+    /// Worded for a household with more than one person giving doses: this
+    /// phone only knows what was logged on it, so the question is whether
+    /// anyone has given it, not a prompt to give it.
+    private static func followUpNotification(
+        slot: Date,
+        members: Set<DoseMember>,
+        calendar: Calendar
+    ) -> PlannedNotification {
+        let ordered = members.sorted { lhs, rhs in
+            if lhs.displayName != rhs.displayName { return lhs.displayName < rhs.displayName }
+            return lhs.scheduleID.uuidString < rhs.scheduleID.uuidString
+        }
+        let parts = calendar.dateComponents([.hour, .minute], from: slot)
+        let time = timeLabel(hour: parts.hour ?? 0, minute: parts.minute ?? 0, calendar: calendar)
+        let only = ordered.count == 1 ? ordered[0] : nil
+        let title: String
+        let body: String
+        if let only {
+            title = only.detailedNotifications ? "\(only.displayName) not logged yet" : "\(time) dose not logged yet"
+            body = (only.detailedNotifications ? "The \(time) dose isn't" : "It isn't")
+                + " logged on this phone yet. Check before giving it, in case someone already did."
+        } else {
+            title = "\(time) doses not logged yet"
+            body = "They aren't logged on this phone yet. Check before giving them, in case someone already did."
+        }
+        return PlannedNotification(
+            identifier: NotificationIdentifiers.followUp(at: slot, calendar: calendar),
+            kind: .followUp,
+            title: title,
+            body: body,
+            trigger: .date(slot.addingTimeInterval(ScheduleEngine.dueWindow)),
+            medicationID: only?.medicationID,
+            scheduleID: only?.scheduleID,
+            groupedDoseCount: ordered.count,
+            slotDate: slot,
+            memberScheduleIDs: ordered.map(\.scheduleID)
         )
     }
 

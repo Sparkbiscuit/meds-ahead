@@ -484,4 +484,28 @@ final class MedsUITests: XCTestCase {
             .trait
         ])
     }
+
+    /// A second reminder is opt-in, and Settings says what it does and what
+    /// it cannot know about a dose given from another phone.
+    func testFollowUpRemindersAreOffUntilTurnedOn() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-skip-onboarding"]
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+        app.buttons["Settings"].tap()
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
+
+        let followUps = app.switches["follow-up-reminders"]
+        XCTAssertTrue(followUps.waitForExistence(timeout: 3))
+        XCTAssertEqual(followUps.value as? String, "0", "off unless someone chooses it")
+        let footer = app.staticTexts.matching(NSPredicate(format: "label == %@", "A second reminder 30 minutes after a dose time if it isn't logged on this phone. If more than one person gives doses, check with each other first."))
+        XCTAssertEqual(footer.count, 1, "the footer says what it does and what it cannot know")
+
+        // Settings persist between runs, so the test leaves it as it found it.
+        followUps.switches.firstMatch.tap()
+        XCTAssertEqual(followUps.value as? String, "1")
+        followUps.switches.firstMatch.tap()
+        XCTAssertEqual(followUps.value as? String, "0")
+    }
 }
