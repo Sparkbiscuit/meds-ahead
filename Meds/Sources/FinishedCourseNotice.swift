@@ -41,10 +41,14 @@ enum FinishedCourseNotice {
                       let end = ScheduleEngine.courseEnd(schedules: schedules, medicationID: medication.id),
                       SupplyAttention.days(from: end, to: today, calendar: calendar) <= recentDays,
                       !setAside.contains(key(medicationID: medication.id, end: end, calendar: calendar)) else { return nil }
+                // The supply the course had while it ran: a refill or count
+                // added after its last day did not see it through, and would
+                // make a course that ran short read as one that finished.
+                let lastMoment = ScheduleEngine.courseLastMoment(end, calendar: calendar)
                 let lastMorning = ForecastEngine.forecast(
                     medication: medication,
                     schedules: schedules,
-                    inventoryEvents: inventoryEvents,
+                    inventoryEvents: inventoryEvents.filter { $0.date <= lastMoment },
                     doseEvents: doseEvents,
                     now: calendar.startOfDay(for: end),
                     calendar: calendar

@@ -258,6 +258,15 @@ final class CourseDisplayTests: XCTestCase {
                                 inventory: refilled.inventory + [InventoryEvent(medicationID: refilled.medication.id, date: september(8, 10), delta: 10, reason: .refill)],
                                 doses: refilled.doses)
         XCTAssertEqual(finishedCards([withRefill]).count, 1, "a refill during the course saw it through")
+
+        let refilledAfter = Course(medication: ranShort.medication, schedules: ranShort.schedules,
+                                   inventory: ranShort.inventory + [InventoryEvent(medicationID: ranShort.medication.id, date: september(10, 10), delta: 10, reason: .refill)],
+                                   doses: ranShort.doses)
+        XCTAssertTrue(finishedCards([refilledAfter], now: september(11, 9)).isEmpty, "a refill after its last day did not see it through")
+        let countedAfter = Course(medication: ranShort.medication, schedules: ranShort.schedules,
+                                  inventory: ranShort.inventory + [InventoryEvent(medicationID: ranShort.medication.id, date: september(10, 10), delta: 3, reason: .correction)],
+                                  doses: ranShort.doses)
+        XCTAssertTrue(finishedCards([countedAfter], now: september(11, 9)).isEmpty, "nor did a count made after it")
     }
 
     /// Archive on the card marks the medication archived, as the detail
