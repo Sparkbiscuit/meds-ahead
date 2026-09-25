@@ -29,4 +29,17 @@ final class CountNeededDisplayTests: XCTestCase {
         let steady = SupplyForecast(currentSupply: 20, depletionDate: .now, daysRemaining: 9, confidence: .high, explanation: "")
         XCTAssertEqual(MedicationDetailView.forecastTitle(for: steady), "About 9 days left")
     }
+
+    /// Prefilled with the ledger's number, one tap on Save Count confirmed a
+    /// count nobody made and cleared the doses the forecast had assumed.
+    func testCorrectCountOpensEmptyWhileACountIsNeeded() {
+        XCTAssertNil(SupplyChangeQuantity.countPrefill(for: countNeeded))
+        XCTAssertNil(SupplyChangeQuantity.value(from: "", prefilled: nil, requiresMoreThanZero: false), "an empty field cannot be saved")
+        XCTAssertEqual(SupplyChangeQuantity.value(from: "6", prefilled: nil, requiresMoreThanZero: false, locale: Locale(identifier: "en_US")), 6,
+                       "the same number, typed after counting, is a count")
+
+        XCTAssertEqual(SupplyChangeQuantity.countPrefill(for: empty), 0)
+        let steady = SupplyForecast(currentSupply: 27.125, depletionDate: nil, daysRemaining: nil, confidence: .unknown, explanation: "")
+        XCTAssertEqual(SupplyChangeQuantity.countPrefill(for: steady), 27.125)
+    }
 }

@@ -136,7 +136,7 @@ struct MedicationDetailView: View {
                 title: "Correct Current Count",
                 message: "Count everything on hand, including doses already placed in pill organizers.",
                 unit: medication.form.unitName,
-                initialValue: forecast.currentSupply,
+                initialValue: SupplyChangeQuantity.countPrefill(for: forecast),
                 actionTitle: "Save Count"
             ) { actualCount, note in
                 let difference = ForecastEngine.correctionDelta(
@@ -706,14 +706,21 @@ enum SupplyChangeQuantity {
         return value.formatted(.number.grouping(.never).precision(.fractionLength(0...2)).locale(locale))
     }
 
+    /// The number Correct Count opens with: the ledger's, or nothing while a
+    /// count is needed. Prefilled then, one tap on Save would record a count
+    /// nobody made and clear the doses the forecast had to assume.
+    static func countPrefill(for forecast: SupplyForecast) -> Double? {
+        forecast.needsCount ? nil : forecast.currentSupply
+    }
+
     static func value(
         from text: String,
-        prefilled: Double,
+        prefilled: Double?,
         requiresMoreThanZero: Bool,
         locale: Locale = .autoupdatingCurrent
     ) -> Double? {
         let value: Double
-        if text == Self.text(for: prefilled, locale: locale) {
+        if let prefilled, text == Self.text(for: prefilled, locale: locale) {
             // The prefilled text is rounded to two places. Left untouched it stands
             // for the exact number it was made from, so an unchanged count is
             // recorded as a zero correction ("Count confirmed") rather than as
@@ -741,7 +748,8 @@ private struct SupplyChangeSheet: View {
     let title: String
     let message: String
     let unit: String
-    let initialValue: Double
+    /// Nil opens the field empty.
+    let initialValue: Double?
     let actionTitle: String
     let onSave: (Double, String) -> Void
     @State private var text: String
@@ -761,7 +769,7 @@ private struct SupplyChangeSheet: View {
         title: String,
         message: String,
         unit: String,
-        initialValue: Double,
+        initialValue: Double?,
         actionTitle: String,
         onSave: @escaping (Double, String) -> Void
     ) {
@@ -771,7 +779,7 @@ private struct SupplyChangeSheet: View {
         self.initialValue = initialValue
         self.actionTitle = actionTitle
         self.onSave = onSave
-        _text = State(initialValue: SupplyChangeQuantity.text(for: initialValue))
+        _text = State(initialValue: initialValue.map { SupplyChangeQuantity.text(for: $0) } ?? "")
     }
 
     var body: some View {
