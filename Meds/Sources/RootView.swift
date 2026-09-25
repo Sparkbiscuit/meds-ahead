@@ -78,9 +78,11 @@ struct RootView: View {
             MedicationListPDFRenderer.removePreviousExport()
 #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("-seed-demo-data") {
+                let staleCount = ProcessInfo.processInfo.arguments.contains("-seed-stale-count")
                 try? DemoData.seed(
                     in: modelContext,
-                    backdatingSchedulesByDays: ProcessInfo.processInfo.arguments.contains("-seed-missed-doses") ? 3 : 0
+                    backdatingSchedulesByDays: staleCount ? 16 : ProcessInfo.processInfo.arguments.contains("-seed-missed-doses") ? 3 : 0,
+                    countedWhenSchedulesStart: staleCount
                 )
             }
 #endif

@@ -147,7 +147,7 @@ private struct SupplyRow: View {
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack(alignment: .top, spacing: 14) {
-                        SupplyGauge(daysRemaining: forecast.daysRemaining, leadDays: attention.leadDays, needsCount: forecast.needsCount, size: 54)
+                        gauge
                         nameLine
                         Spacer(minLength: 0)
                     }
@@ -155,7 +155,7 @@ private struct SupplyRow: View {
                 }
             } else {
                 HStack(spacing: 14) {
-                    SupplyGauge(daysRemaining: forecast.daysRemaining, leadDays: attention.leadDays, needsCount: forecast.needsCount, size: 54)
+                    gauge
                     VStack(alignment: .leading, spacing: 5) {
                         nameLine
                         supplyCopy
@@ -172,6 +172,14 @@ private struct SupplyRow: View {
         .contentShape(Rectangle())
     }
 
+    /// A count needed is the summary's own first words. The row reads as one
+    /// VoiceOver element, and the ring and the name's icon each said it too:
+    /// "Count needed" three times before the reason. They stay silent then.
+    private var gauge: some View {
+        SupplyGauge(daysRemaining: forecast.daysRemaining, leadDays: attention.leadDays, needsCount: forecast.needsCount, size: 54)
+            .accessibilityHidden(forecast.needsCount)
+    }
+
     private var nameLine: some View {
         HStack(spacing: 7) {
             Text(medication.displayName)
@@ -181,7 +189,8 @@ private struct SupplyRow: View {
             if isLow {
                 Image(systemName: "exclamationmark.circle.fill")
                     .foregroundStyle(.orange)
-                    .accessibilityLabel(forecast.needsCount ? "Count needed" : "Low supply")
+                    .accessibilityLabel("Low supply")
+                    .accessibilityHidden(forecast.needsCount)
             }
         }
     }

@@ -382,4 +382,27 @@ final class MedsUITests: XCTestCase {
         app.buttons["Restore Medication"].tap()
         XCTAssertTrue(app.buttons["Save Count"].waitForExistence(timeout: 3), "a restore asks what is on hand")
     }
+
+    /// Every dose for sixteen days went unlogged, so the forecast is assuming
+    /// them and the ledger's number cannot be vouched for. The Supply row that
+    /// asks for a count says so to VoiceOver once, not three times.
+    func testACountNeededIsSaidOnceOnItsSupplyRow() {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-ui-testing",
+            "-skip-onboarding",
+            "-seed-demo-data",
+            "-seed-stale-count",
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryL"
+        ]
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["Supply"].tap()
+        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Furosemide")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 3))
+        XCTAssertEqual(row.label.components(separatedBy: "Count needed").count - 1, 1, row.label)
+        XCTAssertTrue(row.label.contains("on record"), row.label)
+    }
 }
