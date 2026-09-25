@@ -115,10 +115,12 @@ struct TodayView: View {
                     plannedThroughNotice(now: now)
                     pickupsCard(now: now)
                     // Catching up before counting: a dose logged after a
-                    // count comes off the number the count set.
+                    // count comes off the number the count set. The two
+                    // stay together, since the count's card points at the
+                    // missed doses above it; archiving can wait below them.
                     missedDosesCard(now: now)
-                    finishedCourseCards(now: now)
                     quickCountCard(now: now)
+                    finishedCourseCards(now: now)
                     if activeMedications.isEmpty {
                         EmptyStateCard(
                             symbol: "viewfinder",
