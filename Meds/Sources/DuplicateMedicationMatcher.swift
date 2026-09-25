@@ -87,8 +87,13 @@ enum DuplicateMedicationMatcher {
                 // codes say: a 40 mg bottle in a 20 mg count doubles every dose
                 // it forecasts. Written two ways for one amount is not different.
                 if strengthsDiffer(identity.strength, medication.strength) { return false }
+                // A code on the medication decides only when the directory
+                // does not list it as some other product: a code the label
+                // never vouched for is kept as read, and a misread Prograf
+                // bottle can carry Astagraf XL's.
                 if let product, medication.productIdentifierType == "NDC",
-                   productKey(medication.productIdentifier) == product {
+                   productKey(medication.productIdentifier) == product,
+                   !(directory.map { codeNamesAnotherProduct(medication, in: $0) } ?? false) {
                     return true
                 }
                 // By clinical drug, as the Health import matches: a generic
@@ -179,16 +184,40 @@ enum DuplicateMedicationMatcher {
     }
 
     /// The product a tracked medication's code names, when the directory lists
-    /// it under the medication's own name and strength. A code the label
-    /// printed but never vouched for is kept on the medication as read, and a
-    /// misreading cannot say that two bottles are different products.
+    /// it as the medication itself. A code the label printed but never vouched
+    /// for is kept on the medication as read, and a misreading cannot say that
+    /// two bottles are different products.
     private static func identifyingProductKey(of medication: Medication, in directory: NDCDirectory) -> String? {
+        guard let found = listing(of: medication, in: directory), describes(found.product, medication) else { return nil }
+        return found.code.productKey
+    }
+
+    /// Whether the directory lists a tracked medication's code as a product
+    /// the medication is not: another name, brand or strength.
+    private static func codeNamesAnotherProduct(_ medication: Medication, in directory: NDCDirectory) -> Bool {
+        guard let found = listing(of: medication, in: directory) else { return false }
+        return !describes(found.product, medication)
+    }
+
+    private static func listing(of medication: Medication, in directory: NDCDirectory) -> (code: NationalDrugCode, product: NDCProduct)? {
         guard medication.productIdentifierType == "NDC" else { return nil }
         let candidates = NationalDrugCode.candidates(fromRendering: medication.productIdentifier.trimmingCharacters(in: .whitespacesAndNewlines))
-        guard candidates.count == 1, let listed = directory.product(for: candidates[0]),
-              nameKey(NDCIdentification.displayName(for: listed)) == nameKey(medication.name),
-              !strengthsDiffer(listed.strength, medication.strength) else { return nil }
-        return candidates[0].productKey
+        guard candidates.count == 1, let listed = directory.product(for: candidates[0]) else { return nil }
+        return (candidates[0], listed)
+    }
+
+    /// Whether a listing is the medication: named as the listing fills a
+    /// review in, "Tacrolimus" or "Tacrolimus ER", with no other brand, and
+    /// no other strength. Prograf's code on "Tacrolimus XL", or Astagraf
+    /// XL's on "Tacrolimus (Prograf)", is not.
+    private static func describes(_ listed: NDCProduct, _ medication: Medication) -> Bool {
+        let identity = NDCIdentification.identity(of: listed, labelBrand: medication.brandName)
+        let name = nameKey(medication.name)
+        guard name == nameKey(NDCIdentification.displayName(for: listed)) || name == nameKey(identity.name) else { return false }
+        let brand = nameKey(identity.brand)
+        let theirBrand = nameKey(medication.brandName)
+        if !brand.isEmpty, !theirBrand.isEmpty, brand != theirBrand { return false }
+        return !strengthsDiffer(listed.strength, medication.strength)
     }
 
     private static func rxNormCodes(of medication: Medication) -> Set<String> {

@@ -279,6 +279,46 @@ final class DuplicateMedicationMatcherTests: XCTestCase {
         XCTAssertEqual(coded(try accepted("0469-0617-73"), [misread]).map(\.id), [misread.id], "a code the directory does not list")
     }
 
+    private func label(_ lines: [String]) -> MedicationDraft {
+        let capture = UUID()
+        return MedicationLabelInterpreter.offlineDraft(lines.enumerated().map { index, line in
+            ScanEvidence(kind: .text, value: line, confidence: 0.9, origin: .cameraCapture, captureID: capture, lineIndex: index)
+        })
+    }
+
+    /// A code the label refused is still saved on the medication as read.
+    /// A Prograf bottle whose small print turned 0617 into 0677 carries
+    /// Astagraf XL's code, and must not pull in the next Astagraf XL bottle,
+    /// whose code was read correctly. Nor the other way round.
+    func testARefusedCodeOnATrackedMedicationDoesNotPullInTheProductItNames() throws {
+        let misreadPrograf = label(["PROGRAF 1 MG CAPSULE", "NDC 0469-0677-73", "TAKE 1 CAPSULE BY MOUTH TWICE DAILY"])
+        guard case .contradicted = misreadPrograf.identification else {
+            return XCTFail("the label should refuse the code: \(String(describing: misreadPrograf.identification))")
+        }
+        XCTAssertEqual(misreadPrograf.brandName, "Prograf")
+        XCTAssertEqual(DuplicateMedicationMatcher.productKey(misreadPrograf.productIdentifier), "004690677", "kept as read")
+        let astagraf = label(["ASTAGRAF XL 1 MG CAPSULE", "NDC 0469-0677-73", "TAKE 1 CAPSULE BY MOUTH ONCE DAILY"])
+        guard case .accepted = astagraf.identification else { return XCTFail("\(String(describing: astagraf.identification))") }
+        XCTAssertTrue(DuplicateMedicationMatcher.matches(for: .init(draft: astagraf), among: [tracked(misreadPrograf)]).isEmpty,
+                      "Astagraf XL offered as Prograf")
+
+        let misreadXL = label(["TACROLIMUS XL 1 MG CAPSULE", "NDC 0469-0617-73", "TAKE 1 CAPSULE BY MOUTH ONCE DAILY"])
+        guard case .contradicted = misreadXL.identification else {
+            return XCTFail("the label should refuse the code: \(String(describing: misreadXL.identification))")
+        }
+        let prograf = label(["PROGRAF 1 MG CAPSULE", "NDC 0469-0617-73", "TAKE 1 CAPSULE BY MOUTH TWICE DAILY"])
+        guard case .accepted = prograf.identification else { return XCTFail("\(String(describing: prograf.identification))") }
+        XCTAssertTrue(DuplicateMedicationMatcher.matches(for: .init(draft: prograf), among: [tracked(misreadXL)]).isEmpty,
+                      "Prograf offered as \(misreadXL.name)")
+
+        // A code the label vouched for still finds its own medication.
+        let trackedAstagraf = tracked(astagraf)
+        XCTAssertEqual(DuplicateMedicationMatcher.matches(for: .init(draft: astagraf), among: [trackedAstagraf]).map(\.id), [trackedAstagraf.id])
+        let trackedPrograf = tracked(prograf)
+        XCTAssertEqual(DuplicateMedicationMatcher.matches(for: .init(draft: prograf), among: [trackedPrograf, tracked(misreadXL)]).map(\.id),
+                       [trackedPrograf.id])
+    }
+
     /// The snapshots that ship keep the two tacrolimus products apart.
     func testTheShippedTablesTellImmediateAndExtendedReleaseTacrolimusApart() throws {
         let prograf = tracked(try accepted("0469-0617-73", directory: .shared, rxNormTable: .shared))
