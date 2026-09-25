@@ -233,8 +233,14 @@ enum NotificationPlanner {
                     }
                 case let .dated(continuesPastHorizon):
                     datedPastHorizon = datedPastHorizon || continuesPastHorizon
+                    // A dose logged early, from Today inside its due window
+                    // or from the widget, is not asked for again at its time:
+                    // in a house with two people giving doses, that ring
+                    // invites a second one. A repeating request cannot skip a
+                    // day; a one-shot can.
                     for day in horizon {
-                        guard let slot = slotDate(of: schedule, on: day, calendar: calendar), slot > now else { continue }
+                        guard let slot = slotDate(of: schedule, on: day, calendar: calendar), slot > now,
+                              !schedule.loggedDays.contains(calendar.startOfDay(for: slot)) else { continue }
                         datedSlots[slot, default: []].insert(member)
                     }
                 }

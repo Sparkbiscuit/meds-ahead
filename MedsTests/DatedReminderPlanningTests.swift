@@ -191,6 +191,25 @@ final class DatedReminderPlanningTests: XCTestCase {
                        ["meds.group.dose.date.20260910.0800"], "Today and the missed-dose list ask about it after a day")
     }
 
+    /// A dose given at 19:40 and logged then, inside its due window, is not
+    /// asked for again at 20:00: with two people giving doses, that ring
+    /// invites a second one. Another medication due then still rings.
+    func testADoseLoggedEarlyIsNotRungForAtItsTime() throws {
+        let course = plan(courseID, name: "Course", schedules: [schedule(20 * 60, start: at(1), end: at(12), logged: [at(10)])])
+        let early = NotificationPlanner.plan(for: [course], now: at(10, 19, 41), calendar: calendar,
+                                             options: NotificationPlanOptions(followUpReminders: true))
+        let identifiers = early.notifications.map(\.identifier)
+        XCTAssertFalse(identifiers.contains("meds.group.dose.date.20260910.2000"), "Time for Course, for a dose already logged")
+        XCTAssertFalse(identifiers.contains("meds.group.followup.20260910.2000"))
+        XCTAssertTrue(identifiers.contains("meds.group.dose.date.20260911.2000"), "tomorrow's dose still rings")
+
+        let other = plan(ongoingID, name: "Other course", schedules: [schedule(20 * 60, start: at(1), end: at(12))])
+        let shared = try XCTUnwrap(NotificationPlanner.plan(for: [course, other], now: at(10, 19, 41), calendar: calendar)
+            .notifications.first { $0.identifier == "meds.group.dose.date.20260910.2000" })
+        XCTAssertEqual(shared.groupedDoseCount, 1)
+        XCTAssertEqual(shared.medicationID, ongoingID, "only the dose still to give")
+    }
+
     /// The morning a course's end comes within the week, its reminder rings
     /// under the repeating name planned the day before. A replan that
     /// afternoon (a Taken on another reminder's lock-screen button) plans the
