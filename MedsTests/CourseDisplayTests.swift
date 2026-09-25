@@ -113,6 +113,18 @@ final class CourseDisplayTests: XCTestCase {
         XCTAssertEqual(SupplyGauge(daysRemaining: 3, leadDays: 7).accessibilityText, "3 days of supply remaining", "a supply that runs out is unchanged")
     }
 
+    /// Beside a course's title the ring says the title again, and the line
+    /// under it starts with the same words: VoiceOver passes over the ring.
+    func testTheRingIsSilentWhereItRepeatsTheTitle() {
+        XCTAssertEqual(SupplyGauge(daysRemaining: nil, leadDays: 7, course: .covered).accessibilityText,
+                       MedicationDetailView.forecastTitle(for: forecast(covered), calendar: calendar))
+        XCTAssertTrue(SupplyGauge(daysRemaining: nil, leadDays: 7, course: .covered).repeatsItsSummary)
+        XCTAssertTrue(SupplyGauge(daysRemaining: nil, leadDays: 7, course: .finished).repeatsItsSummary)
+        XCTAssertTrue(SupplyGauge(daysRemaining: nil, leadDays: 7, course: .ranOutFirst).repeatsItsSummary)
+        XCTAssertTrue(SupplyGauge(daysRemaining: 0, leadDays: 7, needsCount: true).repeatsItsSummary)
+        XCTAssertFalse(SupplyGauge(daysRemaining: 3, leadDays: 7).repeatsItsSummary, "a supply that runs out is unchanged")
+    }
+
     /// Under the schedule's times: its last day while it runs, the day it
     /// finished once it has, nothing for a medication not on a course.
     func testTheScheduleCardSaysWhenTheCourseEnds() throws {

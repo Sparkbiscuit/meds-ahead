@@ -33,6 +33,11 @@ struct SupplyGauge: View {
     /// The day count the ring prints, if any.
     var shownDays: Int? { needsCount || course != nil ? nil : daysRemaining }
 
+    /// Whether the ring only says what the words beside it say first: a
+    /// count needed and a course are what the title or summary it sits
+    /// next to opens with, so VoiceOver passes over it then.
+    var repeatsItsSummary: Bool { needsCount || course != nil }
+
     private var progress: Double {
         if course != nil { return 1 }
         guard let shownDays else { return 0.18 }

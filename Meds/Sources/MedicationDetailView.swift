@@ -231,8 +231,9 @@ struct MedicationDetailView: View {
                         .contentTransition(.numericText())
                 }
                 Spacer()
-                SupplyGauge(daysRemaining: forecast.daysRemaining, leadDays: attention.leadDays, needsCount: forecast.needsCount,
-                            course: SupplyGauge.Course(forecast, ranOutFirst: ranOutFirst), size: 62)
+                let gauge = SupplyGauge(daysRemaining: forecast.daysRemaining, leadDays: attention.leadDays, needsCount: forecast.needsCount,
+                                        course: SupplyGauge.Course(forecast, ranOutFirst: ranOutFirst), size: 62)
+                gauge.accessibilityHidden(gauge.repeatsItsSummary)
             }
             Text(Self.forecastDetail(for: forecast, ranOutFirst: ranOutFirst))
                 .font(.subheadline)
