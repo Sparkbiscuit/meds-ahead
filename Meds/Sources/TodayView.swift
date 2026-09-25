@@ -42,6 +42,13 @@ struct TodayView: View {
     /// Finished courses whose card was set aside, one per course.
     @AppStorage(FinishedCourseNotice.setAsideKey) private var finishedCoursesSetAside = ""
     @State private var showingArchiveError = false
+    @AppStorage(QuickCountPrompt.setAsideKey) private var quickCountSetAside = Data()
+    @AppStorage(QuickCountPrompt.tapKey) private var quickCountTapped = Data()
+    /// The card asks the reminder's question, so it follows the reminder's
+    /// switch in Settings.
+    @AppStorage(NotificationPlanOptions.weeklyCountCheckKey) private var weeklyCountCheck = true
+    @State private var countRequest: CountCorrection.Request?
+    @State private var showingCountSaveError = false
     let onAdd: () -> Void
 
     private static let missedDoseLookbackDays = 2
@@ -107,8 +114,11 @@ struct TodayView: View {
                     notificationBanner
                     plannedThroughNotice(now: now)
                     pickupsCard(now: now)
+                    // Catching up before counting: a dose logged after a
+                    // count comes off the number the count set.
                     missedDosesCard(now: now)
                     finishedCourseCards(now: now)
+                    quickCountCard(now: now)
                     if activeMedications.isEmpty {
                         EmptyStateCard(
                             symbol: "viewfinder",
@@ -166,6 +176,45 @@ struct TodayView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text("Nothing was changed. Try again.")
+        }
+        .sheet(item: $countRequest) { request in
+            CorrectCountSheet(request: request) { showingCountSaveError = true }
+        }
+        .alert("Couldn't Save Count", isPresented: $showingCountSaveError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Your count wasn't saved. Try again.")
+        }
+    }
+
+    /// The weekly count check's question, here for as long as it stands: a
+    /// count moves the last count's date and the card goes with it.
+    @ViewBuilder
+    private func quickCountCard(now: Date) -> some View {
+        if weeklyCountCheck, let prompt = QuickCountPrompt.make(
+            medications: medications,
+            schedules: schedules,
+            inventoryEvents: inventoryEvents,
+            doseEvents: doseEvents,
+            setAside: QuickCountPrompt.decodeSetAside(quickCountSetAside),
+            tapped: QuickCountPrompt.decodeTap(quickCountTapped),
+            now: now
+        ) {
+            // The doses the missed-doses card lists, as it lists them.
+            let missed = missedDosesSetAsideOn == dayKey(now) ? [] : missedDoses(now: now)
+            QuickCountCard(
+                prompt: prompt,
+                catchUpNote: QuickCountPrompt.catchUpNote(for: prompt.medicationID, missedDoseMedicationIDs: missed.map(\.0.id)),
+                onCount: {
+                    guard let medication = medications.first(where: { $0.id == prompt.medicationID }) else { return }
+                    countRequest = CountCorrection.Request(medication: medication, forecast: prompt.forecast)
+                },
+                onNotNow: {
+                    quickCountSetAside = QuickCountPrompt.encodeSetAside(
+                        QuickCountPrompt.settingAside(prompt.medicationID, at: .now, in: QuickCountPrompt.decodeSetAside(quickCountSetAside))
+                    )
+                }
+            )
         }
     }
 

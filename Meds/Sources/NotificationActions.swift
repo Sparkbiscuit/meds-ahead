@@ -44,6 +44,17 @@ enum MedicationNotificationRoute {
     static func destination(for userInfo: [AnyHashable: Any]) -> AppTab {
         userInfo["notificationKind"] as? String == "refill" ? .supply : .today
     }
+
+    /// A reminder someone tapped: where it opens, and for a count check, the
+    /// medication it named, kept so Today's quick count asks about that one.
+    /// The check's pick can change between planning and the tap.
+    static func follow(_ userInfo: [AnyHashable: Any], at date: Date = .now, defaults: UserDefaults = .standard) -> AppTab {
+        if userInfo["notificationKind"] as? String == "countCheck",
+           let medicationID = (userInfo["medicationID"] as? String).flatMap(UUID.init(uuidString:)) {
+            QuickCountPrompt.rememberTap(of: medicationID, at: date, in: defaults)
+        }
+        return destination(for: userInfo)
+    }
 }
 
 extension Notification.Name {

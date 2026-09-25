@@ -7,6 +7,7 @@ struct SupplyView: View {
     @Query private var inventoryEvents: [InventoryEvent]
     @Query private var doseEvents: [DoseEvent]
     @State private var showingTripCheck = false
+    @State private var explaining: Medication?
     let onAdd: () -> Void
 
     private var active: [Medication] { medications.filter { !$0.isArchived } }
@@ -102,6 +103,12 @@ struct SupplyView: View {
                                     SupplyRow(medication: medication, forecast: forecast, now: now)
                                 }
                                 .buttonStyle(.plain)
+                                // Beside the row's tap, not in place of it: the
+                                // tap still opens the medication.
+                                .contextMenu {
+                                    Button("Why this date?", systemImage: "questionmark.circle") { explaining = medication }
+                                }
+                                .accessibilityAction(named: "Why this date?") { explaining = medication }
                             }
                         }
                     }
@@ -126,6 +133,7 @@ struct SupplyView: View {
         .sheet(isPresented: $showingTripCheck) {
             TripCheckSheet(forecasts: forecasts.map { (medication: $0.0, forecast: $0.1) })
         }
+        .sheet(item: $explaining) { WhyThisDateView(medication: $0) }
     }
 
     private func header(attentionCount: Int) -> some View {
