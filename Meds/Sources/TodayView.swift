@@ -40,6 +40,7 @@ struct TodayView: View {
     /// someone who simply has not caught up yet should be asked again tomorrow.
     @AppStorage("missedDosesSetAsideOn") private var missedDosesSetAsideOn = ""
     @AppStorage(QuickCountPrompt.setAsideKey) private var quickCountSetAside = Data()
+    @AppStorage(QuickCountPrompt.tapKey) private var quickCountTapped = Data()
     /// The card asks the reminder's question, so it follows the reminder's
     /// switch in Settings.
     @AppStorage(NotificationPlanOptions.weeklyCountCheckKey) private var weeklyCountCheck = true
@@ -185,7 +186,7 @@ struct TodayView: View {
             inventoryEvents: inventoryEvents,
             doseEvents: doseEvents,
             setAside: QuickCountPrompt.decodeSetAside(quickCountSetAside),
-            lastAsked: CountCheckPolicy.lastAsked(in: .standard, now: now),
+            tapped: QuickCountPrompt.decodeTap(quickCountTapped),
             now: now
         ) {
             QuickCountCard(

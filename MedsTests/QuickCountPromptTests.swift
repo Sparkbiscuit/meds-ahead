@@ -2,8 +2,9 @@ import XCTest
 @testable import Meds
 
 /// Today's quick count asks about the medication the weekly count check
-/// names, in words that say why, until a count is made or Not Now sets it
-/// aside for three days. In GMT, in September 2026.
+/// names, or the one a tapped reminder named, in words that say why, until
+/// a count is made or Not Now sets it aside for three days; after a count,
+/// it rests for the week. In GMT, in September 2026.
 final class QuickCountPromptTests: XCTestCase {
     private var calendar: Calendar {
         var calendar = Calendar(identifier: .gregorian)
@@ -38,14 +39,14 @@ final class QuickCountPromptTests: XCTestCase {
         return medication
     }
 
-    private func prompt(_ household: Household, setAside: [UUID: Date] = [:], lastAsked: Date? = nil, now: Date) -> QuickCountPrompt? {
+    private func prompt(_ household: Household, setAside: [UUID: Date] = [:], tapped: QuickCountPrompt.Tap? = nil, now: Date) -> QuickCountPrompt? {
         QuickCountPrompt.make(
             medications: household.medications,
             schedules: household.schedules,
             inventoryEvents: household.inventory,
             doseEvents: household.doses,
             setAside: setAside,
-            lastAsked: lastAsked,
+            tapped: tapped,
             now: now,
             calendar: calendar
         )
@@ -95,22 +96,89 @@ final class QuickCountPromptTests: XCTestCase {
         XCTAssertNotNil(prompt(household, now: at(8, 0, 30)))
     }
 
-    /// A count moves the last count's date, and the card with it, on to the
-    /// next medication due or to nothing.
-    func testACountEndsTheQuestion() throws {
+    /// A count ends the question, and the card rests for the week, as the
+    /// reminder does, rather than asking about each medication due in turn.
+    func testACountEndsTheQuestionForTheWeek() throws {
         var household = Household()
         let first = add("Mycophenolate", count: 30, to: &household)
         let second = add("Tacrolimus", count: 60, to: &household)
-        let now = at(9, 7)
+        XCTAssertEqual(try XCTUnwrap(prompt(household, now: at(9, 7))).medicationID, first.id)
+
+        // More in the bottle than on record, so the second runs out sooner.
+        household.inventory.append(InventoryEvent(medicationID: first.id, date: at(9, 7), delta: 100, reason: .correction))
+        XCTAssertNil(prompt(household, now: at(9, 7, 1)), "the card goes rather than moving on to the next medication due")
+        XCTAssertNil(prompt(household, now: at(15, 23)))
+        XCTAssertEqual(prompt(household, now: at(16, 0, 30))?.medicationID, second.id, "a week after the count, it asks again")
+
+        household.inventory.append(InventoryEvent(medicationID: second.id, date: at(16, 7), delta: 0, reason: .correction))
+        XCTAssertNil(prompt(household, now: at(16, 7, 1)))
+        XCTAssertNil(prompt(household, now: at(22, 23)))
+        XCTAssertNotNil(prompt(household, now: at(23, 0, 30)))
+    }
+
+    /// A count needed is not rested: no low-supply alert can be planned for
+    /// it until someone counts.
+    func testACountNeededIsAskedEvenInTheWeekOfACount() throws {
+        var household = Household()
+        let first = add("Dimethyl fumarate", count: 12, to: &household)
+        let second = add("Furosemide", count: 28, to: &household)
+        let now = at(17, 9)
         XCTAssertEqual(try XCTUnwrap(prompt(household, now: now)).medicationID, first.id)
 
-        household.inventory.append(InventoryEvent(medicationID: first.id, date: at(9, 7), delta: 0, reason: .correction))
-        XCTAssertEqual(try XCTUnwrap(prompt(household, now: at(9, 7, 1))).medicationID, second.id)
+        household.inventory.append(InventoryEvent(medicationID: first.id, date: now, delta: 8, reason: .correction))
+        let next = try XCTUnwrap(prompt(household, now: at(17, 9, 1)))
+        XCTAssertEqual(next.medicationID, second.id)
+        XCTAssertTrue(next.needsCount)
+    }
 
-        household.inventory.append(InventoryEvent(medicationID: second.id, date: at(9, 7, 2), delta: 0, reason: .correction))
-        XCTAssertNil(prompt(household, now: at(9, 7, 3)))
-        XCTAssertNil(prompt(household, now: at(15, 23)))
-        XCTAssertNotNil(prompt(household, now: at(16, 0, 30)), "a week after the count, it asks again")
+    /// The count that rests the card is one the check could have asked for:
+    /// a medication it asks about, counted once its last count was due.
+    func testOnlyACountTheCheckCouldHaveAskedForRestsTheCard() {
+        var household = Household()
+        let scheduled = add("Mycophenolate", count: 60, to: &household)
+        let asNeeded = add("Ondansetron", count: 30, to: &household) { $0.isAsNeeded = true }
+        add("Tacrolimus", count: 60, to: &household)
+        household.inventory += [
+            InventoryEvent(medicationID: asNeeded.id, date: at(9, 7), delta: -2, reason: .correction),
+            InventoryEvent(medicationID: scheduled.id, date: at(3, 7), delta: 0, reason: .correction),
+            InventoryEvent(medicationID: scheduled.id, date: at(9, 7), delta: 0, reason: .correction)
+        ]
+        XCTAssertNotNil(prompt(household, now: at(9, 8)), "an as-needed count, and a recount six days after the last, answer nothing")
+        let candidates = household.medications.map {
+            CountCheckPolicy.candidate(
+                for: $0,
+                schedules: household.schedules,
+                inventoryEvents: household.inventory,
+                forecast: ForecastEngine.forecast(medication: $0, schedules: household.schedules, inventoryEvents: household.inventory, doseEvents: [], now: at(9, 8), calendar: calendar),
+                now: at(9, 8),
+                calendar: calendar
+            )
+        }
+        XCTAssertNil(QuickCountPrompt.lastAnswer(candidates: candidates, inventoryEvents: household.inventory, calendar: calendar))
+        household.inventory.append(InventoryEvent(medicationID: scheduled.id, date: at(10, 7), delta: 0, reason: .correction))
+        XCTAssertNil(QuickCountPrompt.lastAnswer(candidates: candidates, inventoryEvents: household.inventory, calendar: calendar))
+        household.inventory.append(InventoryEvent(medicationID: scheduled.id, date: at(17, 7), delta: 0, reason: .correction))
+        XCTAssertEqual(QuickCountPrompt.lastAnswer(candidates: candidates, inventoryEvents: household.inventory, calendar: calendar), at(17, 7), "a week after the last count")
+    }
+
+    /// The planner picked one medication when it planned the reminder; by
+    /// the time it is tapped the pick can differ. The card names the one the
+    /// reminder named, until it is counted.
+    func testATappedReminderNamesTheCard() throws {
+        var household = Household()
+        let first = add("Mycophenolate", count: 30, to: &household)
+        let second = add("Tacrolimus", count: 60, to: &household)
+        let tap = QuickCountPrompt.Tap(medicationID: second.id, date: at(9, 10))
+        XCTAssertEqual(prompt(household, now: at(9, 10))?.medicationID, first.id, "the policy's pick")
+        XCTAssertEqual(prompt(household, tapped: tap, now: at(9, 10, 1))?.medicationID, second.id)
+        XCTAssertEqual(prompt(household, tapped: tap, now: at(11, 9))?.medicationID, second.id, "until it is counted")
+
+        household.inventory.append(InventoryEvent(medicationID: second.id, date: at(11, 9, 5), delta: 0, reason: .correction))
+        XCTAssertNil(prompt(household, tapped: tap, now: at(11, 9, 6)), "counted, the question is answered for the week")
+
+        // A reminder for a medication that isn't due any more names nothing.
+        let stale = QuickCountPrompt.Tap(medicationID: first.id, date: at(1, 6))
+        XCTAssertNil(prompt(household, tapped: stale, now: at(11, 9, 6)))
     }
 
     func testTheWordsSayWhatIsAskedAndWhy() {
@@ -150,20 +218,50 @@ final class QuickCountPromptTests: XCTestCase {
         XCTAssertNil(prompt(household, setAside: setAside, now: at(12, 6, 59)))
         XCTAssertEqual(prompt(household, setAside: setAside, now: at(12, 7))?.medicationID, first.id, "three days later it asks again")
 
-        // Counted since, the first is no longer due: the second is asked about,
-        // whatever was set aside for the first.
-        household.inventory.append(InventoryEvent(medicationID: first.id, date: at(10, 9), delta: 0, reason: .correction))
-        XCTAssertEqual(prompt(household, setAside: setAside, now: at(10, 10))?.medicationID, second.id)
+        // Counted since, the question is answered: the card rests for the
+        // week, then asks about the second, whatever was set aside for the
+        // first.
+        household.inventory.append(InventoryEvent(medicationID: first.id, date: at(10, 9), delta: 100, reason: .correction))
+        XCTAssertNil(prompt(household, setAside: setAside, now: at(10, 10)))
+        XCTAssertEqual(prompt(household, setAside: setAside, now: at(17, 0, 30))?.medicationID, second.id)
     }
 
-    /// Whoever taps the weekly reminder is looking for the card it names, so
-    /// a reminder that has come since Not Now brings the card back.
-    func testTheReminderBringsASetAsideCardBack() {
+    /// Only a tapped reminder brings a set-aside card back: one that was
+    /// planned for later that morning, and perhaps never delivered, does not.
+    func testOnlyATappedReminderBringsASetAsideCardBack() {
         var household = Household()
-        let medication = add("Mycophenolate", count: 30, to: &household)
-        let setAside = QuickCountPrompt.settingAside(medication.id, at: at(8, 18), in: [:], calendar: calendar)
-        XCTAssertNil(prompt(household, setAside: setAside, lastAsked: at(8, 10), now: at(9, 9)), "the reminder came before Not Now")
-        XCTAssertEqual(prompt(household, setAside: setAside, lastAsked: at(9, 10), now: at(9, 10, 1))?.medicationID, medication.id)
+        let first = add("Mycophenolate", count: 30, to: &household)
+        let second = add("Tacrolimus", count: 60, to: &household)
+        let setAside = QuickCountPrompt.settingAside(first.id, at: at(8, 8, 5), in: [:], calendar: calendar)
+        XCTAssertNil(prompt(household, setAside: setAside, now: at(8, 10, 1)), "the 10:00 check passing is not a tap")
+
+        let before = QuickCountPrompt.Tap(medicationID: first.id, date: at(8, 8))
+        XCTAssertNil(prompt(household, setAside: setAside, tapped: before, now: at(8, 10, 1)), "a tap before Not Now")
+        let after = QuickCountPrompt.Tap(medicationID: first.id, date: at(8, 10))
+        XCTAssertEqual(prompt(household, setAside: setAside, tapped: after, now: at(8, 10, 1))?.medicationID, first.id)
+
+        let other = QuickCountPrompt.Tap(medicationID: second.id, date: at(8, 10))
+        XCTAssertEqual(prompt(household, setAside: setAside, tapped: other, now: at(8, 10, 1))?.medicationID, second.id,
+                       "a reminder about another medication asks about that one")
+    }
+
+    /// Tapping a count check keeps the medication it named for Today; any
+    /// other reminder leaves it be.
+    func testATappedCountCheckIsKeptForToday() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "QuickCountPromptTests"))
+        defaults.removePersistentDomain(forName: "QuickCountPromptTests")
+        defer { defaults.removePersistentDomain(forName: "QuickCountPromptTests") }
+        let medicationID = UUID()
+
+        XCTAssertEqual(MedicationNotificationRoute.follow(["notificationKind": "dose", "medicationID": medicationID.uuidString], at: at(9, 8), defaults: defaults), .today)
+        XCTAssertNil(defaults.data(forKey: QuickCountPrompt.tapKey))
+        XCTAssertEqual(MedicationNotificationRoute.follow(["notificationKind": "refill", "medicationID": medicationID.uuidString], at: at(9, 9), defaults: defaults), .supply)
+        XCTAssertNil(defaults.data(forKey: QuickCountPrompt.tapKey))
+
+        XCTAssertEqual(MedicationNotificationRoute.follow(["notificationKind": "countCheck", "medicationID": medicationID.uuidString], at: at(9, 10), defaults: defaults), .today)
+        let stored = try XCTUnwrap(defaults.data(forKey: QuickCountPrompt.tapKey))
+        XCTAssertEqual(QuickCountPrompt.decodeTap(stored), QuickCountPrompt.Tap(medicationID: medicationID, date: at(9, 10)))
+        XCTAssertNil(QuickCountPrompt.decodeTap(Data()))
     }
 
     func testTheSetAsidesKeepOnlyWhatStillHolds() {
@@ -178,7 +276,7 @@ final class QuickCountPromptTests: XCTestCase {
         XCTAssertEqual(QuickCountPrompt.decodeSetAside(Data()), [:], "nothing stored is nothing set aside")
         XCTAssertEqual(QuickCountPrompt.decodeSetAside(Data("garbage".utf8)), [:])
 
-        XCTAssertTrue(QuickCountPrompt.isSetAside(recent, in: setAside, lastAsked: nil, now: now, calendar: calendar))
-        XCTAssertFalse(QuickCountPrompt.isSetAside(old, in: setAside, lastAsked: nil, now: now, calendar: calendar))
+        XCTAssertTrue(QuickCountPrompt.isSetAside(recent, in: setAside, tapped: nil, now: now, calendar: calendar))
+        XCTAssertFalse(QuickCountPrompt.isSetAside(old, in: setAside, tapped: nil, now: now, calendar: calendar))
     }
 }

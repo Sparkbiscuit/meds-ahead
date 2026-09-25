@@ -17,6 +17,15 @@ struct QuickCountPrompt: Equatable {
     static let setAsideDays = 3
     /// When Not Now was last tapped, by medication.
     static let setAsideKey = "quickCountSetAside"
+    /// The count-check reminder last tapped.
+    static let tapKey = "quickCountTapped"
+
+    /// A count-check reminder someone tapped: the medication it named, and
+    /// when.
+    struct Tap: Equatable, Codable {
+        let medicationID: UUID
+        let date: Date
+    }
 
     init(medication: Medication, forecast: SupplyForecast) {
         medicationID = medication.id
@@ -31,17 +40,25 @@ struct QuickCountPrompt: Equatable {
         }
     }
 
-    /// The count check's target, from the same candidates and the same
-    /// forecasts the notification planner weighs, unless Not Now set it
-    /// aside. Only the target: a card that moved on to the next medication
-    /// the moment one was set aside would not be hiding anything.
+    /// The count check's question, from the same candidates and the same
+    /// forecasts the notification planner weighs.
+    ///
+    /// A tapped reminder's medication comes first while it still waits for
+    /// a count: the policy's pick can change between planning and the tap,
+    /// and whoever tapped is looking for the one the reminder named.
+    /// Otherwise it is the policy's target, once a week: a count that
+    /// answered the check rests the card for a week, as the reminder rests,
+    /// rather than asking about each medication due in turn. A count needed
+    /// is not rested, since no low-supply alert can be planned without it.
+    /// Not Now hides the card rather than moving on to the next medication,
+    /// which would not be hiding anything.
     static func make(
         medications: [Medication],
         schedules: [DoseSchedule],
         inventoryEvents: [InventoryEvent],
         doseEvents: [DoseEvent],
         setAside: [UUID: Date],
-        lastAsked: Date?,
+        tapped: Tap?,
         now: Date,
         calendar: Calendar = .autoupdatingCurrent
     ) -> QuickCountPrompt? {
@@ -65,19 +82,68 @@ struct QuickCountPrompt: Equatable {
                 calendar: calendar
             )
         }
-        guard let target = CountCheckPolicy.target(from: candidates, now: now, calendar: calendar),
-              let asked = forecasts.first(where: { $0.0.id == target.medicationID }),
-              !isSetAside(target.medicationID, in: setAside, lastAsked: lastAsked, now: now, calendar: calendar) else { return nil }
+        let named = tapped.flatMap { tap in
+            candidates.first {
+                $0.medicationID == tap.medicationID
+                    && CountCheckPolicy.isDue($0, now: now, calendar: calendar)
+                    && tap.date > ($0.lastCountDate ?? .distantPast)
+            }
+        }
+        guard let target = named ?? CountCheckPolicy.target(from: candidates, now: now, calendar: calendar),
+              let asked = forecasts.first(where: { $0.0.id == target.medicationID }) else { return nil }
+        if named == nil, !target.needsCount,
+           let answered = lastAnswer(candidates: candidates, inventoryEvents: inventoryEvents, calendar: calendar),
+           SupplyAttention.days(from: answered, to: now, calendar: calendar) < CountCheckPolicy.intervalDays {
+            return nil
+        }
+        guard !isSetAside(target.medicationID, in: setAside, tapped: tapped, now: now, calendar: calendar) else { return nil }
         return QuickCountPrompt(medication: asked.0, forecast: asked.1)
     }
 
-    /// Not Now holds for three days, unless the weekly reminder asks about a
-    /// count after it: whoever taps that reminder is looking for this card.
-    static func isSetAside(_ medicationID: UUID, in setAside: [UUID: Date], lastAsked: Date?, now: Date, calendar: Calendar = .autoupdatingCurrent) -> Bool {
+    /// The last count that answered the weekly check: one of a medication
+    /// the check can ask about, made once its previous count was due, from
+    /// whichever screen it was made on.
+    static func lastAnswer(
+        candidates: [CountCheckPolicy.Candidate],
+        inventoryEvents: [InventoryEvent],
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> Date? {
+        let counts = Dictionary(grouping: inventoryEvents.filter { $0.reason == .openingCount || $0.reason == .correction }, by: \.medicationID)
+        return candidates.filter(\.isEligible).flatMap { candidate -> [Date] in
+            let dates = (counts[candidate.medicationID] ?? []).map(\.date).sorted()
+            return zip(dates, dates.dropFirst()).compactMap { previous, count in
+                let before = CountCheckPolicy.Candidate(
+                    medicationID: candidate.medicationID,
+                    displayName: candidate.displayName,
+                    isEligible: true,
+                    daysRemaining: nil,
+                    needsCount: false,
+                    lastCountDate: previous
+                )
+                return CountCheckPolicy.isDue(before, now: count, calendar: calendar) ? count : nil
+            }
+        }
+        .max()
+    }
+
+    /// Not Now holds for three days, unless the reminder naming this
+    /// medication is tapped after it: whoever taps it is looking for the
+    /// card. A reminder that only came, or never could, does not undo it.
+    static func isSetAside(_ medicationID: UUID, in setAside: [UUID: Date], tapped: Tap?, now: Date, calendar: Calendar = .autoupdatingCurrent) -> Bool {
         guard let at = setAside[medicationID],
               let until = calendar.date(byAdding: .day, value: setAsideDays, to: at) else { return false }
-        if let lastAsked, lastAsked > at { return false }
+        if let tapped, tapped.medicationID == medicationID, tapped.date > at { return false }
         return now < until
+    }
+
+    static func rememberTap(of medicationID: UUID, at date: Date, in defaults: UserDefaults) {
+        if let data = try? PropertyListEncoder().encode(Tap(medicationID: medicationID, date: date)) {
+            defaults.set(data, forKey: tapKey)
+        }
+    }
+
+    static func decodeTap(_ data: Data) -> Tap? {
+        try? PropertyListDecoder().decode(Tap.self, from: data)
     }
 
     /// Not Now for one medication, with the set-asides that have run their

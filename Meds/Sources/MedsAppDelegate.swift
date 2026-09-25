@@ -43,8 +43,8 @@ final class MedsAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
         didReceive response: UNNotificationResponse
     ) async {
         if response.actionIdentifier == UNNotificationDefaultActionIdentifier {
-            let destination = MedicationNotificationRoute.destination(
-                for: response.notification.request.content.userInfo
+            let destination = MedicationNotificationRoute.follow(
+                response.notification.request.content.userInfo
             )
             await MainActor.run {
                 MedicationNotificationRouter.shared.route(to: destination)
