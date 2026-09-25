@@ -89,7 +89,10 @@ struct MedicationDetailView: View {
                         medication.updatedAt = .now
                         if saveChanges() {
                             refreshNotifications()
-                            if willArchive { dismiss() }
+                            // Nothing could be logged while it was archived, and the
+                            // forecast would assume every dose of that stretch was
+                            // taken, so a restore asks what is on hand now.
+                            if willArchive { dismiss() } else { showingCountCorrection = true }
                         }
                     }
                     Divider()
@@ -141,8 +144,10 @@ struct MedicationDetailView: View {
                     inventoryEvents: allInventoryEvents,
                     doseEvents: allDoseEvents
                 )
-                guard abs(difference) > 0.000_001 else { return }
-                let event = InventoryEvent(medicationID: medication.id, delta: difference, reason: .correction, note: note)
+                // A count that matches the ledger is still recorded: the forecast
+                // assumes unlogged doses were taken only until the last count, and
+                // a count with no event behind it could never end "Count needed".
+                let event = InventoryEvent(medicationID: medication.id, delta: abs(difference) > 0.000_001 ? difference : 0, reason: .correction, note: note)
                 modelContext.insert(event)
                 medication.updatedAt = .now
                 if saveChanges() {
@@ -472,7 +477,9 @@ struct MedicationDetailView: View {
             ActivityItem(
                 id: event.id,
                 date: event.date,
-                title: "\(event.reason.displayName): \(event.delta >= 0 ? "+" : "")\(event.delta.medicationQuantityText)",
+                title: event.reason == .correction && event.delta == 0
+                    ? "Count confirmed"
+                    : "\(event.reason.displayName): \(event.delta >= 0 ? "+" : "")\(event.delta.medicationQuantityText)",
                 symbol: event.delta >= 0 ? "plus.circle.fill" : "minus.circle.fill",
                 color: event.delta >= 0 ? AppTheme.accent : .orange,
                 source: .inventory,

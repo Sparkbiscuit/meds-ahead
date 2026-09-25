@@ -267,4 +267,53 @@ final class MedsUITests: XCTestCase {
         ).firstMatch
         XCTAssertTrue(overdueState.waitForExistence(timeout: 3))
     }
+
+    /// Counting and finding the number the app already shows is still a count:
+    /// it is recorded, and it is what ends "Count needed" when doses really were
+    /// not taken. Restoring an archived medication asks for a count, since
+    /// nothing could be logged while it was archived.
+    func testAMatchingCountIsRecordedAndARestoreAsksForOne() {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-ui-testing",
+            "-skip-onboarding",
+            "-seed-demo-data",
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryL"
+        ]
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["Supply"].tap()
+        let row = app.staticTexts["Furosemide"]
+        XCTAssertTrue(row.waitForExistence(timeout: 3))
+        row.tap()
+        XCTAssertTrue(app.staticTexts["28 on hand"].waitForExistence(timeout: 3))
+
+        app.buttons["supply-actions"].tap()
+        XCTAssertTrue(app.buttons["Correct Count"].waitForExistence(timeout: 3))
+        app.buttons["Correct Count"].tap()
+        XCTAssertTrue(app.buttons["Save Count"].waitForExistence(timeout: 3))
+        app.buttons["Save Count"].tap()
+        let confirmed = app.staticTexts["Count confirmed"]
+        for _ in 0..<6 where !confirmed.exists {
+            app.swipeUp()
+        }
+        XCTAssertTrue(confirmed.waitForExistence(timeout: 3), "the unchanged count is recorded")
+
+        app.buttons["Medication actions"].tap()
+        XCTAssertTrue(app.buttons["Archive Medication"].waitForExistence(timeout: 3))
+        app.buttons["Archive Medication"].tap()
+        app.tabBars.buttons["Medications"].tap()
+        XCTAssertTrue(app.buttons["Show Archived"].waitForExistence(timeout: 3))
+        app.buttons["Show Archived"].tap()
+        let archived = app.staticTexts["Furosemide"]
+        XCTAssertTrue(archived.waitForExistence(timeout: 3))
+        archived.tap()
+        XCTAssertTrue(app.buttons["Medication actions"].waitForExistence(timeout: 3))
+        app.buttons["Medication actions"].tap()
+        XCTAssertTrue(app.buttons["Restore Medication"].waitForExistence(timeout: 3))
+        app.buttons["Restore Medication"].tap()
+        XCTAssertTrue(app.buttons["Save Count"].waitForExistence(timeout: 3), "a restore asks what is on hand")
+    }
 }

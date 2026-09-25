@@ -222,6 +222,24 @@ final class ForecastEngineTests: XCTestCase {
         }
     }
 
+    /// Only a new event can say the count was checked. A count that matches the
+    /// ledger is recorded as a zero correction, and that is what ends "Count
+    /// needed" when the doses really were not taken.
+    func testACountThatMatchesTheLedgerEndsCountNeeded() {
+        let (medication, schedules, opening) = twiceDaily(count: 6)
+        let now = september(6, 7)
+        XCTAssertTrue(forecast(medication, schedules, [opening], now: now).needsCount)
+        XCTAssertEqual(ForecastEngine.correctionDelta(medicationID: medication.id, actualCount: 6, inventoryEvents: [opening], doseEvents: []), 0)
+
+        let confirmed = InventoryEvent(medicationID: medication.id, date: now, delta: 0, reason: .correction)
+        let result = forecast(medication, schedules, [opening, confirmed], now: now.addingTimeInterval(60))
+        XCTAssertFalse(result.needsCount)
+        XCTAssertEqual(result.assumedDoses, 0)
+        XCTAssertEqual(result.confidence, .high)
+        XCTAssertEqual(result.currentSupply, 6)
+        XCTAssertEqual(result.depletionDate, september(8, 20))
+    }
+
     /// A medication added with nothing on hand while the pharmacy fills it has
     /// no doses to miss until the refill comes, and neither does one whose
     /// logged doses emptied the ledger before the next refill.
