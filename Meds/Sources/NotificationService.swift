@@ -24,6 +24,49 @@ actor NotificationService {
         return delivered.filter { $0.hasPrefix("meds.") && !planned.contains($0) && !outcome.retains($0) }
     }
 
+    /// What one planned request says and carries. Taken and Skip on a dated
+    /// reminder or a follow-up find their dose from this userInfo, and the
+    /// widget finds what a follow-up asks about, so it is built, and tested,
+    /// on its own.
+    static func content(for item: PlannedNotification) -> UNMutableNotificationContent {
+        let content = UNMutableNotificationContent()
+        content.title = item.title
+        content.body = item.body
+        content.sound = .default
+        let isDoseMoment = item.kind == .dose || item.kind == .followUp
+        // Stack dose reminders together (and refill alerts together) in
+        // Notification Center instead of interleaving with everything else.
+        content.threadIdentifier = isDoseMoment ? "meds.dose" : "meds.refill"
+        // Dose reminders may break through Focus modes (the entitlement in
+        // Meds.entitlements grants this; the person still controls it per-app
+        // in Settings). Refill alerts are plan-ahead notices, not moments.
+        content.interruptionLevel = isDoseMoment ? .timeSensitive : .active
+        var userInfo: [String: String] = [:]
+        if let medicationID = item.medicationID {
+            userInfo["medicationID"] = medicationID.uuidString
+        }
+        if let scheduleID = item.scheduleID {
+            userInfo["scheduleID"] = scheduleID.uuidString
+        }
+        if let slotDate = item.slotDate {
+            userInfo[NotificationIdentifiers.slotDateKey] = NotificationIdentifiers.slotDateValue(slotDate)
+        }
+        if !item.memberScheduleIDs.isEmpty {
+            userInfo[NotificationIdentifiers.memberScheduleIDsKey] = NotificationIdentifiers.memberScheduleIDsValue(item.memberScheduleIDs)
+        }
+        userInfo["notificationKind"] = switch item.kind {
+        case .dose: "dose"
+        case .followUp: "followUp"
+        case .countCheck: "countCheck"
+        case .refill, .expiration, .refillCheck: "refill"
+        }
+        content.userInfo = userInfo
+        if item.supportsDoseQuickActions {
+            content.categoryIdentifier = MedicationNotificationAction.doseCategoryIdentifier
+        }
+        return content
+    }
+
     func replaceAllNotifications(
         for plans: [MedicationNotificationPlan],
         requestAuthorization: Bool = false
@@ -70,41 +113,7 @@ actor NotificationService {
             if item.kind != .dose, deliveredIdentifiers.contains(item.identifier) {
                 continue
             }
-            let content = UNMutableNotificationContent()
-            content.title = item.title
-            content.body = item.body
-            content.sound = .default
-            let isDoseMoment = item.kind == .dose || item.kind == .followUp
-            // Stack dose reminders together (and refill alerts together) in
-            // Notification Center instead of interleaving with everything else.
-            content.threadIdentifier = isDoseMoment ? "meds.dose" : "meds.refill"
-            // Dose reminders may break through Focus modes (the entitlement in
-            // Meds.entitlements grants this; the person still controls it per-app
-            // in Settings). Refill alerts are plan-ahead notices, not moments.
-            content.interruptionLevel = isDoseMoment ? .timeSensitive : .active
-            var userInfo: [String: String] = [:]
-            if let medicationID = item.medicationID {
-                userInfo["medicationID"] = medicationID.uuidString
-            }
-            if let scheduleID = item.scheduleID {
-                userInfo["scheduleID"] = scheduleID.uuidString
-            }
-            if let slotDate = item.slotDate {
-                userInfo[NotificationIdentifiers.slotDateKey] = NotificationIdentifiers.slotDateValue(slotDate)
-            }
-            if !item.memberScheduleIDs.isEmpty {
-                userInfo[NotificationIdentifiers.memberScheduleIDsKey] = NotificationIdentifiers.memberScheduleIDsValue(item.memberScheduleIDs)
-            }
-            userInfo["notificationKind"] = switch item.kind {
-            case .dose: "dose"
-            case .followUp: "followUp"
-            case .countCheck: "countCheck"
-            case .refill, .expiration, .refillCheck: "refill"
-            }
-            content.userInfo = userInfo
-            if item.supportsDoseQuickActions {
-                content.categoryIdentifier = MedicationNotificationAction.doseCategoryIdentifier
-            }
+            let content = Self.content(for: item)
 
             let trigger: UNNotificationTrigger
             switch item.trigger {
