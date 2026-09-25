@@ -6,6 +6,11 @@ import UIKit
 import VisionKit
 
 struct ScannerScreen: View {
+    /// What this run of scans has put away so far, shown under the camera once
+    /// there is something to show.
+    let tally: SetupSessionTally
+    /// Ends the run of scans; offered with the tally.
+    let onDone: (() -> Void)?
     let onComplete: (MedicationDraft) -> Void
     @StateObject private var scannerController = LiveScannerController()
     @State private var evidence: [ScanEvidence] = []
@@ -21,8 +26,19 @@ struct ScannerScreen: View {
     @State private var scannerFrame: CGRect = .zero
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private static let scanAreaSpace = "scanArea"
+
+    init(
+        tally: SetupSessionTally = SetupSessionTally(),
+        onDone: (() -> Void)? = nil,
+        onComplete: @escaping (MedicationDraft) -> Void
+    ) {
+        self.tally = tally
+        self.onDone = onDone
+        self.onComplete = onComplete
+    }
 
     private enum CameraAccess: Equatable {
         case resolving
@@ -269,6 +285,7 @@ struct ScannerScreen: View {
 
     private var controls: some View {
         VStack(spacing: 13) {
+            sessionTally
             if isProcessingPhoto || isInterpreting {
                 ProgressView(isInterpreting ? "Organizing label on this iPhone…" : "Reading photo…")
                     .tint(.white)
@@ -315,11 +332,49 @@ struct ScannerScreen: View {
                 .disabled(
                     evidence.isEmpty || isInterpreting
                 )
+#if DEBUG
+            if SimulatedScan.isScannerButtonEnabled {
+                Button("Simulate Scan") { merge(SimulatedScan.nextEvidence()) }
+                    .font(.footnote.weight(.semibold))
+                    .tint(.white)
+                    .accessibilityIdentifier("simulate-scan")
+            }
+#endif
         }
         .padding(.horizontal, 18)
         .padding(.top, 16)
         .padding(.bottom, 12)
         .background(.ultraThinMaterial)
+    }
+
+    /// Down here with the buttons rather than over the camera: anything drawn
+    /// across the frame sits between the label and the person lining it up.
+    @ViewBuilder
+    private var sessionTally: some View {
+        if let summary = tally.summary() {
+            let layout = dynamicTypeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10))
+                : AnyLayout(HStackLayout(spacing: 12))
+            layout {
+                Label(summary, systemImage: "checkmark.circle.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(summary)
+                    .accessibilityIdentifier("setup-tally")
+                if let onDone {
+                    Button("Done", action: onDone)
+                        .font(.subheadline.weight(.semibold))
+                        .buttonStyle(.bordered)
+                        .buttonBorderShape(.capsule)
+                        .tint(.white)
+                        .accessibilityHint("Closes Add. Everything listed is saved.")
+                        .accessibilityIdentifier("setup-done")
+                }
+            }
+        }
     }
 
     @ViewBuilder

@@ -457,4 +457,80 @@ final class MedsUITests: XCTestCase {
         app.buttons["Save Count"].tap()
         XCTAssertTrue(app.staticTexts["20 on hand"].waitForExistence(timeout: 3))
     }
+
+    /// Scanning one bottle after another: each save returns to a new scanner
+    /// with nothing of the last bottle in it, the bar under the camera counts
+    /// what has gone in, and Done closes the flow.
+    func testScanningBottlesOneAfterAnother() {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-ui-testing",
+            "-skip-onboarding",
+            "-simulate-scanner",
+            "-simulate-scan-name", "Tacrolimus",
+            "-simulate-scan-strength", "1 mg",
+            "-simulate-scan-quantity", "60",
+            "-simulate-scan-name", "Prednisone",
+            "-simulate-scan-strength", "5 mg",
+            "-simulate-scan-quantity", "30",
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryL"
+        ]
+        // Saving asks for notification permission the first time.
+        addUIInterruptionMonitor(withDescription: "Notification permission") { alert in
+            for title in ["Allow", "Don’t Allow", "Don't Allow"] where alert.buttons[title].exists {
+                alert.buttons[title].tap()
+                return true
+            }
+            return false
+        }
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["Add"].tap()
+        XCTAssertTrue(app.buttons["scan-label"].waitForExistence(timeout: 3))
+        app.buttons["scan-label"].tap()
+
+        func scanAndAdd(expectedName: String, labelLine: String, lastLabelLine: String? = nil) {
+            let simulate = app.buttons["simulate-scan"]
+            XCTAssertTrue(simulate.waitForExistence(timeout: 5))
+            simulate.tap()
+            let review = app.buttons["Review"]
+            XCTAssertTrue(review.waitForExistence(timeout: 3))
+            review.tap()
+            let name = app.textFields["medication-name"]
+            XCTAssertTrue(name.waitForExistence(timeout: 15), "review screen never appeared")
+            XCTAssertEqual(name.value as? String, expectedName)
+
+            app.buttons["Scan evidence"].tap()
+            XCTAssertTrue(app.staticTexts[labelLine].waitForExistence(timeout: 3))
+            if let lastLabelLine {
+                XCTAssertFalse(app.staticTexts[lastLabelLine].exists, "the last bottle's label reached this review")
+            }
+
+            let useLabelQuantity = app.buttons["use-label-quantity"]
+            for _ in 0..<6 where !useLabelQuantity.isHittable { app.swipeUp() }
+            useLabelQuantity.tap()
+            app.buttons["save-medication"].tap()
+        }
+
+        scanAndAdd(expectedName: "Tacrolimus", labelLine: "TACROLIMUS 1 MG")
+        let tally = app.descendants(matching: .any)["setup-tally"]
+        XCTAssertTrue(tally.waitForExistence(timeout: 5), "saving a scanned bottle closed the flow")
+        XCTAssertEqual(tally.label, "1 added: Tacrolimus")
+        // The new scanner has read nothing: the last bottle's label is not
+        // waiting behind its Review button.
+        XCTAssertTrue(app.buttons["Capture & Review"].exists, "the scanner still holds the last bottle's evidence")
+        XCTAssertFalse(app.buttons["Clear Scan"].isEnabled)
+
+        scanAndAdd(expectedName: "Prednisone", labelLine: "PREDNISONE 5 MG", lastLabelLine: "TACROLIMUS 1 MG")
+        XCTAssertTrue(tally.waitForExistence(timeout: 5))
+        XCTAssertEqual(tally.label, "2 added: Tacrolimus and Prednisone")
+        app.buttons["setup-done"].tap()
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+
+        app.tabBars.buttons["Medications"].tap()
+        XCTAssertTrue(app.staticTexts["Tacrolimus"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["Prednisone"].exists)
+    }
 }

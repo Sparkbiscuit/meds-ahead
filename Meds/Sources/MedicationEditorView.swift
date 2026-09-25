@@ -22,7 +22,9 @@ struct MedicationEditorView: View {
     private let draftCaptureNote: String
     private let draftLabelQuantity: Double?
     private let draftLabelQuantityNote: String?
-    private let onSaved: (() -> Void)?
+    /// Called with the medication once it is saved, so the add flow can say
+    /// what went in.
+    private let onSaved: ((Medication) -> Void)?
     /// Called after a save that changed what past days were scheduled to hold
     /// while the forecast was assuming unlogged doses: only a count can say
     /// what those doses took, so the presenter asks for one.
@@ -69,7 +71,12 @@ struct MedicationEditorView: View {
     @State private var showingDiscardConfirmation = false
     @FocusState private var focusedNameField: NameField?
 
-    init(medication: Medication? = nil, draft: MedicationDraft = MedicationDraft(), onSaved: (() -> Void)? = nil, onAskForCount: (() -> Void)? = nil) {
+    init(
+        medication: Medication? = nil,
+        draft: MedicationDraft = MedicationDraft(),
+        onSaved: ((Medication) -> Void)? = nil,
+        onAskForCount: (() -> Void)? = nil
+    ) {
         self.medication = medication
         self.draftEvidence = draft.evidence
         self.draftSource = medication?.source ?? draft.source
@@ -819,7 +826,7 @@ struct MedicationEditorView: View {
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             if asksForCount { onAskForCount?() }
             if let onSaved {
-                onSaved()
+                onSaved(target)
             } else {
                 dismiss()
             }
@@ -1128,7 +1135,7 @@ private struct ScheduleDoseQuantityField: View {
 
 struct AddMedicationFlow: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var path: [Step] = []
+    @State private var navigation = Navigation()
 
     /// The reviewed draft travels inside the path value rather than in separate
     /// state the destination closure reads later. Two earlier shapes both lost a
@@ -1138,7 +1145,8 @@ struct AddMedicationFlow: View {
     /// editor from a stale draft or reuse the previous view's state outright.
     /// Carrying the draft makes each review screen a distinct destination.
     enum Step: Hashable {
-        case scanner
+        /// Numbered, and never reused within a flow: see `Navigation`.
+        case scanner(Int)
         case editor(MedicationDraft)
         case healthImport
         /// Reviewed from the Health list rather than the scanner: saving returns
@@ -1155,7 +1163,12 @@ struct AddMedicationFlow: View {
     }
 
     var body: some View {
-        NavigationStack(path: $path) {
+        // Read here, in the body, and not inside the destination closure: the
+        // stack builds a destination with the closure from the body's last
+        // run, and a tally read inside it came back as it was then, leaving
+        // the next scanner without the bottle just added.
+        let tally = navigation.tally
+        NavigationStack(path: $navigation.path) {
             ZStack {
                 CanvasBackground()
                 ScrollView {
@@ -1176,7 +1189,7 @@ struct AddMedicationFlow: View {
                         .padding(.vertical, 18)
 
                         Button {
-                            path.append(.scanner)
+                            navigation.scan()
                         } label: {
                             AddOptionCard(
                                 symbol: "camera.viewfinder",
@@ -1189,7 +1202,7 @@ struct AddMedicationFlow: View {
                         .accessibilityIdentifier("scan-label")
 
                         Button {
-                            path.append(.editor(MedicationDraft()))
+                            navigation.path.append(.editor(MedicationDraft()))
                         } label: {
                             AddOptionCard(
                                 symbol: "square.and.pencil",
@@ -1203,7 +1216,7 @@ struct AddMedicationFlow: View {
 
                         if canImportFromHealth {
                             Button {
-                                path.append(.healthImport)
+                                navigation.path.append(.healthImport)
                             } label: {
                                 AddOptionCard(
                                     symbol: "heart.text.square.fill",
@@ -1224,37 +1237,92 @@ struct AddMedicationFlow: View {
             }
 #if DEBUG
             .onAppear {
-                guard ProcessInfo.processInfo.arguments.contains("-simulate-scan-result"),
-                      path.isEmpty else { return }
-                path.append(.editor(MedicationDraft(
-                    name: "Amphetamine",
-                    strength: "20 mg",
-                    form: .tablet,
-                    directions: "Take one tablet by mouth twice daily",
-                    currentSupply: 60,
-                    source: .scanned,
-                    evidence: [ScanEvidence(kind: .text, value: "AMPHETAMINE 20 MG", confidence: 0.9)]
-                )))
+                let arguments = ProcessInfo.processInfo.arguments
+                guard arguments.contains("-simulate-scan-result"),
+                      navigation.path.isEmpty else { return }
+                navigation.path.append(.editor(SimulatedScan.draft(for: SimulatedScan.bottles(from: arguments).first ?? .standard)))
             }
 #endif
             .navigationDestination(for: Step.self) { step in
                 switch step {
-                case .scanner:
-                    ScannerScreen { scannedDraft in
-                        path.append(.editor(scannedDraft))
+                case let .scanner(session):
+                    ScannerScreen(tally: tally, onDone: { dismiss() }) { scannedDraft in
+                        navigation.path.append(.editor(scannedDraft))
                     }
+                    // A new path puts its scanner in the stack's first place,
+                    // and the stack kept the screen already there, state and
+                    // all: the step's number alone left the last bottle's
+                    // evidence behind the next Review button.
+                    .id(session)
                 case let .editor(draft):
-                    MedicationEditorView(draft: draft, onSaved: { dismiss() })
+                    MedicationEditorView(
+                        draft: draft,
+                        onSaved: { medication in finish(.added(medication.displayName), from: draft) }
+                    )
                 case .healthImport:
                     if #available(iOS 26.0, *) {
                         HealthImportView { draft in
-                            path.append(.healthReview(draft))
+                            navigation.path.append(.healthReview(draft))
                         }
                     }
                 case let .healthReview(draft):
-                    MedicationEditorView(draft: draft, onSaved: { path.removeLast() })
+                    MedicationEditorView(draft: draft, onSaved: { _ in navigation.path.removeLast() })
                 }
             }
+        }
+    }
+
+    private func finish(_ outcome: Navigation.Outcome, from draft: MedicationDraft) {
+        if navigation.finish(outcome, from: draft) == .close { dismiss() }
+    }
+}
+
+extension AddMedicationFlow {
+    /// The flow's path and tally as plain values, so what one bottle leaves
+    /// behind for the next can be tested without a screen.
+    ///
+    /// A caregiver home from the hospital with a bag of bottles scans them one
+    /// after another, and a flow that closed after every save sent them back
+    /// through Today, Add and Scan for each. A bottle from the scanner now
+    /// returns to a scanner. It must be a new one: the scanner keeps what it
+    /// read in its own state, and a scanner SwiftUI had seen before would hand
+    /// the last bottle's text to the next bottle's review.
+    struct Navigation: Hashable {
+        enum Outcome: Hashable {
+            /// Saved as a new medication, under this name.
+            case added(String)
+            /// Added to a medication already tracked, by that one's name.
+            case addedTo(String)
+        }
+
+        enum Next: Hashable {
+            case scanNext
+            case close
+        }
+
+        var path: [Step] = []
+        private(set) var tally = SetupSessionTally()
+        /// Every scanner shown so far. Its count numbers the next one, so no
+        /// two scanners in a flow are ever the same destination.
+        private(set) var scannersShown = 0
+
+        mutating func scan() {
+            path.append(.scanner(scannersShown))
+            scannersShown += 1
+        }
+
+        /// A bottle from the scanner goes on the tally, and a new scanner
+        /// replaces the whole path, its review and that review's evidence with
+        /// it. Anything entered by hand closes the flow, as it always has.
+        mutating func finish(_ outcome: Outcome, from draft: MedicationDraft) -> Next {
+            guard draft.source == .scanned else { return .close }
+            switch outcome {
+            case let .added(name): tally.recordAdded(name)
+            case let .addedTo(name): tally.recordAddedTo(name)
+            }
+            path = [.scanner(scannersShown)]
+            scannersShown += 1
+            return .scanNext
         }
     }
 }
@@ -1291,3 +1359,74 @@ private struct AddOptionCard: View {
         .contentShape(Rectangle())
     }
 }
+
+#if DEBUG
+/// Labels for the UI tests to scan, since the simulator has no camera. Each
+/// `-simulate-scan-name` starts a bottle, and the `-simulate-scan-strength` and
+/// `-simulate-scan-quantity` after it describe that bottle.
+enum SimulatedScan {
+    struct Bottle: Hashable {
+        var name: String
+        var strength = ""
+        var quantity: Double = 0
+
+        static let standard = Bottle(name: "Amphetamine", strength: "20 mg", quantity: 60)
+    }
+
+    static func bottles(from arguments: [String]) -> [Bottle] {
+        var bottles: [Bottle] = []
+        for (key, value) in zip(arguments, arguments.dropFirst()) {
+            switch key {
+            case "-simulate-scan-name":
+                bottles.append(Bottle(name: value))
+            case "-simulate-scan-strength" where !bottles.isEmpty:
+                bottles[bottles.count - 1].strength = value
+            case "-simulate-scan-quantity" where !bottles.isEmpty:
+                bottles[bottles.count - 1].quantity = Double(value) ?? 0
+            default:
+                break
+            }
+        }
+        return bottles
+    }
+
+    /// The review `-simulate-scan-result` opens on, as the scanner hands one over.
+    static func draft(for bottle: Bottle) -> MedicationDraft {
+        MedicationDraft(
+            name: bottle.name,
+            strength: bottle.strength,
+            form: .tablet,
+            directions: "Take one tablet by mouth twice daily",
+            currentSupply: bottle.quantity,
+            source: .scanned,
+            evidence: [ScanEvidence(kind: .text, value: "\(bottle.name) \(bottle.strength)".uppercased(), confidence: 0.9)]
+        )
+    }
+
+    /// Under `-simulate-scanner` the scanner offers a button that reads the
+    /// next bottle's label into its evidence, as a chosen photo would, so the
+    /// review goes through the scanner's own Review.
+    static var isScannerButtonEnabled: Bool {
+        ProcessInfo.processInfo.arguments.contains("-simulate-scanner")
+    }
+
+    static func evidence(for bottle: Bottle) -> [ScanEvidence] {
+        let capture = UUID()
+        let lines = ["\(bottle.name) \(bottle.strength)".uppercased(), "QTY: \(bottle.quantity.medicationQuantityText)"]
+        return lines.enumerated().map { index, line in
+            ScanEvidence(kind: .text, value: line, confidence: 0.95, origin: .photoLibrary, captureID: capture, lineIndex: index)
+        }
+    }
+
+    /// Bottles read so far this launch, so each scanner reads the next one.
+    @MainActor private static var bottlesRead = 0
+
+    @MainActor
+    static func nextEvidence() -> [ScanEvidence] {
+        let bottles = bottles(from: ProcessInfo.processInfo.arguments)
+        guard !bottles.isEmpty else { return evidence(for: .standard) }
+        defer { bottlesRead += 1 }
+        return evidence(for: bottles[bottlesRead % bottles.count])
+    }
+}
+#endif
