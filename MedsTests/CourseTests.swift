@@ -105,4 +105,178 @@ final class CourseTests: XCTestCase {
         XCTAssertNil(ScheduleEngine.remainingCourseQuantity(schedules: [DoseSchedule(medicationID: medication.id, minutesAfterMidnight: 8 * 60)],
                                                             medicationID: medication.id, now: september(1), calendar: calendar))
     }
+
+    // MARK: - The forecast
+
+    private func attention(_ medication: Medication, _ forecast: SupplyForecast, now: Date) -> SupplyAttention {
+        SupplyAttention(medication: medication, forecast: forecast, now: now, calendar: calendar)
+    }
+
+    /// A course that ends before the supply does used to read "extends
+    /// beyond the forecast window", with unknown confidence.
+    func testASupplyThatOutlastsTheCourseIsEnoughToFinishIt() {
+        let (medication, schedules, opening) = twiceDailyCourse(count: 24, through: 10)
+        let now = september(1, 7, 30)
+        let result = forecast(medication, schedules, [opening], now: now)
+
+        XCTAssertNil(result.depletionDate)
+        XCTAssertNil(result.daysRemaining)
+        XCTAssertEqual(result.confidence, .high)
+        XCTAssertTrue(result.courseCovered)
+        XCTAssertFalse(result.courseFinished)
+        XCTAssertEqual(result.leftoverAtCourseEnd, 4, "twenty doses from twenty-four")
+        XCTAssertEqual(result.courseEndDate, lastDay(10))
+        XCTAssertEqual(result.explanation, "Enough to finish the course on \(ForecastEngine.dayText(lastDay(10), calendar: calendar)), with 4 tablets left.")
+        XCTAssertEqual(result.currentSupply, 24)
+        XCTAssertFalse(attention(medication, result, now: now).needsAttention)
+
+        let exact = forecast(medication, schedules, [InventoryEvent(medicationID: medication.id, date: september(1, 7), delta: 20, reason: .openingCount)], now: now)
+        XCTAssertTrue(exact.courseCovered, "the last tablet for the last dose is enough, not a run-out on the last day")
+        XCTAssertNil(exact.depletionDate)
+        XCTAssertEqual(exact.leftoverAtCourseEnd, 0)
+        XCTAssertTrue(exact.explanation.hasSuffix("with 0 tablets left."), exact.explanation)
+
+        let liquid = twiceDailyCourse(count: 21.5, through: 10, form: .liquid)
+        XCTAssertTrue(forecast(liquid.0, liquid.1, [liquid.2], now: now).explanation.hasSuffix("with 1.5 mL left."))
+    }
+
+    /// Running out first keeps the run-out date and the alert it drives,
+    /// and says the course is not covered.
+    func testASupplyThatRunsOutBeforeTheCourseEndsSaysSo() throws {
+        let (medication, schedules, opening) = twiceDailyCourse(count: 15, through: 10)
+        let now = september(1, 7, 30)
+        let result = forecast(medication, schedules, [opening], now: now)
+        let ongoing = schedules.map {
+            DoseSchedule(id: $0.id, medicationID: medication.id, minutesAfterMidnight: $0.minutesAfterMidnight, startDate: $0.startDate)
+        }
+
+        XCTAssertEqual(result.depletionDate, september(8, 8), "the fifteenth dose")
+        XCTAssertEqual(result.depletionDate, forecast(medication, ongoing, [opening], now: now).depletionDate)
+        XCTAssertEqual(result.daysRemaining, 7)
+        XCTAssertEqual(result.confidence, .high)
+        XCTAssertFalse(result.courseCovered)
+        XCTAssertNil(result.leftoverAtCourseEnd)
+        XCTAssertEqual(result.courseEndDate, lastDay(10))
+        XCTAssertEqual(result.explanation, "Based on the confirmed count and current schedule. Runs out before the course ends on \(ForecastEngine.dayText(lastDay(10), calendar: calendar)).")
+
+        // Nineteen for twenty doses: the last one is the one that runs short.
+        let oneShort = forecast(medication, schedules, [InventoryEvent(medicationID: medication.id, date: september(1, 7), delta: 19, reason: .openingCount)], now: now)
+        XCTAssertEqual(oneShort.depletionDate, september(10, 8))
+        XCTAssertFalse(oneShort.courseCovered)
+        let halfShort = forecast(medication, schedules, [InventoryEvent(medicationID: medication.id, date: september(1, 7), delta: 19.5, reason: .openingCount)], now: now)
+        XCTAssertEqual(halfShort.depletionDate, september(10, 20), "half a tablet is not the last dose")
+        XCTAssertFalse(halfShort.courseCovered)
+    }
+
+    /// The day after the last day, nothing is due and nothing needs a refill,
+    /// however much or little is left in the bottle.
+    func testAFinishedCourseNeedsNothing() {
+        let (medication, schedules, opening) = twiceDailyCourse(count: 20, through: 10)
+        let now = september(11, 9)
+        let leftovers = forecast(medication, schedules, [opening], now: now)
+        XCTAssertTrue(leftovers.courseFinished)
+        XCTAssertFalse(leftovers.courseCovered)
+        XCTAssertNil(leftovers.depletionDate)
+        XCTAssertNil(leftovers.daysRemaining)
+        XCTAssertEqual(leftovers.assumedDoses, 0, "nothing to assume about a course that is over")
+        XCTAssertEqual(leftovers.currentSupply, 20, "the ledger's own number")
+        XCTAssertEqual(leftovers.courseEndDate, lastDay(10))
+        XCTAssertEqual(leftovers.explanation, "Course finished \(ForecastEngine.dayText(lastDay(10), calendar: calendar)).")
+        XCTAssertFalse(attention(medication, leftovers, now: now).needsAttention)
+
+        let allTaken = (1...10).flatMap { day in schedules.map { logged($0, on: day) } }
+        let empty = forecast(medication, schedules, [opening], allTaken, now: now)
+        XCTAssertTrue(empty.courseFinished)
+        XCTAssertEqual(empty.currentSupply, 0)
+        XCTAssertNil(empty.depletionDate, "not \"No confirmed supply remains\"")
+        XCTAssertFalse(attention(medication, empty, now: now).isLow, "an empty bottle is how the course ended")
+    }
+
+    /// After the last dose of a course dispensed to the tablet, nothing is on
+    /// record and nothing more is needed; with a dose still to come, nothing
+    /// on record is still a gap.
+    func testTheLastDayWithNothingLeftIsCoveredOnlyOnceTheLastDoseIsDone() {
+        let (medication, schedules, opening) = twiceDailyCourse(count: 20, through: 10)
+        let allTaken = (1...10).flatMap { day in schedules.map { logged($0, on: day) } }
+
+        let done = forecast(medication, schedules, [opening], allTaken, now: september(10, 21))
+        XCTAssertTrue(done.courseCovered)
+        XCTAssertEqual(done.leftoverAtCourseEnd, 0)
+        XCTAssertNil(done.depletionDate)
+        XCTAssertEqual(done.confidence, .high)
+        XCTAssertFalse(attention(medication, done, now: september(10, 21)).needsAttention)
+
+        let beforeEvening = forecast(medication, schedules, [opening], Array(allTaken.dropLast()), now: september(10, 19))
+        XCTAssertTrue(beforeEvening.courseCovered, "one tablet for the one dose left")
+        XCTAssertEqual(beforeEvening.leftoverAtCourseEnd, 0)
+
+        let shortOne = InventoryEvent(medicationID: medication.id, date: september(1, 7), delta: 19, reason: .openingCount)
+        let gap = forecast(medication, schedules, [shortOne], Array(allTaken.dropLast()), now: september(10, 19))
+        XCTAssertFalse(gap.courseCovered)
+        XCTAssertEqual(gap.explanation, "No confirmed supply remains.")
+        XCTAssertEqual(gap.depletionDate, september(10, 19))
+        XCTAssertTrue(attention(medication, gap, now: september(10, 19)).needsAttention)
+    }
+
+    /// The 1.1.1 rule still holds on a course: doses nobody logged are
+    /// assumed taken before the course's remaining doses are weighed.
+    func testUnloggedDosesAreAssumedTakenOnACourseToo() {
+        let (medication, schedules, _) = twiceDailyCourse(count: 24, through: 10)
+        let now = september(3, 7)
+        let day = ForecastEngine.dayText(lastDay(10), calendar: calendar)
+
+        let covered = forecast(medication, schedules, [InventoryEvent(medicationID: medication.id, date: september(1, 7), delta: 24, reason: .openingCount)], now: now)
+        XCTAssertEqual(covered.assumedDoses, 4)
+        XCTAssertTrue(covered.courseCovered)
+        XCTAssertEqual(covered.leftoverAtCourseEnd, 4, "24, less 4 assumed and 16 to come")
+        XCTAssertEqual(covered.confidence, .estimated)
+        XCTAssertEqual(covered.explanation,
+                       "Enough to finish the course on \(day), with 4 tablets left. Assumes the 4 scheduled doses since your last count that weren't logged were taken.")
+
+        let short = forecast(medication, schedules, [InventoryEvent(medicationID: medication.id, date: september(1, 7), delta: 18, reason: .openingCount)], now: now)
+        XCTAssertEqual(short.assumedDoses, 4)
+        XCTAssertFalse(short.courseCovered)
+        XCTAssertEqual(short.depletionDate, september(9, 20), "14 left after the assumed doses")
+        XCTAssertEqual(short.confidence, .estimated)
+        XCTAssertEqual(short.explanation,
+                       "Assumes the 4 scheduled doses since your last count that weren't logged were taken. Runs out before the course ends on \(day).")
+    }
+
+    /// A count needed during a course still says count needed: whatever the
+    /// course asks for, nobody knows what is left.
+    func testACountNeededDuringACourseStillSaysCountNeeded() {
+        let (medication, schedules, _) = twiceDailyCourse(count: 4, through: 10)
+        let opening = InventoryEvent(medicationID: medication.id, date: september(1, 7), delta: 4, reason: .openingCount)
+        let now = september(3, 7)
+        let result = forecast(medication, schedules, [opening], now: now)
+
+        XCTAssertTrue(result.needsCount)
+        XCTAssertFalse(result.courseCovered)
+        XCTAssertFalse(result.courseFinished)
+        XCTAssertEqual(result.assumedDoses, 4)
+        XCTAssertEqual(result.courseEndDate, lastDay(10))
+        XCTAssertTrue(result.explanation.contains("Count what is left"), result.explanation)
+        XCTAssertTrue(attention(medication, result, now: now).needsAttention)
+    }
+
+    /// A course is a scheduled medication's: schedules left behind when a
+    /// medication was made as-needed do not end it. One whose last day lies
+    /// past the forecast window is weighed like any other schedule.
+    func testOnlyAScheduledCourseWithinTheWindowIsACourse() throws {
+        let (medication, schedules, opening) = twiceDailyCourse(count: 20, through: 5)
+        medication.isAsNeeded = true
+        let doses = (1...3).map { DoseEvent(medicationID: medication.id, recordedAt: september($0, 12), doseQuantity: 1, status: .taken) }
+        let asNeeded = forecast(medication, schedules, [opening], doses, now: september(8, 9))
+        XCTAssertEqual(asNeeded, forecast(medication, [], [opening], doses, now: september(8, 9)))
+        XCTAssertNil(asNeeded.courseEndDate)
+
+        let longCourse = Medication(name: "Tacrolimus", createdAt: september(1, 7))
+        let farEnd = ScheduleEngine.normalizedEndDate(forDay: try XCTUnwrap(calendar.date(byAdding: .year, value: 4, to: september(1))), calendar: calendar)
+        let schedule = DoseSchedule(medicationID: longCourse.id, minutesAfterMidnight: 8 * 60, startDate: september(1, 7), endDate: farEnd)
+        let plenty = InventoryEvent(medicationID: longCourse.id, date: september(1, 7), delta: 5000, reason: .openingCount)
+        let result = forecast(longCourse, [schedule], [plenty], now: september(1, 7, 30))
+        XCTAssertFalse(result.courseCovered, "four years out is past what the forecast can vouch for")
+        XCTAssertEqual(result.confidence, .unknown)
+        XCTAssertEqual(result.courseEndDate, farEnd)
+    }
 }
