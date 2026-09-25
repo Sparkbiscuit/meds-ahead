@@ -96,7 +96,15 @@ final class MedsUITests: XCTestCase {
             field.tap()
             field.typeText(value)
         }
-        app.navigationBars["Add Medication"].staticTexts["Add Medication"].tap()
+        // The keyboard stays up after the last field; tapping the title never
+        // lowered it. On iOS 27 the audit then reports "potentially
+        // inaccessible text" without naming an element, and passes once the
+        // keyboard is down: it was reading the keyboard, not the editor. So
+        // the keyboard is dragged away first, as a person would.
+        let form = app.collectionViews.firstMatch
+        form.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+            .press(forDuration: 0.05, thenDragTo: form.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3), "the keyboard would be audited instead of the editor")
 
         try app.performAccessibilityAudit(for: [
             .elementDetection,
