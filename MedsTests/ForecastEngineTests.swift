@@ -143,8 +143,9 @@ final class ForecastEngineTests: XCTestCase {
         XCTAssertEqual(refilled.currentSupply, 60)
         XCTAssertEqual(refilled.assumedDoses, 10, "a refill adds stock but confirms nothing about the doses before it")
 
-        // With no count at all, the doses since the medication was added are the ones assumed.
-        XCTAssertEqual(forecast(medication, schedules, [refill], now: now).assumedDoses, 10)
+        // With no count at all, the first refill lands on a ledger that showed nothing, so it
+        // says what is on hand: only the doses since it are assumed.
+        XCTAssertEqual(forecast(medication, schedules, [refill], now: now).assumedDoses, 3)
 
         // A count dated after now leaves nothing to assume.
         let later = InventoryEvent(medicationID: medication.id, date: september(7, 7), delta: 0, reason: .correction)
@@ -219,6 +220,32 @@ final class ForecastEngineTests: XCTestCase {
             let then = forecast(medication, [schedule], inventory, now: try XCTUnwrap(calendar.date(byAdding: .day, value: later, to: now)))
             XCTAssertEqual(then.depletionDate, today.depletionDate, "\(later) days on, with nothing logged, the date has not moved")
         }
+    }
+
+    /// A medication added with nothing on hand while the pharmacy fills it has
+    /// no doses to miss until the refill comes, and neither does one whose
+    /// logged doses emptied the ledger before the next refill.
+    func testARefillOntoALedgerShowingNothingSaysWhatIsOnHand() {
+        let (medication, schedules, opening) = twiceDaily(count: 0)
+        let refill = InventoryEvent(medicationID: medication.id, date: september(16, 12), delta: 30, reason: .refill)
+        let fresh = forecast(medication, schedules, [opening, refill], now: september(16, 12, 5))
+        XCTAssertFalse(fresh.needsCount)
+        XCTAssertEqual(fresh.assumedDoses, 0)
+        XCTAssertEqual(fresh.confidence, .high)
+        XCTAssertEqual(fresh.depletionDate, calendar.date(from: DateComponents(year: 2026, month: 10, day: 1, hour: 8)))
+
+        let twoDaysOn = forecast(medication, schedules, [opening, refill], now: september(18, 7))
+        XCTAssertEqual(twoDaysOn.assumedDoses, 3)
+        XCTAssertEqual(twoDaysOn.explanation, "Assumes the 3 scheduled doses since your last refill that weren't logged were taken.")
+        XCTAssertEqual(twoDaysOn.depletionDate, fresh.depletionDate)
+
+        let (other, otherSchedules, four) = twiceDaily(count: 4)
+        let emptied = [1, 2].flatMap { day in otherSchedules.map { logged(.taken, $0, at: september(day, $0.minutesAfterMidnight / 60)) } }
+        let late = InventoryEvent(medicationID: other.id, date: september(10, 12), delta: 30, reason: .refill)
+        let afterGap = forecast(other, otherSchedules, [four, late], emptied, now: september(10, 12, 5))
+        XCTAssertEqual(afterGap.currentSupply, 30)
+        XCTAssertEqual(afterGap.assumedDoses, 0, "the week with nothing on hand is not charged to the refill")
+        XCTAssertFalse(afterGap.needsCount)
     }
 
     /// Past doses stopped at the edge of the due window and doses to come

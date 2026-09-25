@@ -158,7 +158,7 @@ enum ForecastEngine {
             )
         }
 
-        let anchor = assumptionAnchor(medication: medication, inventoryEvents: inventoryEvents)
+        let anchor = assumptionAnchor(medication: medication, inventoryEvents: inventoryEvents, doseEvents: doseEvents)
         // A dose becomes an assumed one when Today would call it overdue, and is
         // one of the doses still to come until then. Every unlogged dose since
         // the anchor is in exactly one of the two, so the date holds still while
@@ -172,7 +172,7 @@ enum ForecastEngine {
         let logs = ScheduleEngine.DoseLogIndex(
             doseEvents: doseEvents.filter {
                 $0.medicationID == medication.id && ($0.scheduleID != nil
-                    || ($0.status == .taken && $0.countsTowardSupply && $0.recordedAt >= anchor && $0.recordedAt <= now))
+                    || ($0.status == .taken && $0.countsTowardSupply && $0.recordedAt >= anchor.date && $0.recordedAt <= now))
             },
             medicationID: medication.id,
             calendar: calendar
@@ -180,15 +180,16 @@ enum ForecastEngine {
         let assumed = ScheduleEngine.unloggedDoses(
             schedules: schedules,
             medicationID: medication.id,
-            from: anchor,
+            from: anchor.date,
             through: overdueBefore,
             logs: logs,
             now: now,
             calendar: calendar
         )
+        let since = anchor.isRefill ? "since your last refill" : "since your last count"
         let unlogged = assumed.count == 1
-            ? "the 1 scheduled dose since your last count that wasn't logged was taken"
-            : "the \(assumed.count) scheduled doses since your last count that weren't logged were taken"
+            ? "the 1 scheduled dose \(since) that wasn't logged was taken"
+            : "the \(assumed.count) scheduled doses \(since) that weren't logged were taken"
 
         var remaining = supply - assumed.reduce(0) { $0 + $1.quantity }
         // The ledger still shows medication, but not once the doses nobody logged
@@ -211,7 +212,7 @@ enum ForecastEngine {
         // taken before it. They are worked out a stretch at a time, each twice
         // the last, so a month's supply does not first lay out three years.
         let horizon = calendar.date(byAdding: .year, value: 3, to: now) ?? now
-        var stretchStart = max(overdueBefore, min(anchor, now))
+        var stretchStart = max(overdueBefore, min(anchor.date, now))
         var stretchDays = 31
         while stretchStart <= horizon {
             let stretchEnd = min(
@@ -259,16 +260,43 @@ enum ForecastEngine {
     /// the ledger's number was known to be what was on hand. Counting only the
     /// doses still to come let every unlogged day push the run-out date a day
     /// later, so a family that stopped logging watched it slide forever and the
-    /// refill alert keyed to it never arrived. Only a count says what is on
-    /// hand: a refill adds stock but confirms nothing about the doses before
-    /// it. With no count, the medication's creation. The whole stretch since is
-    /// weighed, however long: stopping at a fixed look-back dropped the oldest
-    /// doses one a day and brought the slide back.
-    private static func assumptionAnchor(medication: Medication, inventoryEvents: [InventoryEvent]) -> Date {
-        inventoryEvents
-            .filter { $0.medicationID == medication.id && ($0.reason == .openingCount || $0.reason == .correction) }
-            .map(\.date)
-            .max() ?? medication.createdAt
+    /// refill alert keyed to it never arrived. A count says what is on hand
+    /// outright. So does a refill onto a ledger that showed nothing: no dose
+    /// could come out of an empty supply, so what is on hand after it is the
+    /// refill. A refill onto stock the ledger still showed confirms nothing
+    /// about the doses before it. With neither, the medication's creation. The
+    /// whole stretch since is weighed, however long: stopping at a fixed look-
+    /// back dropped the oldest doses one a day and brought the slide back.
+    private static func assumptionAnchor(
+        medication: Medication,
+        inventoryEvents: [InventoryEvent],
+        doseEvents: [DoseEvent]
+    ) -> (date: Date, isRefill: Bool) {
+        let inventory = inventoryEvents
+            .filter { $0.medicationID == medication.id }
+            .sorted { $0.date < $1.date }
+        let taken = doseEvents
+            .compactMap { event -> (date: Date, quantity: Double)? in
+                guard event.medicationID == medication.id, event.status == .taken, event.countsTowardSupply else { return nil }
+                return (event.recordedAt, event.doseQuantity)
+            }
+            .sorted { $0.date < $1.date }
+        var anchor: (date: Date, isRefill: Bool)?
+        var balance = 0.0
+        var nextDose = 0
+        for event in inventory {
+            while nextDose < taken.count, taken[nextDose].date < event.date {
+                balance -= taken[nextDose].quantity
+                nextDose += 1
+            }
+            if event.reason == .openingCount || event.reason == .correction {
+                anchor = (event.date, false)
+            } else if event.reason == .refill, event.delta > 0, balance <= 0.000_001 {
+                anchor = (event.date, true)
+            }
+            balance += event.delta
+        }
+        return anchor ?? (medication.createdAt, false)
     }
 
     private static func asNeededForecast(
