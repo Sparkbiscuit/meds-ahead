@@ -59,5 +59,49 @@ enum DemoData {
         }
         try context.save()
     }
+
+    /// A fictional antibiotic course beside the demo household: a capsule
+    /// three times a day, its last day `lastDayInDays` from today. Running,
+    /// it starts today with enough counted to see it through, so Supply,
+    /// the detail screen and the editor show a course with an end. Given a
+    /// last day already past, it ran five days with every dose logged, so
+    /// Today offers the finished course's card.
+    @MainActor
+    static func seedCourse(in context: ModelContext, lastDayInDays: Int = 3) throws {
+        let name = "Amoxicillin"
+        guard try !context.fetch(FetchDescriptor<Medication>()).contains(where: { $0.name == name }) else { return }
+
+        let calendar = Calendar.autoupdatingCurrent
+        let today = calendar.startOfDay(for: .now)
+        let lastDay = calendar.date(byAdding: .day, value: lastDayInDays, to: today) ?? today
+        let finished = lastDay < today
+        let start = finished ? calendar.date(byAdding: .day, value: -4, to: lastDay) ?? lastDay : today
+        let amoxicillin = Medication(
+            name: name,
+            strength: "500 mg",
+            form: .capsule,
+            directions: "Take one capsule three times daily until finished",
+            refillLeadDays: 3,
+            accentIndex: 3,
+            createdAt: start
+        )
+        context.insert(amoxicillin)
+        // Counted now for the running course, as the demo's own counts are,
+        // so the doses before now today are not assumed taken from it.
+        context.insert(InventoryEvent(medicationID: amoxicillin.id, date: finished ? start : .now, delta: finished ? 18 : 15, reason: .openingCount))
+        let end = ScheduleEngine.normalizedEndDate(forDay: lastDay, calendar: calendar)
+        let schedules = [8, 14, 20].map {
+            DoseSchedule(medicationID: amoxicillin.id, minutesAfterMidnight: $0 * 60, doseQuantity: 1, startDate: start, endDate: end)
+        }
+        schedules.forEach(context.insert)
+        if finished {
+            for dose in ScheduleEngine.doses(schedules: schedules, medicationID: amoxicillin.id, from: start,
+                                             through: ScheduleEngine.courseLastMoment(end, calendar: calendar), calendar: calendar) {
+                context.insert(DoseEvent(medicationID: amoxicillin.id, scheduleID: dose.scheduleID, scheduledAt: dose.date,
+                                         recordedAt: dose.date, doseQuantity: dose.quantity, status: .taken))
+            }
+        }
+        try context.save()
+    }
 }
 #endif

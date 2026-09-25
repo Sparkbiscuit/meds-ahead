@@ -725,31 +725,43 @@ final class MedsUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
 
+        // The form builds its rows as they scroll in, so a row further down
+        // does not exist until it is near, and one under the keyboard exists
+        // but cannot be tapped: scroll until it is both, a bounded number of
+        // times, whatever an earlier test left the keyboard or the scroll
+        // position doing.
+        func scrollUp(to element: XCUIElement, _ description: String) {
+            XCTAssertTrue(reveal(element, in: app), "\(description) cannot be reached")
+        }
+
         func reviewByCode(_ code: String) {
             app.tabBars.buttons["Add"].tap()
             XCTAssertTrue(app.buttons["manual-entry"].waitForExistence(timeout: 3))
             app.buttons["manual-entry"].tap()
+            XCTAssertTrue(app.textFields["medication-name"].waitForExistence(timeout: 3))
             let ndc = app.textFields["ndc-entry"]
-            for _ in 0..<10 where !ndc.isHittable { app.swipeUp() }
+            scrollUp(to: ndc, "the NDC field")
             ndc.tap()
             ndc.typeText(code)
             let use = app.buttons["use-ndc-product"]
             XCTAssertTrue(use.waitForExistence(timeout: 5))
-            if !use.isHittable { app.swipeUp() }
+            scrollUp(to: use, "Use This Product")
             use.tap()
             // Back to the top, where the banner sits above the name.
             let name = app.textFields["medication-name"]
-            for _ in 0..<8 where !name.isHittable { app.swipeDown() }
+            reveal(name, in: app, swipingDown: true)
             app.swipeDown()
         }
 
         reviewByCode("0469-0617-73")
         let supply = app.textFields["current-supply"]
-        for _ in 0..<6 where !supply.isHittable { app.swipeUp() }
+        scrollUp(to: supply, "Current amount")
         supply.tap()
         supply.typeText("30")
         app.buttons["save-medication"].tap()
-        app.tap()
+        // Whether this run is the first to save and be asked depends on the
+        // tests before it, so the answer is looked for rather than assumed.
+        answerNotificationPermissionIfAsked()
         XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
 
         reviewByCode("0469-0677-73")
@@ -767,6 +779,213 @@ final class MedsUITests: XCTestCase {
         reviewByCode("0378-2046-01")
         XCTAssertTrue(banner.waitForExistence(timeout: 5), "a generic Prograf bottle was not offered to the Prograf tracked")
         XCTAssertEqual(banner.label, "Already in Meds Ahead: Tacrolimus 1 mg (Prograf)")
+    }
+
+    /// Swipes until the element exists and can be tapped, at most `limit`
+    /// times, and stops as soon as it can: a `for … where` loop goes on
+    /// querying the screen once the element is found, which adds seconds to
+    /// every row a long form scrolls to.
+    @discardableResult
+    private func reveal(_ element: XCUIElement, in app: XCUIApplication, swipingDown: Bool = false, limit: Int = 12) -> Bool {
+        var swipes = 0
+        while !(element.exists && element.isHittable), swipes < limit {
+            if swipingDown { app.swipeDown() } else { app.swipeUp() }
+            swipes += 1
+        }
+        return element.exists && element.isHittable
+    }
+
+    /// The first save asks for notification permission. The system shows
+    /// the question over the app, so it is answered where it is shown.
+    private func answerNotificationPermissionIfAsked() {
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        for title in ["Allow", "Don’t Allow", "Don't Allow"] {
+            let button = springboard.alerts.buttons[title]
+            if button.waitForExistence(timeout: title == "Allow" ? 2 : 0.5) {
+                button.tap()
+                return
+            }
+        }
+    }
+
+    /// The day a compact date picker shows, which it reports as the value
+    /// of the element inside it labelled "Date Picker".
+    private static func shownDay(of picker: XCUIElement) -> String? {
+        picker.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Date Picker")).firstMatch.value as? String
+    }
+
+    /// The seeded course, amoxicillin three times a day with its last day
+    /// three days from today: Supply says the supply sees it through, the
+    /// detail screen says until when, and the editor opens on its last day.
+    func testASeededCourseShowsItsLastDayOnSupplyTheDetailAndTheEditor() {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-ui-testing",
+            "-skip-onboarding",
+            "-seed-demo-data",
+            "-seed-course",
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryL"
+        ]
+        app.launch()
+        let calendar = Calendar.current
+        let lastDay = calendar.date(byAdding: .day, value: 3, to: calendar.startOfDay(for: .now))!
+
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["Supply"].tap()
+        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Amoxicillin")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        XCTAssertTrue(row.label.contains("Enough to finish the course on \(lastDay.formatted(.dateTime.month(.abbreviated).day()))"), row.label)
+        XCTAssertTrue(row.label.contains("left after the last dose"), row.label)
+        XCTAssertFalse(row.label.contains("Low supply"), "a covered course needs nobody: \(row.label)")
+        row.tap()
+
+        XCTAssertTrue(app.staticTexts["Enough to finish the course"].waitForExistence(timeout: 5))
+        let until = app.descendants(matching: .any)["schedule-course-line"]
+        XCTAssertTrue(reveal(until, in: app, limit: 6), "the Until line cannot be reached")
+        XCTAssertEqual(until.label, "Until \(lastDay.formatted(.dateTime.weekday(.wide).month(.abbreviated).day()))")
+
+        app.buttons["Medication actions"].tap()
+        XCTAssertTrue(app.buttons["Edit Medication"].waitForExistence(timeout: 3))
+        app.buttons["Edit Medication"].tap()
+        let courseEnds = app.switches["course-ends"]
+        XCTAssertTrue(reveal(courseEnds, in: app, limit: 10), "Course ends cannot be reached")
+        XCTAssertEqual(courseEnds.value as? String, "1", "the stored course loads with its end")
+        let picker = app.datePickers["course-last-day"]
+        XCTAssertTrue(picker.exists)
+        XCTAssertEqual(Self.shownDay(of: picker), lastDay.formatted(date: .abbreviated, time: .omitted))
+    }
+
+    /// A course turned on in the editor for a medication entered by hand,
+    /// its last day tomorrow, reads "Until" that day once saved.
+    func testTurningOnACourseInTheEditorShowsItsLastDay() {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-ui-testing",
+            "-skip-onboarding",
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryL"
+        ]
+        addUIInterruptionMonitor(withDescription: "Notification permission") { alert in
+            for title in ["Allow", "Don’t Allow", "Don't Allow"] where alert.buttons[title].exists {
+                alert.buttons[title].tap()
+                return true
+            }
+            return false
+        }
+        app.launch()
+        let calendar = Calendar.current
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: .now))!
+
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["Add"].tap()
+        XCTAssertTrue(app.buttons["manual-entry"].waitForExistence(timeout: 3))
+        app.buttons["manual-entry"].tap()
+        let name = app.textFields["medication-name"]
+        XCTAssertTrue(name.waitForExistence(timeout: 3))
+        name.tap()
+        // Return puts the keyboard away, so the next field is not under it.
+        name.typeText("Course Test\n")
+        let supply = app.textFields["current-supply"]
+        XCTAssertTrue(reveal(supply, in: app, limit: 6), "Current amount cannot be reached")
+        supply.tap()
+        supply.typeText("30")
+
+        let courseEnds = app.switches["course-ends"]
+        XCTAssertTrue(reveal(courseEnds, in: app, limit: 10), "Course ends cannot be reached")
+        XCTAssertEqual(courseEnds.value as? String, "0", "a new medication is not a course until someone says so")
+        courseEnds.switches.firstMatch.tap()
+        XCTAssertEqual(courseEnds.value as? String, "1")
+        let picker = app.datePickers["course-last-day"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 3))
+        XCTAssertTrue(reveal(picker, in: app, limit: 4), "Last day cannot be reached")
+        picker.buttons.firstMatch.tap()
+        let day = app.buttons[tomorrow.formatted(.dateTime.weekday(.wide).month(.wide).day())]
+        if !day.waitForExistence(timeout: 3) {
+            // Tomorrow is in next month.
+            app.buttons["DatePicker.NextMonth"].tap()
+        }
+        XCTAssertTrue(day.waitForExistence(timeout: 3))
+        day.tap()
+        // A tap outside the calendar closes it. The region that takes that
+        // tap covers the whole screen, and its middle, where an element's
+        // tap lands, is under the calendar, which the row's label is too; so
+        // it is tapped near its top, over the navigation bar. A tap made
+        // while the chosen day is still animating can be swallowed, so it is
+        // repeated while the calendar is still open.
+        let calendarOpen = app.buttons["DatePicker.NextMonth"]
+        let outside = app.buttons["PopoverDismissRegion"]
+        for _ in 0..<3 where calendarOpen.exists {
+            (outside.exists ? outside : app.windows.firstMatch).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap()
+            _ = calendarOpen.waitForNonExistence(timeout: 2)
+        }
+        XCTAssertFalse(calendarOpen.exists, "the calendar did not close")
+        XCTAssertEqual(Self.shownDay(of: picker), tomorrow.formatted(date: .abbreviated, time: .omitted))
+
+        app.buttons["save-medication"].tap()
+        answerNotificationPermissionIfAsked()
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["Supply"].tap()
+        let row = app.staticTexts["Course Test"]
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        row.tap()
+        let until = app.descendants(matching: .any)["schedule-course-line"]
+        XCTAssertTrue(reveal(until, in: app, limit: 6), "the Until line cannot be reached")
+        XCTAssertEqual(until.label, "Until \(tomorrow.formatted(.dateTime.weekday(.wide).month(.abbreviated).day()))")
+    }
+
+    /// A course that finished yesterday: Today offers to archive it, Not Now
+    /// sets the card aside, the editor opens on the day it finished, and
+    /// Archive takes it off Today and Supply.
+    func testAFinishedCourseIsOfferedForArchiveOnToday() {
+        let arguments = [
+            "-ui-testing",
+            "-skip-onboarding",
+            "-seed-demo-data",
+            "-seed-course",
+            "-seed-finished-course",
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryL"
+        ]
+        let calendar = Calendar.current
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: calendar.startOfDay(for: .now))!
+        let app = XCUIApplication()
+        app.launchArguments = arguments
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+        let card = app.descendants(matching: .any)["finished-course-card"]
+        XCTAssertTrue(card.waitForExistence(timeout: 5), "the finished course's card never appeared")
+        let title = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label BEGINSWITH %@", "Amoxicillin's course finished on \(yesterday.formatted(.dateTime.month(.abbreviated).day()))."))
+        XCTAssertTrue(title.firstMatch.exists, "the card names the course and the day it finished")
+        app.buttons["finished-course-not-now"].tap()
+        XCTAssertTrue(card.waitForNonExistence(timeout: 3), "Not Now set the card aside")
+
+        app.tabBars.buttons["Supply"].tap()
+        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Amoxicillin")).firstMatch
+        XCTAssertTrue(reveal(row, in: app, limit: 4), "the Amoxicillin row cannot be reached")
+        XCTAssertTrue(row.label.contains("Course finished \(yesterday.formatted(.dateTime.month(.abbreviated).day()))"), row.label)
+        row.tap()
+        app.buttons["Medication actions"].tap()
+        XCTAssertTrue(app.buttons["Edit Medication"].waitForExistence(timeout: 3))
+        app.buttons["Edit Medication"].tap()
+        let courseEnds = app.switches["course-ends"]
+        XCTAssertTrue(reveal(courseEnds, in: app, limit: 10), "Course ends cannot be reached")
+        XCTAssertEqual(courseEnds.value as? String, "1")
+        XCTAssertEqual(Self.shownDay(of: app.datePickers["course-last-day"]),
+                       yesterday.formatted(date: .abbreviated, time: .omitted), "a finished course opens on the day it finished")
+        app.navigationBars["Edit Medication"].buttons["Cancel"].tap()
+
+        // A new launch is a new store, with a new card to act on.
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
+        app.buttons["finished-course-archive"].tap()
+        XCTAssertTrue(card.waitForNonExistence(timeout: 3))
+        app.tabBars.buttons["Supply"].tap()
+        XCTAssertTrue(app.staticTexts["Furosemide"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.staticTexts["Amoxicillin"].exists, "archived, it is off Supply")
     }
 
     /// With no refills left the low-supply alert comes earlier, and the detail

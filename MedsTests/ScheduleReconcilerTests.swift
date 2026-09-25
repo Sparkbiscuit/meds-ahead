@@ -259,7 +259,8 @@ final class ScheduleReconcilerTests: XCTestCase {
             },
             existing: fixture.schedules,
             in: fixture.context,
-            startDate: try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 9, day: 3, hour: 10)))
+            startDate: try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 9, day: 3, hour: 10))),
+            calendar: calendar
         )
         try fixture.context.save()
         XCTAssertEqual([course[0].id, course[2].id], fixture.schedules.map(\.id), "the 08:00 and 20:00 schedules are reused")
@@ -274,7 +275,11 @@ final class ScheduleReconcilerTests: XCTestCase {
                 ScheduleDefinition(minutesAfterMidnight: $0, doseQuantity: 1, weekdayMask: 0b1111111)
             },
             existing: course,
-            in: fixture.context
+            in: fixture.context,
+            // Made ongoing while it runs; one taken up again after its last
+            // day starts over, as the reopening tests show.
+            startDate: try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 9, day: 5, hour: 10))),
+            calendar: calendar
         )
         try fixture.context.save()
         XCTAssertEqual(ongoing.map(\.id).prefix(3), course.map(\.id).prefix(3))
@@ -340,27 +345,218 @@ final class ScheduleReconcilerTests: XCTestCase {
         XCTAssertFalse(edit(from: nil, to: september(9), assumedDoses: 0), "with every dose logged, the past is what was logged")
     }
 
-    /// The editor's own save, for a course that ended on the 9th and is
-    /// extended on the 12th: its forecast before the edit assumes nothing,
-    /// the reused schedules bring back the 10th and 11th, and without a
-    /// count the forecast would assume their doses were taken though the
-    /// course was not running.
+    /// A course that ended on the 9th, every dose logged, extended on the
+    /// morning of the 12th to end on the 20th. Reusing its schedules kept
+    /// their start, so the 10th and 11th came back holding doses nobody was
+    /// asked to take: Today and the calendar listed them as not logged, and
+    /// the forecast assumed them taken. The course starts again from now on
+    /// new schedules, and the old ones stay as the history they are.
     @MainActor
-    func testExtendingAFinishedCourseAsksForACount() throws {
+    func testExtendingAFinishedCourseStartsItAgainFromNow() throws {
+        let course = try finishedCourse()
+        let (medication, schedules, context, now) = (course.medication, course.schedules, course.context, course.now)
+        let oldIDs = Set(schedules.map(\.id))
+        let before = course.forecast(schedules, [course.opening])
+        XCTAssertTrue(before.courseFinished)
+        XCTAssertEqual(before.assumedDoses, 0)
+
+        let snapshot = ScheduleReconciler.snapshot(ScheduleReconciler.currentSchedules(schedules, medicationID: medication.id, now: now, calendar: course.calendar))
+        let newEnd = course.lastDay(20)
+        let extended = ScheduleReconciler.reconcile(
+            medicationID: medication.id,
+            definitions: [8, 20].map { ScheduleDefinition(minutesAfterMidnight: $0 * 60, doseQuantity: 1, weekdayMask: 0b1111111, endDate: newEnd) },
+            existing: schedules,
+            in: context,
+            startDate: now,
+            calendar: course.calendar
+        )
+        try context.save()
+
+        XCTAssertTrue(oldIDs.isDisjoint(with: extended.map(\.id)), "new schedules, not the ended ones")
+        XCTAssertEqual(extended.map(\.startDate), [now, now])
+        XCTAssertEqual(extended.map(\.endDate), [newEnd, newEnd])
+        let all = try context.fetch(FetchDescriptor<DoseSchedule>())
+        XCTAssertEqual(all.count, 4, "the ended schedules are kept")
+        for old in schedules {
+            XCTAssertEqual(old.startDate, course.september(1, 7), "the course that was keeps its first day")
+            XCTAssertEqual(old.endDate, course.lastDay(9), "and its last")
+        }
+
+        func doses(on day: Int) -> [Date] {
+            ScheduleEngine.doses(schedules: all, medicationID: medication.id, onDayOf: course.september(day), calendar: course.calendar).map(\.date)
+        }
+        XCTAssertEqual(doses(on: 9), [course.september(9, 8), course.september(9, 20)], "the old last day keeps its doses")
+        XCTAssertTrue(doses(on: 10).isEmpty, "a day between the courses holds nothing")
+        XCTAssertTrue(doses(on: 11).isEmpty)
+        XCTAssertEqual(doses(on: 12), [course.september(12, 20)], "this morning had passed when the course started again")
+        XCTAssertEqual(doses(on: 20), [course.september(20, 8), course.september(20, 20)])
+        XCTAssertTrue(ScheduleEngine.unloggedDoses(schedules: all, medicationID: medication.id, from: course.september(1, 0), through: now,
+                                                   doseEvents: course.taken, now: now, calendar: course.calendar).isEmpty,
+                      "every day of the old course is still logged, and no day since asks for a dose")
+        XCTAssertEqual(Set(ScheduleReconciler.currentSchedules(all, medicationID: medication.id, now: now, calendar: course.calendar).map(\.id)),
+                       Set(extended.map(\.id)), "the editor shows only the course that runs now")
+
+        XCTAssertFalse(ScheduleReconciler.asksForCount(assumedDoses: before.assumedDoses, before: snapshot, after: extended, now: now, calendar: course.calendar),
+                       "no day came back for the forecast to assume")
+        let forecast = course.forecast(all, [course.opening])
+        XCTAssertEqual(forecast.assumedDoses, 0)
+        XCTAssertTrue(forecast.courseCovered)
+        XCTAssertEqual(forecast.courseEndDate, newEnd)
+        XCTAssertEqual(forecast.leftoverAtCourseEnd, 5, "22 on hand for the 17 doses from this evening through the 20th")
+        XCTAssertEqual(forecast.confidence, .high)
+
+        let reminders = NotificationPlanner.plan(
+            for: NotificationPlanBuilder.makeAll(medications: [medication], schedules: all, inventoryEvents: [course.opening], doseEvents: course.taken,
+                                                 now: now, calendar: course.calendar),
+            now: now,
+            calendar: course.calendar
+        ).notifications.filter { $0.kind == .dose }
+        XCTAssertEqual(reminders.map(\.identifier).sorted(), ["meds.group.dose.daily.0800", "meds.group.dose.daily.2000"],
+                       "an eight-day course repeats daily until its end comes within the week")
+        XCTAssertEqual(Set(reminders.compactMap(\.scheduleID)), Set(extended.map(\.id)), "the ended schedules ring for nothing")
+    }
+
+    /// Taken up again with no last day, the course becomes ongoing from now,
+    /// and nothing comes back between.
+    @MainActor
+    func testMakingAFinishedCourseOngoingStartsItAgainFromNow() throws {
+        let course = try finishedCourse()
+        let ongoing = ScheduleReconciler.reconcile(
+            medicationID: course.medication.id,
+            definitions: [8, 20].map { ScheduleDefinition(minutesAfterMidnight: $0 * 60, doseQuantity: 1, weekdayMask: 0b1111111) },
+            existing: course.schedules,
+            in: course.context,
+            startDate: course.now,
+            calendar: course.calendar
+        )
+        try course.context.save()
+        let all = try course.context.fetch(FetchDescriptor<DoseSchedule>())
+
+        XCTAssertEqual(all.count, 4)
+        XCTAssertTrue(ongoing.allSatisfy { $0.endDate == nil && $0.startDate == course.now })
+        XCTAssertNil(ScheduleEngine.courseEnd(schedules: all, medicationID: course.medication.id), "no longer a course")
+        XCTAssertTrue(ScheduleEngine.doses(schedules: all, medicationID: course.medication.id, from: course.september(10, 0), through: course.september(11, 23),
+                                           calendar: course.calendar).isEmpty)
+        let forecast = course.forecast(all, [course.opening])
+        XCTAssertFalse(forecast.courseCovered || forecast.courseFinished)
+        XCTAssertEqual(forecast.assumedDoses, 0)
+        XCTAssertEqual(forecast.daysRemaining, 11, "22 on hand at two a day from this evening")
+    }
+
+    /// A last day moved within the past says the course that was ran
+    /// longer: its own schedules are corrected, and it is still finished.
+    @MainActor
+    func testMovingAFinishedCoursesLastDayWithinThePastCorrectsIt() throws {
+        let course = try finishedCourse()
+        let corrected = ScheduleReconciler.reconcile(
+            medicationID: course.medication.id,
+            definitions: [8, 20].map { ScheduleDefinition(minutesAfterMidnight: $0 * 60, doseQuantity: 1, weekdayMask: 0b1111111, endDate: course.lastDay(10)) },
+            existing: course.schedules,
+            in: course.context,
+            startDate: course.now,
+            calendar: course.calendar
+        )
+        try course.context.save()
+
+        XCTAssertEqual(corrected.map(\.id), course.schedules.map(\.id))
+        XCTAssertEqual(corrected.map(\.endDate), [course.lastDay(10), course.lastDay(10)])
+        XCTAssertEqual(try course.context.fetchCount(FetchDescriptor<DoseSchedule>()), 2)
+        XCTAssertTrue(ScheduleEngine.isCourseFinished(schedules: corrected, medicationID: course.medication.id, now: course.now, calendar: course.calendar))
+    }
+
+    /// Once taken up again, an edit changes the course that runs now: a new
+    /// time reuses its schedule, a dropped one goes, and the ended course's
+    /// schedules are never matched, moved or deleted.
+    @MainActor
+    func testEditingACourseTakenUpAgainLeavesTheOldCourseAlone() throws {
+        let course = try finishedCourse()
+        let end = course.lastDay(20)
+        let extended = ScheduleReconciler.reconcile(
+            medicationID: course.medication.id,
+            definitions: [8, 20].map { ScheduleDefinition(minutesAfterMidnight: $0 * 60, doseQuantity: 1, weekdayMask: 0b1111111, endDate: end) },
+            existing: course.schedules,
+            in: course.context,
+            startDate: course.now,
+            calendar: course.calendar
+        )
+        try course.context.save()
+        let later = course.september(14, 9)
+
+        let moved = ScheduleReconciler.reconcile(
+            medicationID: course.medication.id,
+            definitions: [8, 21].map { ScheduleDefinition(minutesAfterMidnight: $0 * 60, doseQuantity: 1, weekdayMask: 0b1111111, endDate: end) },
+            existing: try course.context.fetch(FetchDescriptor<DoseSchedule>()),
+            in: course.context,
+            startDate: later,
+            calendar: course.calendar
+        )
+        try course.context.save()
+        XCTAssertEqual(moved.map(\.id), extended.map(\.id), "a new time on a running schedule keeps its identity")
+        XCTAssertEqual(moved[1].minutesAfterMidnight, 21 * 60)
+        XCTAssertEqual(moved.map(\.startDate), [course.now, course.now])
+
+        let dropped = ScheduleReconciler.reconcile(
+            medicationID: course.medication.id,
+            definitions: [ScheduleDefinition(minutesAfterMidnight: 8 * 60, doseQuantity: 1, weekdayMask: 0b1111111, endDate: end)],
+            existing: try course.context.fetch(FetchDescriptor<DoseSchedule>()),
+            in: course.context,
+            startDate: later,
+            calendar: course.calendar
+        )
+        try course.context.save()
+        XCTAssertEqual(dropped.map(\.id), [extended[0].id])
+        let remaining = try course.context.fetch(FetchDescriptor<DoseSchedule>())
+        XCTAssertEqual(Set(remaining.map(\.id)), Set(course.schedules.map(\.id) + [extended[0].id]), "only the running evening went")
+        for old in course.schedules {
+            XCTAssertEqual(old.endDate, course.lastDay(9))
+            XCTAssertEqual(old.startDate, course.september(1, 7))
+        }
+        XCTAssertEqual(course.schedules.map(\.minutesAfterMidnight), [8 * 60, 20 * 60])
+    }
+
+    /// The editor, the detail screen and the printed list show the course
+    /// that runs now, or once everything has ended, the one that ended last.
+    func testTheCurrentSchedulesAreTheRunningOnesOrTheLastCourse() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         func september(_ day: Int, _ hour: Int = 12) -> Date {
             calendar.date(from: DateComponents(year: 2026, month: 9, day: day, hour: hour))!
         }
-        let now = september(12, 9)
+        let medicationID = UUID()
+        let first = [8, 20].map { DoseSchedule(medicationID: medicationID, minutesAfterMidnight: $0 * 60, startDate: september(1), endDate: september(5)) }
+        let second = [8, 20].map { DoseSchedule(medicationID: medicationID, minutesAfterMidnight: $0 * 60, startDate: september(8), endDate: september(12)) }
+        let other = DoseSchedule(medicationID: UUID(), minutesAfterMidnight: 9 * 60, startDate: september(1))
+        let all = first + second + [other]
+        func current(on day: Int) -> [UUID] {
+            ScheduleReconciler.currentSchedules(all, medicationID: medicationID, now: september(day, 9), calendar: calendar).map(\.id)
+        }
+
+        XCTAssertEqual(current(on: 10), second.map(\.id), "the running course, not the one before it")
+        XCTAssertEqual(current(on: 12), second.map(\.id), "still running on its last day")
+        XCTAssertEqual(current(on: 20), second.map(\.id), "all ended: the course that ended last")
+        XCTAssertEqual(current(on: 3), first.map(\.id) + second.map(\.id), "both still to finish")
+        let ongoing = DoseSchedule(medicationID: medicationID, minutesAfterMidnight: 8 * 60, startDate: september(1))
+        XCTAssertEqual(ScheduleReconciler.currentSchedules(first + [ongoing], medicationID: medicationID, now: september(20), calendar: calendar).map(\.id),
+                       [ongoing.id])
+        XCTAssertTrue(ScheduleReconciler.currentSchedules([other], medicationID: medicationID, now: september(20), calendar: calendar).isEmpty)
+    }
+
+    /// A tablet at 08:00 and 20:00 from 07:00 on September 1st through the
+    /// 9th, every dose logged, 40 counted at the start, looked at at 09:00
+    /// on the 12th.
+    @MainActor
+    private func finishedCourse() throws -> FinishedCourse {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         let schema = Schema([Medication.self, DoseSchedule.self, DoseEvent.self, InventoryEvent.self])
         let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)])
         let context = container.mainContext
+        let september = { (day: Int, hour: Int) in calendar.date(from: DateComponents(year: 2026, month: 9, day: day, hour: hour))! }
         let medication = Medication(name: "Example", createdAt: september(1, 7))
         context.insert(medication)
         let schedules = [8, 20].map {
             DoseSchedule(medicationID: medication.id, minutesAfterMidnight: $0 * 60, doseQuantity: 1, startDate: september(1, 7),
-                         endDate: ScheduleEngine.normalizedEndDate(forDay: september(9), calendar: calendar))
+                         endDate: ScheduleEngine.normalizedEndDate(forDay: september(9, 0), calendar: calendar))
         }
         schedules.forEach(context.insert)
         let opening = InventoryEvent(medicationID: medication.id, date: september(1, 7), delta: 40, reason: .openingCount)
@@ -374,38 +570,8 @@ final class ScheduleReconcilerTests: XCTestCase {
         }
         taken.forEach(context.insert)
         try context.save()
-        func forecast(_ schedules: [DoseSchedule], _ inventory: [InventoryEvent]) -> SupplyForecast {
-            ForecastEngine.forecast(medication: medication, schedules: schedules, inventoryEvents: inventory, doseEvents: taken, now: now, calendar: calendar)
-        }
-
-        let before = forecast(schedules, [opening])
-        XCTAssertTrue(before.courseFinished)
-        XCTAssertEqual(before.assumedDoses, 0)
-
-        let snapshot = ScheduleReconciler.snapshot(schedules)
-        let extended = ScheduleReconciler.reconcile(
-            medicationID: medication.id,
-            definitions: [8, 20].map {
-                ScheduleDefinition(minutesAfterMidnight: $0 * 60, doseQuantity: 1, weekdayMask: 0b1111111,
-                                   endDate: ScheduleEngine.normalizedEndDate(forDay: september(20), calendar: calendar))
-            },
-            existing: schedules,
-            in: context,
-            startDate: now
-        )
-        try context.save()
-        XCTAssertTrue(ScheduleReconciler.asksForCount(assumedDoses: before.assumedDoses, before: snapshot, after: extended, now: now, calendar: calendar))
-
-        let uncounted = forecast(extended, [opening])
-        XCTAssertEqual(uncounted.assumedDoses, 5, "the 10th, the 11th and this morning, none of them scheduled at the time")
-        XCTAssertEqual(uncounted.leftoverAtCourseEnd, 0)
-
-        let delta = ForecastEngine.correctionDelta(medicationID: medication.id, actualCount: 22, inventoryEvents: [opening], doseEvents: taken)
-        let counted = forecast(extended, [opening, InventoryEvent(medicationID: medication.id, date: now, delta: delta, reason: .correction)])
-        XCTAssertEqual(counted.assumedDoses, 0)
-        XCTAssertTrue(counted.courseCovered)
-        XCTAssertEqual(counted.leftoverAtCourseEnd, 5, "22 on hand for the 17 doses from this evening through the 20th")
-        XCTAssertEqual(counted.confidence, .high)
+        return FinishedCourse(container: container, context: context, calendar: calendar, medication: medication, schedules: schedules,
+                              opening: opening, taken: taken, now: september(12, 9))
     }
 
     @MainActor
@@ -450,4 +616,27 @@ private struct ReconcilerFixture {
     let context: ModelContext
     let medicationID: UUID
     let schedules: [DoseSchedule]
+}
+
+private struct FinishedCourse {
+    let container: ModelContainer
+    let context: ModelContext
+    let calendar: Calendar
+    let medication: Medication
+    let schedules: [DoseSchedule]
+    let opening: InventoryEvent
+    let taken: [DoseEvent]
+    let now: Date
+
+    func september(_ day: Int, _ hour: Int = 12) -> Date {
+        calendar.date(from: DateComponents(year: 2026, month: 9, day: day, hour: hour))!
+    }
+
+    func lastDay(_ day: Int) -> Date {
+        ScheduleEngine.normalizedEndDate(forDay: september(day, 0), calendar: calendar)
+    }
+
+    func forecast(_ schedules: [DoseSchedule], _ inventory: [InventoryEvent]) -> SupplyForecast {
+        ForecastEngine.forecast(medication: medication, schedules: schedules, inventoryEvents: inventory, doseEvents: taken, now: now, calendar: calendar)
+    }
 }

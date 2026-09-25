@@ -23,10 +23,6 @@ struct MedicationDetailView: View {
     @State private var saveErrorMessage = ""
     @State private var showingAlreadyLogged = false
 
-    private var schedules: [DoseSchedule] {
-        allSchedules.filter { $0.medicationID == medication.id }.sorted { $0.minutesAfterMidnight < $1.minutesAfterMidnight }
-    }
-
     private var doseEvents: [DoseEvent] {
         allDoseEvents.filter { $0.medicationID == medication.id }.sorted { $0.recordedAt > $1.recordedAt }
     }
@@ -72,7 +68,7 @@ struct MedicationDetailView: View {
                     forecastCard(forecast: forecast, now: now)
                     quickActions
                     pharmacyCard
-                    scheduleCard
+                    scheduleCard(now: now)
                     AdherenceCalendarCard(medication: medication, schedules: allSchedules, doseEvents: allDoseEvents)
                     detailsCard
                     historyCard
@@ -227,9 +223,10 @@ struct MedicationDetailView: View {
                         .contentTransition(.numericText())
                 }
                 Spacer()
-                SupplyGauge(daysRemaining: forecast.daysRemaining, leadDays: attention.leadDays, needsCount: forecast.needsCount, size: 62)
+                SupplyGauge(daysRemaining: forecast.daysRemaining, leadDays: attention.leadDays, needsCount: forecast.needsCount,
+                            course: SupplyGauge.Course(forecast), size: 62)
             }
-            Text(forecast.explanation)
+            Text(Self.forecastDetail(for: forecast))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -246,7 +243,11 @@ struct MedicationDetailView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack {
-                ConfidenceBadge(confidence: forecast.confidence)
+                // A finished course forecasts nothing, so there is nothing to
+                // be sure or unsure of.
+                if !forecast.courseFinished {
+                    ConfidenceBadge(confidence: forecast.confidence)
+                }
                 Spacer()
                 Text("\(forecast.currentSupply.medicationQuantityText) \(SupplyAttention.quantityWords(for: forecast))")
                     .font(.subheadline.weight(.semibold))
@@ -267,13 +268,43 @@ struct MedicationDetailView: View {
 
     /// A count needed is never "Out of supply" and never zero days: the ledger
     /// still shows medication, and only a count can say whether it is there.
-    static func forecastTitle(for forecast: SupplyForecast) -> String {
+    /// A course is asked about first: one finished, or one the supply sees
+    /// through, has no run-out to name, and an empty bottle at its end is
+    /// how a course dispensed to the tablet finishes, not "Out of supply".
+    static func forecastTitle(for forecast: SupplyForecast, calendar: Calendar = .autoupdatingCurrent) -> String {
+        if forecast.courseFinished, let end = forecast.courseEndDate {
+            return "Course finished \(ForecastEngine.dayText(end, calendar: calendar))"
+        }
+        if forecast.courseCovered { return "Enough to finish the course" }
         if forecast.needsCount { return "Count needed" }
         if forecast.currentSupply <= 0 { return "Out of supply" }
         if let days = forecast.daysRemaining {
             return "About \(days.dayCountText) left"
         }
         return "Timing unknown"
+    }
+
+    /// The line under the title. A finished course's own explanation would
+    /// only repeat the title.
+    static func forecastDetail(for forecast: SupplyForecast) -> String {
+        forecast.courseFinished ? "No doses are scheduled after its last day." : forecast.explanation
+    }
+
+    /// The course line under the schedule's times: its last day while it
+    /// runs, the day it finished once it has. Nil for a medication that is
+    /// not on a course.
+    static func courseLine(
+        schedules: [DoseSchedule],
+        medicationID: UUID,
+        now: Date,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> (text: String, isFinished: Bool)? {
+        guard let end = ScheduleEngine.courseEnd(schedules: schedules, medicationID: medicationID) else { return nil }
+        if ScheduleEngine.isCourseFinished(schedules: schedules, medicationID: medicationID, now: now, calendar: calendar) {
+            return ("Course finished \(ForecastEngine.dayText(end, calendar: calendar))", true)
+        }
+        let day = end.formatted(Date.FormatStyle(calendar: calendar, timeZone: calendar.timeZone).weekday(.wide).month(.abbreviated).day())
+        return ("Until \(day)", false)
     }
 
     private var quickActions: some View {
@@ -363,8 +394,14 @@ struct MedicationDetailView: View {
         return URL(string: "tel:\(digits)")
     }
 
-    private var scheduleCard: some View {
-        VStack(alignment: .leading, spacing: 13) {
+    private func scheduleCard(now: Date) -> some View {
+        // A course taken up again keeps its ended schedules for the calendar;
+        // they are not the times it is taken now.
+        let schedules = ScheduleReconciler.currentSchedules(allSchedules, medicationID: medication.id, now: now)
+            .sorted { $0.minutesAfterMidnight < $1.minutesAfterMidnight }
+        let course = Self.courseLine(schedules: schedules, medicationID: medication.id, now: now)
+        let finished = course?.isFinished == true
+        return VStack(alignment: .leading, spacing: 13) {
             Label("Schedule", systemImage: "calendar")
                 .font(.headline)
             if medication.isAsNeeded {
@@ -380,11 +417,19 @@ struct MedicationDetailView: View {
                     HStack {
                         Text(timeText(minutes: schedule.minutesAfterMidnight))
                             .font(.body.weight(.semibold))
+                            .foregroundStyle(finished ? .secondary : .primary)
                         Spacer()
                         Text(medication.form.quantityText(schedule.doseQuantity))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(finished ? .tertiary : .secondary)
                     }
                     if schedule.id != schedules.last?.id { Divider() }
+                }
+                if let course {
+                    Label(course.text, systemImage: finished ? "checkmark.circle" : "calendar.badge.clock")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(finished ? AnyShapeStyle(.secondary) : AnyShapeStyle(AppTheme.accent))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("schedule-course-line")
                 }
             }
             if !medication.directions.isEmpty {

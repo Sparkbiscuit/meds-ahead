@@ -69,6 +69,11 @@ struct MedicationEditorView: View {
     @State private var refillRemindersEnabled: Bool
     @State private var detailedNotifications: Bool
     @State private var editableSchedules: [EditableDoseSchedule]
+    @State private var courseEnds = false
+    @State private var courseLastDay = Date.now
+    /// The course's last day as stored, saved back untouched unless another
+    /// day is picked.
+    @State private var storedCourseEnd: Date?
     @State private var importsDoseHistory = true
     @State private var didLoadExistingSchedules = false
     @State private var showingValidation = false
@@ -170,6 +175,9 @@ struct MedicationEditorView: View {
                     return "Two schedules overlap at the same time on the same day. Change one of the times or its days."
                 }
                 masksByMinute[minutes, default: 0] |= schedule.weekdayMask
+            }
+            if let problem = Self.courseLastDayProblem(courseEnds: courseEnds, lastDay: courseLastDay, stored: storedCourseEnd) {
+                return problem
             }
         }
         return nil
@@ -335,11 +343,29 @@ struct MedicationEditorView: View {
                             )
                         )
                     }
+                    Toggle("Course ends", isOn: $courseEnds.animation(.medsSpring))
+                        .accessibilityIdentifier("course-ends")
+                        .accessibilityHint("For a medication taken until a set day, such as an antibiotic")
+                        .onChange(of: courseEnds) { _, isOn in
+                            // From today as it is now: the editor may have
+                            // opened before midnight, and a picker shows a day
+                            // before its range as today while it keeps the old.
+                            if isOn, storedCourseEnd == nil { courseLastDay = .now }
+                        }
+                    if courseEnds {
+                        DatePicker(
+                            "Last day",
+                            selection: $courseLastDay,
+                            in: Self.earliestCourseLastDay(stored: storedCourseEnd)...,
+                            displayedComponents: .date
+                        )
+                        .accessibilityIdentifier("course-last-day")
+                    }
                 }
             } header: {
                 Text("Schedule")
             } footer: {
-                Text(isAsNeeded ? "As-needed forecasts require at least three recent logged doses." : "This schedule drives reminders and the supply forecast. Confirm it against the current label or clinician instructions. Half doses are fine — enter 2.5 for two and a half tablets.")
+                Text(isAsNeeded ? "As-needed forecasts require at least three recent logged doses." : Self.scheduleFooter(courseEnds: courseEnds, storedCourseEnd: storedCourseEnd))
             }
 
             Section {
@@ -790,7 +816,10 @@ struct MedicationEditorView: View {
 
     private func loadExistingSchedulesIfNeeded() {
         guard let medication, !didLoadExistingSchedules else { return }
-        let existing = allSchedules.filter { $0.medicationID == medication.id }.sorted { $0.minutesAfterMidnight < $1.minutesAfterMidnight }
+        // A course taken up again keeps its ended schedules as history; the
+        // editor shows only the ones an edit changes.
+        let existing = ScheduleReconciler.currentSchedules(allSchedules, medicationID: medication.id)
+            .sorted { $0.minutesAfterMidnight < $1.minutesAfterMidnight }
         if !existing.isEmpty {
             editableSchedules = existing.map {
                 EditableDoseSchedule(
@@ -800,7 +829,79 @@ struct MedicationEditorView: View {
                 )
             }
         }
+        if let end = ScheduleEngine.courseEnd(schedules: existing, medicationID: medication.id) {
+            storedCourseEnd = end
+            courseLastDay = end
+            courseEnds = true
+        }
         didLoadExistingSchedules = true
+    }
+
+    /// The first day the Last day picker offers: today, or a finished
+    /// course's own last day, which a picker starting at today would show as
+    /// today. The days between that one and today stay on offer only because
+    /// a range cannot skip them; `courseLastDayProblem` refuses them.
+    static func earliestCourseLastDay(stored: Date?, now: Date = .now, calendar: Calendar = .autoupdatingCurrent) -> Date {
+        let today = calendar.startOfDay(for: now)
+        guard let stored else { return today }
+        return min(today, calendar.startOfDay(for: stored))
+    }
+
+    /// The end every schedule is saved with. A day left as it was keeps the
+    /// stored moment: read abroad, noon at home can fall on the next day, and
+    /// normalised again there it would move the course's last day with it.
+    static func savedCourseEnd(
+        courseEnds: Bool,
+        lastDay: Date,
+        stored: Date?,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> Date? {
+        guard courseEnds else { return nil }
+        if let stored, calendar.isDate(stored, inSameDayAs: lastDay) { return stored }
+        return ScheduleEngine.normalizedEndDate(forDay: lastDay, calendar: calendar)
+    }
+
+    /// Why the last day cannot be saved, or nil. A day picked must be today
+    /// or later; only a finished course's own last day, left as it was, may
+    /// be past. A day before today saved as new would be a course already
+    /// over, with no reminders at all, or would stretch a finished course
+    /// over days nobody was asked to take a dose on. And the picker cannot
+    /// be trusted to prevent it: a compact picker shows a day before its
+    /// range as the first day it offers while it keeps the earlier one.
+    static func courseLastDayProblem(
+        courseEnds: Bool,
+        lastDay: Date,
+        stored: Date?,
+        now: Date = .now,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> String? {
+        guard courseEnds else { return nil }
+        if let stored, calendar.isDate(stored, inSameDayAs: lastDay) { return nil }
+        let today = calendar.startOfDay(for: now)
+        guard calendar.startOfDay(for: lastDay) < today else { return nil }
+        if let stored, calendar.startOfDay(for: stored) < today {
+            return "Choose today or a later day to start this course again, or \(ForecastEngine.dayText(stored, calendar: calendar)) to leave it finished."
+        }
+        return "Choose today or a later day for the course's last day."
+    }
+
+    /// Under the Schedule section of a scheduled medication.
+    static func scheduleFooter(
+        courseEnds: Bool,
+        storedCourseEnd: Date?,
+        now: Date = .now,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> String {
+        var footer = "This schedule drives reminders and the supply forecast. Confirm it against the current label or clinician instructions. Half doses are fine — enter 2.5 for two and a half tablets."
+        if courseEnds { footer += " Reminders stop after the last day." }
+        // Saving a finished course with a new last day, or none, starts it
+        // again today rather than filling in the days since, so the footer
+        // says so before the person saves.
+        if let storedCourseEnd, calendar.startOfDay(for: storedCourseEnd) < calendar.startOfDay(for: now) {
+            footer += " This course finished on \(ForecastEngine.dayText(storedCourseEnd, calendar: calendar))."
+            footer += courseEnds ? " Choosing today or a later day starts it again from today." : " Saved without a last day, it starts again from today."
+        }
+        return footer
     }
 
     private func save() {
@@ -873,6 +974,7 @@ struct MedicationEditorView: View {
         target.refillRemindersEnabled = refillRemindersEnabled
         target.detailedNotifications = detailedNotifications
 
+        let courseEnd = Self.savedCourseEnd(courseEnds: courseEnds, lastDay: courseLastDay, stored: storedCourseEnd)
         let scheduleDefinitions: [ScheduleDefinition] = if isAsNeeded {
             []
         } else {
@@ -882,12 +984,15 @@ struct MedicationEditorView: View {
                 return ScheduleDefinition(
                     minutesAfterMidnight: minutes,
                     doseQuantity: schedule.doseQuantity,
-                    weekdayMask: schedule.weekdayMask
+                    weekdayMask: schedule.weekdayMask,
+                    endDate: courseEnd
                 )
             }
         }
         let existingSchedules = allSchedules.filter { $0.medicationID == target.id }
-        let scheduledBefore = ScheduleReconciler.snapshot(existingSchedules)
+        // What the edit changes, as the editor showed it; a reopened course's
+        // ended schedules are history the edit leaves alone.
+        let scheduledBefore = ScheduleReconciler.snapshot(ScheduleReconciler.currentSchedules(existingSchedules, medicationID: target.id))
         let newSchedules = ScheduleReconciler.reconcile(
             medicationID: target.id,
             definitions: scheduleDefinitions,
@@ -899,7 +1004,12 @@ struct MedicationEditorView: View {
         do {
             try modelContext.save()
             let medicationsForNotifications = allMedications.filter { $0.id != target.id } + [target]
-            let schedulesForNotifications = allSchedules.filter { $0.medicationID != target.id } + newSchedules
+            // As saved, with any history a course taken up again keeps: the
+            // forecast behind the refill alert weighs those days too.
+            let targetID = target.id
+            let savedSchedules = (try? modelContext.fetch(FetchDescriptor<DoseSchedule>(predicate: #Predicate { $0.medicationID == targetID })))
+                ?? newSchedules
+            let schedulesForNotifications = allSchedules.filter { $0.medicationID != target.id } + savedSchedules
             let notificationPlans = NotificationPlanBuilder.makeAll(
                 medications: medicationsForNotifications,
                 schedules: schedulesForNotifications,

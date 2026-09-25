@@ -39,6 +39,9 @@ struct TodayView: View {
     /// supply without logging every dose should not be nagged permanently, and
     /// someone who simply has not caught up yet should be asked again tomorrow.
     @AppStorage("missedDosesSetAsideOn") private var missedDosesSetAsideOn = ""
+    /// Finished courses whose card was set aside, one per course.
+    @AppStorage(FinishedCourseNotice.setAsideKey) private var finishedCoursesSetAside = ""
+    @State private var showingArchiveError = false
     let onAdd: () -> Void
 
     private static let missedDoseLookbackDays = 2
@@ -105,6 +108,7 @@ struct TodayView: View {
                     plannedThroughNotice(now: now)
                     pickupsCard(now: now)
                     missedDosesCard(now: now)
+                    finishedCourseCards(now: now)
                     if activeMedications.isEmpty {
                         EmptyStateCard(
                             symbol: "viewfinder",
@@ -157,6 +161,11 @@ struct TodayView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(alreadyLoggedMessage)
+        }
+        .alert("Couldn't Archive", isPresented: $showingArchiveError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Nothing was changed. Try again.")
         }
     }
 
@@ -382,6 +391,78 @@ struct TodayView: View {
             }
             .padding(18)
             .cardSurface()
+        }
+    }
+
+    /// A course that finished in the last few days, with the archive the
+    /// detail screen's menu offers. Set aside, it stays on Today and Supply
+    /// as it is.
+    @ViewBuilder
+    private func finishedCourseCards(now: Date) -> some View {
+        let items = FinishedCourseNotice.items(
+            medications: activeMedications,
+            schedules: schedules,
+            inventoryEvents: inventoryEvents,
+            doseEvents: doseEvents,
+            setAside: FinishedCourseNotice.setAside(in: finishedCoursesSetAside),
+            now: now
+        )
+        ForEach(items) { item in
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label(FinishedCourseNotice.title(for: item), systemImage: "checkmark.circle")
+                        .font(.headline)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("Archive it to take it off Today and Supply. Its history is kept, and you can restore it from Medications.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .accessibilityElement(children: .combine)
+                let buttonLayout = dynamicTypeSize.isAccessibilitySize
+                    ? AnyLayout(VStackLayout(spacing: 10))
+                    : AnyLayout(HStackLayout(spacing: 10))
+                buttonLayout {
+                    Button {
+                        finishedCoursesSetAside = FinishedCourseNotice.adding(
+                            FinishedCourseNotice.key(medicationID: item.medicationID, end: item.end),
+                            to: finishedCoursesSetAside
+                        )
+                    } label: {
+                        Text("Not Now").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .accessibilityHint("Keeps \(item.displayName) as it is")
+                    .accessibilityIdentifier("finished-course-not-now")
+                    Button {
+                        archive(item)
+                    } label: {
+                        Text("Archive").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .foregroundStyle(AppTheme.onAccent)
+                    .controlSize(.large)
+                    .accessibilityLabel("Archive \(item.displayName)")
+                    .accessibilityIdentifier("finished-course-archive")
+                }
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .cardSurface()
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("finished-course-card")
+        }
+    }
+
+    private func archive(_ item: FinishedCourseNotice.Item) {
+        guard let medication = medications.first(where: { $0.id == item.medicationID }) else { return }
+        do {
+            try FinishedCourseNotice.archive(medication, in: modelContext)
+            Task { await replanNotifications() }
+        } catch {
+            modelContext.rollback()
+            showingArchiveError = true
         }
     }
 

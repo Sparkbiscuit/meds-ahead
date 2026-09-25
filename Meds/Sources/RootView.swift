@@ -85,6 +85,10 @@ struct RootView: View {
                     countedWhenSchedulesStart: staleCount
                 )
             }
+            if ProcessInfo.processInfo.arguments.contains("-seed-course") {
+                let finished = ProcessInfo.processInfo.arguments.contains("-seed-finished-course")
+                try? DemoData.seedCourse(in: modelContext, lastDayInDays: finished ? -1 : 3)
+            }
 #endif
             await syncHealthDoses()
             await replanNotifications()

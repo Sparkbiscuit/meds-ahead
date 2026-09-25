@@ -1,23 +1,48 @@
 import SwiftUI
 
 struct SupplyGauge: View {
+    /// A course the supply sees through, or one already over. Nothing runs
+    /// out either way, so the ring reads complete: no day count, and never
+    /// the question mark of a forecast that could not be made.
+    enum Course: Equatable {
+        case covered
+        case finished
+
+        init?(_ forecast: SupplyForecast) {
+            if forecast.courseFinished {
+                self = .finished
+            } else if forecast.courseCovered {
+                self = .covered
+            } else {
+                return nil
+            }
+        }
+    }
+
     let daysRemaining: Int?
     let leadDays: Int
     /// The forecast's zero days are where its assumed doses ran out, not a
     /// runway: the ring asks for a count instead of reading empty and red.
     var needsCount = false
+    var course: Course? = nil
     var size: CGFloat = 46
 
     /// The day count the ring prints, if any.
-    var shownDays: Int? { needsCount ? nil : daysRemaining }
+    var shownDays: Int? { needsCount || course != nil ? nil : daysRemaining }
 
     private var progress: Double {
+        if course != nil { return 1 }
         guard let shownDays else { return 0.18 }
         return min(1, max(0.06, Double(shownDays) / Double(max(leadDays * 3, 21))))
     }
 
     var color: Color {
         if needsCount { return .orange }
+        switch course {
+        case .covered: return AppTheme.accent
+        case .finished: return .secondary
+        case nil: break
+        }
         guard let daysRemaining else { return .secondary }
         if daysRemaining <= 0 { return .red }
         if daysRemaining <= leadDays { return .orange }
@@ -26,6 +51,11 @@ struct SupplyGauge: View {
 
     var accessibilityText: String {
         if needsCount { return "Count needed" }
+        switch course {
+        case .covered: return "Enough to finish the course"
+        case .finished: return "Course finished"
+        case nil: break
+        }
         return daysRemaining.map { "\($0.dayCountText) of supply remaining" } ?? "Supply forecast unavailable"
     }
 
@@ -40,6 +70,10 @@ struct SupplyGauge: View {
                 Text("\(shownDays)")
                     .font(.caption.weight(.bold))
                     .contentTransition(.numericText())
+            } else if course != nil {
+                Image(systemName: "checkmark")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(color)
             } else {
                 Image(systemName: "questionmark")
                     .font(.caption.weight(.bold))
