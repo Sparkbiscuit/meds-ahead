@@ -234,9 +234,9 @@ final class CourseDisplayTests: XCTestCase {
         XCTAssertTrue(finishedCards([asNeeded]).isEmpty)
 
         let course = makeFinished()
-        let key = FinishedCourseNotice.key(medicationID: course.medication.id, end: lastDay(9), calendar: calendar)
+        let key = FinishedCourseNotice.key(medicationID: course.medication.id, end: lastDay(9))
         XCTAssertTrue(finishedCards([course], setAside: [key]).isEmpty)
-        let otherCourse = FinishedCourseNotice.key(medicationID: course.medication.id, end: lastDay(3), calendar: calendar)
+        let otherCourse = FinishedCourseNotice.key(medicationID: course.medication.id, end: lastDay(3))
         XCTAssertEqual(finishedCards([course], setAside: [otherCourse]).count, 1, "set aside for an earlier course, not for this one")
     }
 
@@ -327,6 +327,31 @@ final class CourseDisplayTests: XCTestCase {
         let emptyInTheMorning = course(count: 19, through: 10, loggedThrough: september(10, 8))
         let lastAfternoon = adding(emptyInTheMorning, doses: [(10, 20)], inventory: [refill(emptyInTheMorning, 10, at: september(10, 15))])
         XCTAssertEqual(finishedCards([lastAfternoon], now: september(11, 9)).count, 1, "refilled before the last dose")
+    }
+
+    /// Set aside at home, a course stays set aside abroad. Its last day is
+    /// stored as noon in New York, which Tokyo reads as the next day.
+    func testACourseSetAsideAtHomeStaysSetAsideAbroad() throws {
+        var newYork = Calendar(identifier: .gregorian)
+        newYork.timeZone = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        var tokyo = Calendar(identifier: .gregorian)
+        tokyo.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
+        let end = ScheduleEngine.normalizedEndDate(forDay: try XCTUnwrap(newYork.date(from: DateComponents(year: 2026, month: 9, day: 20))), calendar: newYork)
+        XCTAssertEqual(tokyo.component(.day, from: end), 21, "why: abroad the stored noon reads as another day")
+        let medication = Medication(name: "Amoxicillin", createdAt: september(10, 7))
+        let schedules = [8, 20].map {
+            DoseSchedule(medicationID: medication.id, minutesAfterMidnight: $0 * 60, doseQuantity: 1, startDate: september(10, 7), endDate: end)
+        }
+        let opening = InventoryEvent(medicationID: medication.id, date: september(10, 7), delta: 100, reason: .openingCount)
+        let key = FinishedCourseNotice.key(medicationID: medication.id, end: end)
+        func cards(setAside: Set<String>, in calendar: Calendar) -> Int {
+            FinishedCourseNotice.items(medications: [medication], schedules: schedules, inventoryEvents: [opening], doseEvents: [],
+                                       setAside: setAside, now: september(22, 12), calendar: calendar).count
+        }
+        XCTAssertEqual(cards(setAside: [], in: newYork), 1)
+        XCTAssertEqual(cards(setAside: [], in: tokyo), 1)
+        XCTAssertEqual(cards(setAside: [key], in: newYork), 0)
+        XCTAssertEqual(cards(setAside: [key], in: tokyo), 0, "set aside in New York")
     }
 
     /// Archive on the card marks the medication archived, as the detail

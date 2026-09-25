@@ -40,7 +40,7 @@ enum FinishedCourseNotice {
                 guard ScheduleEngine.isCourseFinished(schedules: schedules, medicationID: medication.id, now: now, calendar: calendar),
                       let end = ScheduleEngine.courseEnd(schedules: schedules, medicationID: medication.id),
                       SupplyAttention.days(from: end, to: today, calendar: calendar) <= recentDays,
-                      !setAside.contains(key(medicationID: medication.id, end: end, calendar: calendar)) else { return nil }
+                      !setAside.contains(key(medicationID: medication.id, end: end)) else { return nil }
                 guard !ranOutFirst(
                     medication: medication,
                     schedules: schedules,
@@ -150,10 +150,11 @@ enum FinishedCourseNotice {
     }
 
     /// Set aside for one course, not for the medication: a course taken up
-    /// again that finishes later is offered again.
-    static func key(medicationID: UUID, end: Date, calendar: Calendar = .autoupdatingCurrent) -> String {
-        let day = calendar.dateComponents([.year, .month, .day], from: end)
-        return "\(medicationID.uuidString)@\(day.year ?? 0)-\(day.month ?? 0)-\(day.day ?? 0)"
+    /// again that finishes later is offered again. Keyed by the stored end
+    /// rather than the day it reads as: noon at home can read as the next
+    /// day abroad, and a card set aside before a flight would come back.
+    static func key(medicationID: UUID, end: Date) -> String {
+        "\(medicationID.uuidString)@\(Int(end.timeIntervalSinceReferenceDate.rounded()))"
     }
 
     /// As the detail screen's Archive does it: the medication is marked
