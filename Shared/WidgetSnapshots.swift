@@ -85,7 +85,7 @@ struct NextDoseSnapshot: Equatable, Sendable {
         schedules: [DoseSchedule],
         doseEvents: [DoseEvent],
         now: Date,
-        dueWindow: TimeInterval = 30 * 60,
+        dueWindow: TimeInterval = ScheduleEngine.dueWindow,
         calendar: Calendar = .autoupdatingCurrent
     ) -> [Date] {
         var times: Set<Date> = []
