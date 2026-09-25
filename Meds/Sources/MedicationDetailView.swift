@@ -403,7 +403,10 @@ struct MedicationDetailView: View {
             Label("Details", systemImage: "list.bullet.rectangle")
                 .font(.headline)
             DetailLine(label: "Refills", value: medication.refillsRemaining.map(String.init) ?? "Not entered")
-            DetailLine(label: "Low-supply alert", value: "\(medication.refillLeadDays.dayCountText) before")
+            DetailLine(
+                label: "Low-supply alert",
+                value: SupplyAttention.leadTimeText(refillLeadDays: medication.refillLeadDays, refillsRemaining: medication.refillsRemaining)
+            )
             if let expirationDate = medication.expirationDate {
                 let calendar = Calendar.autoupdatingCurrent
                 let isExpired = calendar.startOfDay(for: expirationDate) < calendar.startOfDay(for: .now)
