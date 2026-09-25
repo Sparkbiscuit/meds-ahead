@@ -253,6 +253,26 @@ final class NDCIdentificationTests: XCTestCase {
         XCTAssertEqual(bothWrong.name, "Tacrolimus")
     }
 
+    /// What an iOS 27 capture of a shaken Tecfidera label read: a code with the
+    /// wrong digits, twice. The code names nothing, so it fills nothing, but the
+    /// printed name is the vocabulary's and fills the name as it would on a
+    /// label with no code at all.
+    func testAnUnlistedCodeLeavesTheLabelsOwnNameInPlace() {
+        let draft = draft([
+            "SPRINGFIELD PHARMACY #2214", "RX# 4402917",
+            "DIMETHYL FUMARATE 240 MG DR CAPSULE",
+            "VER BIOGEN NOC 54405-005-22", "MFR:BIOGEN NDC:54405-005-02",
+            "TAKE 1 CAPSULE BY MOUTH TWICE DAILY", "QTY: 60"
+        ])
+
+        XCTAssertEqual(draft.identification, .unlisted(code: "54405-005-02"))
+        XCTAssertEqual(draft.name, "Dimethyl fumarate")
+        XCTAssertEqual(draft.nameProvenance, .vocabulary)
+        XCTAssertEqual(draft.strength, "240 mg")
+        XCTAssertEqual(draft.form, .capsule)
+        XCTAssertEqual(draft.productIdentifier, "54405-005-02", "the code as read, ready to check against the bottle")
+    }
+
     func testAnEmptyDirectoryChangesNothing() {
         let draft = MedicationLabelInterpreter.offlineDraft(
             evidence(["SERTRALINE HCL 50 MG TABLET", "NDC 0093-1039-01"]),

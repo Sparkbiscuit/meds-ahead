@@ -358,7 +358,12 @@ enum ScanParser {
         for word in dosageWords {
             cleaned = cleaned.replacingOccurrences(of: word, with: "", options: [.caseInsensitive])
         }
-        return tidiedNameResidue(cleaned)
+        // On the line that carries the strength, a trailing "DR" is the
+        // delayed-release form. Left in, the address test read it as "Drive" and
+        // blanked the name of every delayed-release label: "MYCOPHENOLIC ACID DR".
+        var tokens = tidiedNameResidue(cleaned).split(separator: " ")
+        if tokens.count >= 2, tokens.last?.lowercased() == "dr" { tokens.removeLast() }
+        return tokens.joined(separator: " ")
     }
 
     /// Cutting the strength and dosage words out of a line leaves double spaces and a
