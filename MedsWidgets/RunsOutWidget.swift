@@ -145,9 +145,16 @@ struct RunsOutView: View {
                                 .lineLimit(1)
                                 .privacySensitive()
                             Spacer()
-                            Text(next.shownDaysRemaining.map { "\($0) d" } ?? "?")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(color(for: next))
+                            if next.courseCovered {
+                                Image(systemName: "checkmark")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(color(for: next))
+                                    .accessibilityLabel(next.line)
+                            } else {
+                                Text(next.shownDaysRemaining.map { "\($0) d" } ?? "?")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(color(for: next))
+                            }
                         }
                     }
                 }
@@ -163,7 +170,10 @@ struct RunsOutView: View {
 
     private func gauge(for item: RunsOutSnapshot.Item) -> some View {
         let color = color(for: item)
+        // A course the supply sees through reads complete, as the app's ring
+        // does, not as an unknown.
         let progress: Double = {
+            if item.courseCovered { return 1 }
             guard let days = item.shownDaysRemaining else { return 0.18 }
             return min(1, max(0.06, Double(days) / Double(max(item.refillLeadDays * 3, 21))))
         }()
@@ -173,8 +183,13 @@ struct RunsOutView: View {
                 .trim(from: 0, to: progress)
                 .stroke(color, style: StrokeStyle(lineWidth: 4, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-            Text(item.shownDaysRemaining.map(String.init) ?? "?")
-                .font(.caption2.weight(.bold))
+            if item.courseCovered {
+                Image(systemName: "checkmark")
+                    .font(.caption2.weight(.bold))
+            } else {
+                Text(item.shownDaysRemaining.map(String.init) ?? "?")
+                    .font(.caption2.weight(.bold))
+            }
         }
         .frame(width: 36, height: 36)
         .accessibilityHidden(true)

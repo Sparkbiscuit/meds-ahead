@@ -349,4 +349,29 @@ final class CourseDisplayTests: XCTestCase {
         XCTAssertEqual(entry.scheduleLines.count, 2, "the two times it is taken on now, not four: \(entry.scheduleLines)")
         XCTAssertTrue(entry.scheduleLines.allSatisfy { $0.hasSuffix("until Sep 20, 2026") })
     }
+
+    // MARK: - Runs-out widget
+
+    func testTheWidgetSaysACourseIsCoveredAndLeavesAFinishedOneOff() throws {
+        let tacrolimus = course("Tacrolimus", count: 30, through: nil, loggedThrough: september(12, 8))
+        let lotion = Medication(name: "Lotion", isAsNeeded: true)
+        let courses = [covered, finished, runsOutFirst, tacrolimus]
+        let snapshot = RunsOutSnapshot.make(
+            medications: courses.map(\.medication) + [lotion],
+            schedules: courses.flatMap(\.schedules),
+            inventoryEvents: courses.flatMap(\.inventory) + [InventoryEvent(medicationID: lotion.id, delta: 5, reason: .openingCount)],
+            doseEvents: courses.flatMap(\.doses),
+            now: now,
+            calendar: calendar
+        )
+        XCTAssertEqual(snapshot.items.map(\.medicationID),
+                       [runsOutFirst.medication.id, tacrolimus.medication.id, covered.medication.id, lotion.id],
+                       "run-out dates, then the covered course, then the unknown; the finished course is left off")
+        let coveredItem = try XCTUnwrap(snapshot.items.first { $0.medicationID == covered.medication.id })
+        XCTAssertTrue(coveredItem.courseCovered)
+        XCTAssertEqual(coveredItem.line, "Enough for the course")
+        XCTAssertEqual(coveredItem.tone, .steady)
+        XCTAssertFalse(coveredItem.needsAttention)
+        XCTAssertFalse(try XCTUnwrap(snapshot.items.first).courseCovered)
+    }
 }

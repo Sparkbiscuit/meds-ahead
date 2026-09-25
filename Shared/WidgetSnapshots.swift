@@ -106,7 +106,9 @@ struct NextDoseSnapshot: Equatable, Sendable {
 }
 
 /// What the runs-out-next widget shows: the medications in the order their
-/// supply runs out, soonest first, with the ones nobody can forecast last.
+/// supply runs out, soonest first, then courses the supply sees through,
+/// with the ones nobody can forecast last. A finished course runs out of
+/// nothing and is left off.
 struct RunsOutSnapshot: Equatable, Sendable {
     struct Item: Equatable, Sendable, Identifiable {
         let medicationID: UUID
@@ -122,6 +124,9 @@ struct RunsOutSnapshot: Equatable, Sendable {
         /// The forecast's assumptions used up the ledger; see `SupplyForecast`.
         let needsCount: Bool
         let accentIndex: Int
+        /// The supply sees the course through its last day: nothing runs
+        /// out, and nothing needs a refill.
+        var courseCovered = false
 
         var id: UUID { medicationID }
 
@@ -160,6 +165,7 @@ struct RunsOutSnapshot: Equatable, Sendable {
         var tone: Tone {
             if isOut { return .out }
             if needsAttention { return .attention }
+            if courseCovered { return .steady }
             return daysRemaining == nil ? .unknown : .steady
         }
 
@@ -168,6 +174,7 @@ struct RunsOutSnapshot: Equatable, Sendable {
         var line: String {
             if needsCount { return "Count needed" }
             if isOut { return "Out of supply" }
+            if courseCovered { return "Enough for the course" }
             if attention.refillPauseHolds { return "Refill on its way" }
             guard let daysRemaining else { return "Timing unknown" }
             return "About \(daysRemaining.dayCountText) left"
@@ -189,7 +196,7 @@ struct RunsOutSnapshot: Equatable, Sendable {
     ) -> RunsOutSnapshot {
         let items = medications
             .filter { !$0.isArchived }
-            .map { medication -> Item in
+            .compactMap { medication -> Item? in
                 let forecast = ForecastEngine.forecast(
                     medication: medication,
                     schedules: schedules,
@@ -198,6 +205,7 @@ struct RunsOutSnapshot: Equatable, Sendable {
                     now: now,
                     calendar: calendar
                 )
+                guard !forecast.courseFinished else { return nil }
                 let attention = SupplyAttention(medication: medication, forecast: forecast, now: now, calendar: calendar)
                 return Item(
                     medicationID: medication.id,
@@ -210,7 +218,8 @@ struct RunsOutSnapshot: Equatable, Sendable {
                     daysSinceRefillDate: attention.daysSinceRefillDate,
                     onHand: attention.onHand,
                     needsCount: attention.needsCount,
-                    accentIndex: medication.accentIndex
+                    accentIndex: medication.accentIndex,
+                    courseCovered: forecast.courseCovered
                 )
             }
             .sorted { lhs, rhs in
@@ -218,6 +227,7 @@ struct RunsOutSnapshot: Equatable, Sendable {
                 case let (.some(a), .some(b)) where a != b: return a < b
                 case (.some, .none): return true
                 case (.none, .some): return false
+                case (.none, .none) where lhs.courseCovered != rhs.courseCovered: return lhs.courseCovered
                 default: return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
                 }
             }
