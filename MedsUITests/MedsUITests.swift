@@ -863,4 +863,58 @@ final class MedsUITests: XCTestCase {
         detailWhy.tap()
         XCTAssertTrue(line("Counted 20 tablets on ").waitForExistence(timeout: 3))
     }
+
+    /// Every dose for sixteen days went unlogged, so both scheduled
+    /// medications need a count, and Today's quick count asks about the one
+    /// the weekly reminder would. Not Now hides it.
+    func testTheQuickCountCardCanBeSetAside() {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-ui-testing",
+            "-skip-onboarding",
+            "-seed-demo-data",
+            "-seed-stale-count",
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryL"
+        ]
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+        let title = app.staticTexts["Count needed: Dimethyl fumarate"]
+        XCTAssertTrue(title.waitForExistence(timeout: 5), "no quick count on Today")
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label ENDSWITH %@", "weren't logged, so only a count can say what's left.")).firstMatch.exists)
+        app.buttons["quick-count-not-now"].tap()
+        XCTAssertTrue(title.waitForNonExistence(timeout: 3), "Not Now left the card up")
+        XCTAssertFalse(app.buttons["quick-count-now"].exists, "Not Now hides the card, not only the medication it named")
+    }
+
+    /// Count Now on the quick count opens Correct Count empty, since a count
+    /// is needed, and the count ends the card's question about that one.
+    func testTheQuickCountCardOpensCorrectCount() {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-ui-testing",
+            "-skip-onboarding",
+            "-seed-demo-data",
+            "-seed-stale-count",
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryL"
+        ]
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+        let title = app.staticTexts["Count needed: Dimethyl fumarate"]
+        XCTAssertTrue(title.waitForExistence(timeout: 5), "no quick count on Today")
+        app.buttons["quick-count-now"].tap()
+
+        XCTAssertTrue(app.navigationBars["Correct Current Count"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.buttons["Save Count"].isEnabled, "nothing is filled in to confirm with one tap")
+        let quantity = app.textFields["supply-quantity"]
+        quantity.tap()
+        quantity.typeText("12")
+        app.buttons["Save Count"].tap()
+
+        XCTAssertTrue(title.waitForNonExistence(timeout: 3), "the count did not end the question")
+        XCTAssertTrue(app.staticTexts["Count needed: Furosemide"].waitForExistence(timeout: 3), "the next count the reminder would ask for")
+    }
 }

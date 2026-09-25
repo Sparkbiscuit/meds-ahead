@@ -39,6 +39,12 @@ struct TodayView: View {
     /// supply without logging every dose should not be nagged permanently, and
     /// someone who simply has not caught up yet should be asked again tomorrow.
     @AppStorage("missedDosesSetAsideOn") private var missedDosesSetAsideOn = ""
+    @AppStorage(QuickCountPrompt.setAsideKey) private var quickCountSetAside = Data()
+    /// The card asks the reminder's question, so it follows the reminder's
+    /// switch in Settings.
+    @AppStorage(NotificationPlanOptions.weeklyCountCheckKey) private var weeklyCountCheck = true
+    @State private var countRequest: CountCorrection.Request?
+    @State private var showingCountSaveError = false
     let onAdd: () -> Void
 
     private static let missedDoseLookbackDays = 2
@@ -104,6 +110,7 @@ struct TodayView: View {
                     notificationBanner
                     plannedThroughNotice(now: now)
                     pickupsCard(now: now)
+                    quickCountCard(now: now)
                     missedDosesCard(now: now)
                     if activeMedications.isEmpty {
                         EmptyStateCard(
@@ -157,6 +164,42 @@ struct TodayView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(alreadyLoggedMessage)
+        }
+        .sheet(item: $countRequest) { request in
+            CorrectCountSheet(request: request) { showingCountSaveError = true }
+        }
+        .alert("Couldn't Save Count", isPresented: $showingCountSaveError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Your count wasn't saved. Try again.")
+        }
+    }
+
+    /// The weekly count check's question, here for as long as it stands: a
+    /// count moves the last count's date and the card goes with it.
+    @ViewBuilder
+    private func quickCountCard(now: Date) -> some View {
+        if weeklyCountCheck, let prompt = QuickCountPrompt.make(
+            medications: medications,
+            schedules: schedules,
+            inventoryEvents: inventoryEvents,
+            doseEvents: doseEvents,
+            setAside: QuickCountPrompt.decodeSetAside(quickCountSetAside),
+            lastAsked: CountCheckPolicy.lastAsked(in: .standard, now: now),
+            now: now
+        ) {
+            QuickCountCard(
+                prompt: prompt,
+                onCount: {
+                    guard let medication = medications.first(where: { $0.id == prompt.medicationID }) else { return }
+                    countRequest = CountCorrection.Request(medication: medication, forecast: prompt.forecast)
+                },
+                onNotNow: {
+                    quickCountSetAside = QuickCountPrompt.encodeSetAside(
+                        QuickCountPrompt.settingAside(prompt.medicationID, at: .now, in: QuickCountPrompt.decodeSetAside(quickCountSetAside))
+                    )
+                }
+            )
         }
     }
 
