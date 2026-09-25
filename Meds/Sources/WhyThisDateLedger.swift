@@ -34,13 +34,22 @@ enum WhyThisDateLedger {
         var isWarning = false
     }
 
+    /// `notificationsAllowed` is false while iOS will not deliver anything
+    /// the app plans: permission refused, or never asked for.
     static func lines(
         for breakdown: ForecastBreakdown,
         isAsNeeded: Bool,
         isArchived: Bool = false,
+        notificationsAllowed: Bool = true,
         calendar: Calendar = .autoupdatingCurrent
     ) -> [Line] {
-        let phrasing = Phrasing(breakdown: breakdown, isAsNeeded: isAsNeeded, isArchived: isArchived, calendar: calendar)
+        let phrasing = Phrasing(
+            breakdown: breakdown,
+            isAsNeeded: isAsNeeded,
+            isArchived: isArchived,
+            notificationsAllowed: notificationsAllowed,
+            calendar: calendar
+        )
         return breakdown.steps.flatMap(phrasing.lines(for:))
     }
 
@@ -54,6 +63,7 @@ enum WhyThisDateLedger {
         let breakdown: ForecastBreakdown
         let isAsNeeded: Bool
         let isArchived: Bool
+        let notificationsAllowed: Bool
         let calendar: Calendar
 
         private var form: MedicationForm { breakdown.form }
@@ -255,7 +265,7 @@ enum WhyThisDateLedger {
                 let lead = SupplyAttention.lengthenedLeadNote(refillLeadDays: alert.chosenLeadDays, refillsRemaining: alert.needsPrescriber ? 0 : nil)
                     ?? "\(alert.leadDays.dayCountText) before it runs out."
                 let text = "Low-supply alert on \(moment)"
-                return Line(kind: .alert, text: text, detail: lead, spoken: "\(text). \(lead)")
+                return undeliverable(Line(kind: .alert, text: text, detail: lead, spoken: "\(text). \(lead)"))
             case .passed:
                 let text = "Low-supply alert was due \(moment)"
                 let reason = "Already passed. Alerts aren't sent late."
@@ -264,12 +274,21 @@ enum WhyThisDateLedger {
                 let text = "Low-supply alert paused while the refill is on its way"
                 let detail = checkAt.map { "Checked again on \(WhyThisDateLedger.momentText($0, calendar: calendar))." }
                     ?? "It comes back if the refill runs two days late or supply gets very low."
-                return Line(kind: .alert, text: text, detail: detail, spoken: "\(text). \(detail)")
+                return undeliverable(Line(kind: .alert, text: text, detail: detail, spoken: "\(text). \(detail)"))
             case .off:
                 let text = "Low-supply alert off"
                 let reason = isArchived ? "This medication is archived." : "Refill reminders are off for this medication."
                 return Line(kind: .alert, text: text, detail: reason, spoken: "\(text). \(reason)")
             }
+        }
+
+        /// An alert iOS will not deliver says so, beside the time it would
+        /// have come: a date alone reads as a promise someone may wait on.
+        private func undeliverable(_ line: Line) -> Line {
+            guard !notificationsAllowed else { return line }
+            let blocked = "It can't be sent until notifications are allowed for Meds Ahead."
+            let detail = line.detail.map { "\($0) \(blocked)" } ?? blocked
+            return Line(kind: line.kind, text: line.text, detail: detail, spoken: "\(line.text). \(detail)", isWarning: true)
         }
     }
 }

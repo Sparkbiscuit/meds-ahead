@@ -44,7 +44,15 @@ struct WhyThisDateView: View {
             doseEvents: doseEvents,
             now: now
         )
-        let lines = WhyThisDateLedger.lines(for: breakdown, isAsNeeded: medication.isAsNeeded, isArchived: medication.isArchived)
+        // The permission Today's banner reports, so an alert that cannot be
+        // delivered is not shown here as one that will be.
+        let notifications = NotificationHealth.shared.state
+        let lines = WhyThisDateLedger.lines(
+            for: breakdown,
+            isAsNeeded: medication.isAsNeeded,
+            isArchived: medication.isArchived,
+            notificationsAllowed: notifications != .blocked && notifications != .unasked
+        )
         let ledger = lines.filter { [.start, .change, .total].contains($0.kind) }
         let outlook = lines.filter { ![.start, .change, .total].contains($0.kind) }
         return List {
@@ -120,7 +128,7 @@ private struct LedgerLine: View {
     private var symbol: String? {
         switch line.kind {
         case .conclusion: line.isWarning ? "exclamationmark.circle.fill" : "calendar"
-        case .alert: "bell"
+        case .alert: line.isWarning ? "bell.slash" : "bell"
         default: nil
         }
     }

@@ -346,6 +346,37 @@ final class WhyThisDateLedgerTests: XCTestCase {
                      "no alert, no line")
     }
 
+    /// With notifications refused or never allowed, iOS delivers nothing the
+    /// app plans, so the alert's time is not left standing as a promise.
+    func testAnAlertThatCannotBeDeliveredSaysSo() {
+        let alertDate = date(10, 7, 9)
+        func alert(_ state: ForecastBreakdown.Alert.State, allowed: Bool) -> WhyThisDateLedger.Line? {
+            WhyThisDateLedger.lines(
+                for: breakdown(
+                    ledger: 60,
+                    forecast: forecast(supply: 60, runsOut: date(10, 14, 8), days: 30),
+                    alert: ForecastBreakdown.Alert(date: alertDate, leadDays: 7, chosenLeadDays: 7, needsPrescriber: false, state: state)
+                ),
+                isAsNeeded: false,
+                notificationsAllowed: allowed,
+                calendar: calendar
+            ).last
+        }
+
+        let blocked = alert(.planned, allowed: false)
+        XCTAssertEqual(blocked?.text, "Low-supply alert on \(moment(alertDate))")
+        XCTAssertEqual(blocked?.detail, "7 days before it runs out. It can't be sent until notifications are allowed for Meds Ahead.")
+        XCTAssertEqual(blocked?.spoken, "Low-supply alert on \(moment(alertDate)). 7 days before it runs out. It can't be sent until notifications are allowed for Meds Ahead.")
+        XCTAssertEqual(blocked?.isWarning, true)
+        XCTAssertEqual(alert(.planned, allowed: true)?.isWarning, false)
+
+        let check = date(10, 9, 9)
+        XCTAssertEqual(alert(.pausedByRefill(checkAt: check), allowed: false)?.detail,
+                       "Checked again on \(moment(check)). It can't be sent until notifications are allowed for Meds Ahead.")
+        XCTAssertEqual(alert(.passed, allowed: false)?.detail, "Already passed. Alerts aren't sent late.", "nothing was going to be sent")
+        XCTAssertEqual(alert(.off, allowed: false)?.detail, "Refill reminders are off for this medication.")
+    }
+
     /// From the engine itself: the lines walk the same ledger and reach the
     /// same date the forecast shows.
     func testTheLinesComeFromTheForecastsOwnBreakdown() throws {
