@@ -1,5 +1,191 @@
 # Verification record
 
+## September 25, 2026 — 1.1.1: small print on iOS 27, and release as identity
+
+Two lanes merged into 1.1.1 after the paperwork in the entry below (`9630c3e`):
+`lane/ios27` (`98e5c0a`) and `lane/identity` (`4728d73`). It is still version
+1.1.1, build 7, on the local branch `fix/1.1.1-supply-accuracy`; nothing is
+pushed or submitted. The first lane answers the entry below's "iOS 27"
+section, which left three rendered-label OCR tests failing on iOS 27 and two
+Xcode 27 warnings alone; that section stays as the record of what was found.
+It also judged retuning the second look a change to make with a phone in hand;
+it was made in the simulator instead, so the phone steps below are the check
+that judgment asked for. The second lane closes a hole the first found in the gate: Prograf and Astagraf XL
+are tacrolimus 1 mg capsules from one labeler, one digit apart, and small print
+swaps 1 and 7, so a misread code on a Prograf bottle was accepted as the
+extended-release product, which is taken once a day instead of twice. The
+designs are in `ARCHITECTURE.md` under "Exact identification" (the four
+passes, the guess bar, the package digits, release as identity), "Autofill
+posture", the brand table under "Data model", "Apple Health import" and
+"RxNorm".
+
+### What changed: small print on iOS 27
+
+- **Why anything had to.** Vision offers only text-recognition revision 3 on
+  iOS 26.5 and 27.0, so there is no revision to pin; the model under it
+  changed. Over about 140 crops, scales and filters of the shaken Tecfidera
+  line, iOS 27 never put the right code first and listed it among its top ten
+  guesses in about one look in seven; iOS 26.5 read it first in about one in
+  three. Language correction, the language list, gamma, threshold, morphology
+  and sharpening changed that only by chance.
+- **Tiles find the line, the zoom reads it** (`e7cb9cb`, `ef0d58e`). A tile
+  read 12-point "-02" as "-07" on iOS 27 where the zoom read it right, so the
+  zoom's reading leads; the tile's goes forward beside it when it carries a
+  code the zoom did not read.
+- **A search of Vision's lower-ranked guesses** (`e7cb9cb`, `a054abf`,
+  `0b0512c`, `55c664e`, `531b74e`), on stills only and only when nothing read,
+  a barcode included, is a listed code the label accepts: at most two lines, at
+  seven text heights, the top ten guesses of each. A guess is admitted only
+  when the label names its product exactly and fits none of the labeler's
+  other products as well, and it enters the evidence as its code alone. A
+  label that says only "TACROLIMUS 1 MG CAPSULE" takes a guess at neither
+  Prograf nor Astagraf XL; WELLBUTRIN XL takes none at Wellbutrin SR.
+- **Both readings of a code line survive the merge** (`6077ac1`). The merge
+  used to keep whichever of "NDC 54405-005-02" and "NDC 64406-006-02" Vision
+  scored higher, choosing a product by OCR confidence.
+- **A package read two ways is left off** (`4620b28`). The medication keeps
+  the two-segment product NDC, "64406-0006", and the review screen's note says
+  why; a barcode, agreeing readings, or Use This Product on a typed code keep
+  the full one.
+- **The name on a delayed-release label** (`b182aa2`). "X DR 240 MG CAPSULE"
+  left the name blank, the trailing DR read as "Drive"; found on an iOS 27
+  capture of a Tecfidera label whose code was rightly refused.
+- **Words, layout, warnings** (`46c6b31`, `c32bf82`, `4fbf1bb`, `65cd1f3`,
+  `b9d2e58`). The detail screen reads "10 days before, because no refills are
+  left" when the prescriber's lead applies, and the editor's Reminders section
+  says why; at the accessibility sizes each detail line stacks its value under
+  its label. Today's refill card heading names the reason, "A count is needed"
+  or "A refill needs checking" or both. Trip Check marks a count needed with
+  the orange mark every other screen uses. The two Xcode 27 warnings are gone:
+  the model request uses `GenerationOptions(samplingMode:)`, back-deployed to
+  iOS 26, with the same greedy, zero-temperature, 96-token setting, and
+  `SettingsView` imports SwiftData.
+
+### What changed: release as identity
+
+- **The directory records release** (`57ced61`, `3b1f206`). The snapshot was
+  regenerated from the FDA's `ndctext.zip` (`product.txt` dated September 24,
+  downloaded September 25) and reads "FDA NDC Directory snapshot 2026-09-25":
+  112,571 products, 559 added since September 11, 234 delisted by the FDA and 7
+  renamed or reordered, with no pinned test value changed. A sixth column
+  holds the release, "er" for 5,142 products, "dr" for 1,856, and empty for
+  the 105,573 that claim neither; the tool reads it from the FDA's dosage
+  form, else a release phrase in the names, else release letters after the
+  first word of an oral tablet's or capsule's brand or generic name. The two
+  repackager rows of extended-release metformin that the FDA files as plain
+  TABLET (50090-6515, 71610-0613) are "er" from their generic name. The
+  resource is 7.7 MB, 1.6 MB compressed.
+- **A release suffix keeps its own brand** (`0e1e702`). "Tacrolimus XL" no
+  longer records Prograf, nor "Metformin ER" Glucophage; "Metoprolol succinate
+  ER" still gets Toprol XL.
+- **The gate** (`45163c1`, `c038c33`, `9e2e14d`). A release the label states
+  against the product's refuses a code, a DR label excepted against a listing
+  that claims none, since Tecfidera is filed as a plain capsule. A printed
+  code for an extended- or delayed-release product needs the label to back
+  the release up. A brand of another of the labeler's products of the drug,
+  printed on the label, refuses a branded code whose brand is not there, both
+  ways. A dosing interval ("every 12 hours") is never release evidence, and
+  extended-release letters wrapped onto the next line count. The brand the
+  table lends a bare name is held back wherever the release is in doubt, the
+  language model's pass included.
+- **Apple Health** (`9abf6c8`, `159946a`). "Already in Meds Ahead" matches
+  names only within one release; an entry's stated release stays in its name
+  for any drug; an entry that states none takes it from its RxNorm code; and
+  codes naming different clinical drugs are never joined by name.
+
+No `@Model` changed: `Shared/Models.swift` is as 1.1 shipped it, so there is
+no migration to verify. A stored NDC can now be the product form, a value in
+the existing string field. The ledger is untouched.
+
+### How it was built and reviewed
+
+Each lane was built in its own worktree against its own simulators, then given
+to a separate reviewer who tried to break it: four findings on the iOS 27 lane
+and six on the identity lane, every one reproduced and fixed with a test, none
+judged wrong. The iOS 27 lane left one hole open for a decision: a 0469-0677
+top reading on a Prograf bottle was accepted as Astagraf XL on a TACROLIMUS
+label and on a PROGRAF one. The identity lane closed it: the first is now "not
+used yet" (`testALabelThatDoesNotSayExtendedReleaseCannotFillAnExtendedReleaseCode`),
+the second refused (`testAPrografLabelRefusesAMisreadAstagrafCode`), without
+refusing a store brand that prints "compare to" a reference brand
+(`testABrandVariantOrAStoreBrandIsNotAnotherProduct`). The merged branch was
+then run whole on both runtimes, below.
+
+### Verified only in the simulator
+
+- Every rendered-label test in `LabelPhotoRecognitionTests` pushes a drawn
+  label through the real Vision requests, on iOS 26.5 and on iOS 27.0. The
+  shaken line resolves Tecfidera 240 mg on both, from the zoom on iOS 26.5 and
+  from a vouched guess on iOS 27; a tacrolimus label gets nothing from a
+  0469-0677 guess unless it prints ASTAGRAF XL; a code missing from the
+  directory fills nothing from a guess and the name still comes from the
+  label. These are drawn labels, not a camera's frames.
+- The release rules are proved on label text through `NDCIdentification`, and
+  against the shipped directory and RxNorm table in
+  `NDCDirectoryBundleTests`; no real Prograf, Astagraf XL or other
+  extended-release bottle has been scanned.
+- The detail card's stacking at Accessibility XXXL, by UI test; the Health
+  "Already in Meds Ahead" rules, as values through `HealthMedicationMapper`,
+  not through Health's picker.
+
+### Still open, for a phone
+
+Steps 14 to 16 under "1.1.1 gates" in `RELEASE_CHECKLIST.md`, about 35
+minutes, after the September 24–25 script: a Prograf or generic tacrolimus
+capsule bottle for the 1-to-7 swap in real small print, where a 0469-0677
+reading must never fill Astagraf XL; an extended-release bottle, filled only as
+its own release; and on an iPhone running iOS 27, the shaken-line and
+small-print reading on real bottles, a label whose code is not in the
+directory, a TACROLIMUS-only label, and how long the search of guesses takes on
+the phone (about 5 seconds in the simulator, run synchronously on a background
+queue with no cancellation).
+
+### Decisions left for Nick
+
+- A DR label does not refuse a listing that claims no release, because the FDA
+  files Tecfidera as a plain capsule; the same rule lets a DR label accept a
+  one-digit misread onto an immediate-release sibling at the same strength and
+  form.
+- A barcode needs no release backing, as it needs no corroboration: an ER
+  barcode fills when the label never prints ER, though a label that
+  contradicts it still refuses it.
+- Extended releases share one value, so generic letters do not tell
+  bupropion SR from XL or diltiazem CD from LA; only a printed brand does.
+- Sibling brands come only from the code's own labeler, and so do a guess's
+  rivals; a directory-wide rule would refuse every drug that has generics.
+- About 52 OTC extended- or delayed-release listings whose brand is only the
+  drug and its strength ("Aspirin 81 mg") now fill from a printed code only
+  when the label prints the release. Barcodes are unaffected.
+- The FDA's package file is not bundled, so a printed package segment is
+  never checked, only left off when read two ways. Bundling it needs a
+  download and a tool change, no model change.
+- Only a trailing DR is set aside from an unconfirmed name; "Metoprolol
+  Succinate Er" keeps its letters. The two repackager metformin rows display
+  as "Metformin er".
+- `GenerationOptions(samplingMode:)` comes from the iOS 27 SDK, so this branch
+  most likely needs Xcode 27 to build, while `AGENTS.md` still names Xcode
+  26.6. Not tried: Xcode 26 is not on this Mac.
+
+### Results
+
+All on the code at `4728d73`, iPhone 17 Pro simulators, Xcode 27.0 (27A266a),
+the test command in `AGENTS.md`:
+
+- **iOS 26.5 (23F77):** unit tests 472/472 (416 at `9630c3e`; the iOS 27
+  lane added 15 and the identity lane 41), UI tests 16/16 (14 before; one
+  from each lane). `LabelPhotoRecognitionTests`, the rendered labels through
+  real Vision, 15/15.
+- **iOS 27.0 (24A434):** unit tests 472/472, UI tests 16/16, and
+  `LabelPhotoRecognitionTests` 15/15: the three OCR tests that failed here at
+  `a564dd6` now pass, and no test is skipped or runtime-gated to get there.
+- **Release builds:** Release for the generic iOS Simulator and for a
+  generic iOS device, unsigned (`CODE_SIGNING_ALLOWED=NO`), both succeed with
+  no warnings; the app and the widget extension carry 1.1.1 (7), and the
+  bundled directory's header reads 2026-09-25. The test builds print only
+  Xcode's no-AppIntents metadata-skip message for the app target.
+- **`Tools/build_ndc_directory.py --self-test`** passes, and the bundled file
+  counts 5,142 "er" and 1,856 "dr" of 112,571 rows.
+
 ## September 24–25, 2026 — 1.1.1: the count, the date and the warning
 
 1.1.1 is version 1.1.1, build 7, on the local branch

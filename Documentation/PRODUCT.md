@@ -60,6 +60,8 @@ Meds Ahead V1 is an iPhone-only, offline-first application with:
 - Add Refill and Correct Count that record the number as typed, and refuse a number written with a thousands separator rather than guess at it (1.1.1)
 - A dose the widget or a reminder already logged is never logged again from Today or Take Now, which say so instead (1.1.1)
 - Plurals written out for every form: "30 patches", "150 mL", "1 day" (1.1.1)
+- Release form (extended or delayed release, such as ER or XL) as part of a product's identity: a code whose release or brand the label contradicts fills nothing, a name typed or imported with a release keeps it rather than taking the immediate-release brand, and the Apple Health import never marks one release as the other already on file (1.1.1)
+- The NDC second look tuned for iOS 27's text recognition as well as iOS 26's: Vision's lower-ranked guesses at a hard-to-read code line are consulted only when nothing read is a code the label accepts, and a guess is used only when the label names that one product exactly; a package read two ways is left off the stored code (1.1.1)
 
 ## Safety boundary
 

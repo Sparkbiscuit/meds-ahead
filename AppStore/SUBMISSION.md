@@ -58,6 +58,7 @@ Fixes to the counts, dates and warnings:
 - Refill and expiration alerts stay in Notification Center while they are still true, instead of disappearing the next time the app opens.
 - The run-out date no longer drifts later when doses go unlogged. Meds Ahead counts unlogged scheduled doses as taken, says so, and asks for a count when it can't tell what is left.
 - A scanned label's count is offered with a Use button instead of filled in, because it is what the bottle held when full.
+- Scanning takes a closer look at a hard-to-read NDC, and checks the label's brand and release, such as ER or XL, before filling in a product from the code.
 - A medication added in the afternoon no longer shows that morning's dose as overdue.
 - Add Refill and Correct Count record the number you typed.
 - A dose already logged from the widget or a reminder is not logged again.
