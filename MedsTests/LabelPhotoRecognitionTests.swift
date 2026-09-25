@@ -266,8 +266,38 @@ final class LabelPhotoRecognitionTests: XCTestCase {
     /// guesses are predictable: one goes forward only when the label names
     /// that very product, by its name and its strength both.
     func testALowerRankedGuessNeedsTheLabelsNameAndStrength() throws {
+        let guess = try guesses(atCodeLine: "MFR: BIOGEN   NDC 64406-006-02")
+        func codes(vouchedForBy label: [String]) -> [String] { guess(label) }
+
+        let named = codes(vouchedForBy: ["DIMETHYL FUMARATE 240 MG DR CAPSULE", "QTY: 60"])
+        XCTAssertTrue(named.contains("64406-0006-02"), "\(named)")
+        XCTAssertTrue(named.allSatisfy { $0.hasPrefix("64406-0006-") }, "only the product the label names: \(named)")
+
+        XCTAssertFalse(codes(vouchedForBy: ["DIMETHYL FUMARATE 120 MG DR CAPSULE"]).contains { $0.hasPrefix("64406-0006-") },
+                       "the label's strength is the 120 mg sibling's")
+        XCTAssertEqual(codes(vouchedForBy: ["DIMETHYL FUMARATE", "QTY: 60"]), [], "a name alone cannot tell the strengths apart")
+        XCTAssertEqual(codes(vouchedForBy: ["TACROLIMUS 1 MG CAPSULE"]), [], "another drug")
+    }
+
+    /// On the bundled directory Prograf and Astagraf XL, immediate- and
+    /// extended-release tacrolimus, sit one digit apart at every strength. A
+    /// label that does not say which gets no guess at either, however clearly
+    /// the line reads; one that prints the brand gets that product's code.
+    func testAGuessAtTacrolimusNeedsTheLabelToSayWhichRelease() throws {
+        let guess = try guesses(atCodeLine: "MFR: ASTELLAS   NDC 0469-0677-73")
+        func codes(vouchedForBy label: [String]) -> [String] { guess(label) }
+
+        XCTAssertEqual(codes(vouchedForBy: ["TACROLIMUS 1 MG CAPSULE", "QTY: 60"]), [], "Prograf 1 mg fits the label as well")
+        XCTAssertEqual(codes(vouchedForBy: ["PROGRAF 1 MG CAPSULE", "QTY: 60"]), [], "the label prints another brand")
+        let astagraf = codes(vouchedForBy: ["ASTAGRAF XL 1 MG CAPSULE", "QTY: 30"])
+        XCTAssertTrue(astagraf.contains("00469-0677-73"), "\(astagraf)")
+        XCTAssertTrue(astagraf.allSatisfy { $0.hasPrefix("00469-0677-") }, "only the product the label names: \(astagraf)")
+    }
+
+    /// Vision's lower-ranked guesses at a crisp code line, rendered alone in a
+    /// camera-sized frame, as the codes that go forward for a given label.
+    private func guesses(atCodeLine text: String) throws -> ([String]) -> [String] {
         let canvas = CGSize(width: 2400, height: 3200)
-        let text = "MFR: BIOGEN   NDC 64406-006-02"
         let font = UIFont.systemFont(ofSize: 24)
         let origin = CGPoint(x: 300, y: 2100)
         let cgImage = try XCTUnwrap(renderedText(text, font: font, at: origin, canvas: canvas).cgImage)
@@ -278,7 +308,7 @@ final class LabelPhotoRecognitionTests: XCTestCase {
             width: textSize.width / canvas.width,
             height: textSize.height / canvas.height
         )
-        func codes(vouchedForBy label: [String]) -> [String] {
+        return { label in
             let capture = UUID()
             let evidence = label.enumerated().map { index, value in
                 ScanEvidence(kind: .text, value: value, origin: .cameraCapture, captureID: capture, lineIndex: index)
@@ -288,15 +318,6 @@ final class LabelPhotoRecognitionTests: XCTestCase {
                 .flatMap(\.candidates)
                 .map(\.hyphenated)
         }
-
-        let named = codes(vouchedForBy: ["DIMETHYL FUMARATE 240 MG DR CAPSULE", "QTY: 60"])
-        XCTAssertTrue(named.contains("64406-0006-02"), "\(named)")
-        XCTAssertTrue(named.allSatisfy { $0.hasPrefix("64406-0006-") }, "only the product the label names: \(named)")
-
-        XCTAssertFalse(codes(vouchedForBy: ["DIMETHYL FUMARATE 120 MG DR CAPSULE"]).contains { $0.hasPrefix("64406-0006-") },
-                       "the label's strength is the 120 mg sibling's")
-        XCTAssertEqual(codes(vouchedForBy: ["DIMETHYL FUMARATE", "QTY: 60"]), [], "a name alone cannot tell the strengths apart")
-        XCTAssertEqual(codes(vouchedForBy: ["TACROLIMUS 1 MG CAPSULE"]), [], "another drug")
     }
 
     /// The same frame with the code split around its hyphen onto a second line,

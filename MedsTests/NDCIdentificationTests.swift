@@ -305,7 +305,7 @@ final class NDCIdentificationTests: XCTestCase {
             let text = LabelCandidateBuilder.textLines(from: label.evidence).joined(separator: "\n")
             let code = try XCTUnwrap(NationalDrugCode(canonicalDigits: key + "02"))
             let product = try XCTUnwrap(directory.product(for: code))
-            return NDCIdentification.labelNamesExactly(.init(code: code, product: product, source: .printedText), draft: label, labelText: text)
+            return NDCIdentification.labelNamesExactly(.init(code: code, product: product, source: .printedText), draft: label, labelText: text, directory: directory)
         }
         let tecfidera = ["DIMETHYL FUMARATE 240 MG DR CAPSULE", "TAKE 1 CAPSULE BY MOUTH TWICE DAILY"]
 
@@ -315,6 +315,47 @@ final class NDCIdentificationTests: XCTestCase {
         XCTAssertFalse(try namesExactly("644060006", ["TACROLIMUS 240 MG CAPSULE"]), "another drug at the same strength")
         XCTAssertFalse(try namesExactly("644060006", ["DIMETHYL FUMARATE 240 MG TABLET"]), "another form")
         XCTAssertFalse(try namesExactly("644060006", ["240 MG CAPSULE", "TAKE 1 CAPSULE BY MOUTH TWICE DAILY"]), "a strength with no name")
+    }
+
+    /// Prograf and Astagraf XL are immediate- and extended-release tacrolimus
+    /// from one labeler, one digit apart at every strength, and the directory
+    /// records no release. A label that says only "tacrolimus 1 mg capsule"
+    /// names both, so a guess at either is refused. A label that prints the
+    /// brand sets the other apart, and one that prints a brand the guessed
+    /// product does not carry refuses it.
+    func testAGuessIsRefusedWhileTheLabelFitsAnotherProductOfItsLabeler() throws {
+        let rows: [Row] = [
+            ("000544161", "tacrolimus", "", "1 mg", "capsule"),
+            ("004690607", "tacrolimus", "Prograf", "0.5 mg", "capsule"),
+            ("004690617", "tacrolimus", "Prograf", "1 mg", "capsule"),
+            ("004690647", "tacrolimus", "Astagraf XL", "0.5 mg", "capsule"),
+            ("004690677", "tacrolimus", "Astagraf XL", "1 mg", "capsule"),
+            ("004691330", "tacrolimus", "Prograf", "1 mg", "liquid")
+        ]
+        let directory = directory(rows)
+        func namesExactly(_ key: String, _ lines: [String]) throws -> Bool {
+            let label = MedicationLabelInterpreter.offlineDraft(evidence(lines), ndcDirectory: directory)
+            let text = LabelCandidateBuilder.textLines(from: label.evidence).joined(separator: "\n")
+            let code = try XCTUnwrap(NationalDrugCode(canonicalDigits: key + "73"))
+            let product = try XCTUnwrap(directory.product(for: code))
+            return NDCIdentification.labelNamesExactly(.init(code: code, product: product, source: .printedText), draft: label, labelText: text, directory: directory)
+        }
+        let generic = ["TACROLIMUS 1 MG CAPSULE", "TAKE 1 CAPSULE BY MOUTH TWICE DAILY"]
+        XCTAssertFalse(try namesExactly("004690617", generic), "Astagraf XL 1 mg fits the label as well")
+        XCTAssertFalse(try namesExactly("004690677", generic), "Prograf 1 mg fits the label as well")
+        XCTAssertTrue(try namesExactly("000544161", generic), "the one product of its labeler the label fits")
+
+        let prograf = ["PROGRAF 1 MG CAPSULE", "TAKE 1 CAPSULE BY MOUTH TWICE DAILY"]
+        XCTAssertTrue(try namesExactly("004690617", prograf), "the printed brand sets Astagraf XL apart")
+        XCTAssertFalse(try namesExactly("004690677", prograf), "the label prints another brand")
+        XCTAssertFalse(try namesExactly("004691330", prograf), "the label prints another form")
+        XCTAssertFalse(try namesExactly("000544161", prograf), "a generic, where the label prints a brand")
+        XCTAssertFalse(try namesExactly("004690617", ["PROGRAF 1 MG", "TAKE ONE TWICE DAILY"]),
+                       "with no form printed, the 1 mg granules fit as well")
+
+        let astagraf = ["ASTAGRAF XL 1 MG CAPSULE", "TAKE 1 CAPSULE BY MOUTH ONCE DAILY"]
+        XCTAssertTrue(try namesExactly("004690677", astagraf))
+        XCTAssertFalse(try namesExactly("004690617", astagraf), "the label prints another brand")
     }
 
     func testAnEmptyDirectoryChangesNothing() {

@@ -175,18 +175,58 @@ enum NDCIdentification {
     }
 
     /// The stricter bar for a code that was not the recognizer's first guess:
-    /// the label's confirmed name is the product's, its printed strength is the
-    /// product's strength, and nothing on it contradicts the product. A name
-    /// alone cannot tell a drug's strengths apart, and a guess one digit off is
-    /// most often the same labeler's same drug at another strength.
-    static func labelNamesExactly(_ match: Match, draft: MedicationDraft, labelText: String) -> Bool {
+    /// the label names this product, and no other product of its labeler.
+    ///
+    /// A guess one digit off is most often a neighbouring code of the same
+    /// labeler, which numbers its line in sequence: the same drug at another
+    /// strength, or at the same strength in another release. Prograf and
+    /// Astagraf XL, immediate- and extended-release tacrolimus, sit one digit
+    /// apart at every strength, and the directory records no release, so a
+    /// label reading "tacrolimus 1 mg capsule" names both and must choose
+    /// neither. So the label's confirmed name and printed strength must be the
+    /// product's, a form or brand it prints must be the product's, nothing on
+    /// it may contradict the product, and none of the labeler's other products
+    /// may fit it as well. A label that prints "Prograf" sets Astagraf XL apart;
+    /// one that prints a brand the product does not carry refuses the guess.
+    static func labelNamesExactly(
+        _ match: Match,
+        draft: MedicationDraft,
+        labelText: String,
+        directory: NDCDirectory = .shared
+    ) -> Bool {
+        let product = match.product
         guard draft.nameProvenance == .vocabulary || draft.nameProvenance == .strengthAnchored,
               !draft.name.isEmpty,
-              namesAgree(labelText: draft.name + " " + draft.brandName, product: match.product),
-              StrengthComparison.compare(label: draft.strength, product: match.product.strength) == .equivalent else {
+              StrengthComparison.compare(label: draft.strength, product: product.strength) == .equivalent,
+              verdict(for: match, against: draft, labelText: labelText) == .accepted else {
             return false
         }
-        return verdict(for: match, against: draft, labelText: labelText) == .accepted
+        let siblings = directory.products(withLabeler: String(product.productKey.prefix(5)))
+            .filter { $0.productKey != product.productKey && namesAgree(labelText: draft.name + " " + draft.brandName, product: $0) }
+        let labelWords = Set(words(labelText))
+        let knownBrands = [product.brandName, MedicationBrandIndex.brandName(forGeneric: product.genericName) ?? ""]
+            + siblings.map(\.brandName)
+        let printedBrands = Set(knownBrands.compactMap(brandKey).filter { $0.isSubset(of: labelWords) })
+
+        func labelFits(_ candidate: NDCProduct) -> Bool {
+            guard namesAgree(labelText: draft.name + " " + draft.brandName, product: candidate),
+                  StrengthComparison.compare(label: draft.strength, product: candidate.strength) != .different else {
+                return false
+            }
+            if let printedForm = explicitForm(in: labelText), printedForm != candidate.form { return false }
+            if !printedBrands.isEmpty {
+                guard let brand = brandKey(candidate.brandName), printedBrands.contains(brand) else { return false }
+            }
+            return true
+        }
+        return labelFits(product) && !siblings.contains(where: labelFits)
+    }
+
+    /// The words that pick a brand out on a label: "Astagraf XL" is
+    /// "astagraf". Nil when a listing carries no brand, or none worth matching.
+    private static func brandKey(_ brand: String) -> Set<String>? {
+        let key = Set(words(brand).filter { $0.count >= 4 && !uninformativeTokens.contains($0) })
+        return key.isEmpty ? nil : key
     }
 
     /// Fills the identity fields from the directory when the label agrees. When it

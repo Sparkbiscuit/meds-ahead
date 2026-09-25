@@ -1256,7 +1256,7 @@ enum StillImageRecognizer {
         func namesExactly(_ code: NationalDrugCode) -> Bool {
             guard let product = directory.product(for: code) else { return false }
             let match = NDCIdentification.Match(code: code, product: product, source: .printedText)
-            return NDCIdentification.labelNamesExactly(match, draft: draft, labelText: labelText)
+            return NDCIdentification.labelNamesExactly(match, draft: draft, labelText: labelText, directory: directory)
         }
     }
 
@@ -1274,24 +1274,34 @@ enum StillImageRecognizer {
     ///
     /// A guess below the top one is a guess among guesses, and the likeliest
     /// wrong one is a neighbouring code of the same labeler: the same drug at
-    /// another strength. On a shaken Tecfidera 240 mg line, the 120 mg code
-    /// turned up among the guesses more often than the right one. So a guess
-    /// must clear more than a top reading does: the label's confirmed name must
-    /// be the product's, its printed strength must be the product's strength,
-    /// and nothing on it may contradict the product. Only then does the code go
+    /// another strength, or another release of it at the same strength. On a
+    /// shaken Tecfidera 240 mg line, the 120 mg code turned up among the
+    /// guesses more often than the right one. So a guess must clear more than a
+    /// top reading does: the label must name the product exactly, by its name,
+    /// strength, and any form or brand it prints, and must fit none of the
+    /// labeler's other products as well (see
+    /// `NDCIdentification.labelNamesExactly`). Only then does the code go
     /// forward, where the ordinary gate judges it again beside everything else
-    /// read, and two products surviving is still no answer. The most such a
-    /// code can add is the brand, the form and the exact code for what the
-    /// label already says. Only language correction offers ranked guesses, so
-    /// these looks leave it on; the directory judges the code, not it.
+    /// read, and two products surviving is still no answer. Only language
+    /// correction offers ranked guesses, so these looks leave it on; the
+    /// directory judges the code, not it.
     private static func alternateCodeLines(
         around boxes: [CGRect],
         in image: CGImage,
-        vouchedFor vouched: (NationalDrugCode) -> Bool
+        vouchedFor judge: (NationalDrugCode) -> Bool
     ) -> [Line] {
         let imageSize = CGSize(width: image.width, height: image.height)
         var found: [Line] = []
         var codesKept: Set<String> = []
+        // The same product turns up in guess after guess, and judging it reads
+        // every listing of its labeler.
+        var judged: [String: Bool] = [:]
+        func vouched(_ code: NationalDrugCode) -> Bool {
+            if let known = judged[code.productKey] { return known }
+            let answer = judge(code)
+            judged[code.productKey] = answer
+            return answer
+        }
         for box in boxes.prefix(maximumAlternateRegions) {
             guard let (crop, region, lineHeight) = lineCrop(around: box, in: image) else { continue }
             for height in alternateLookHeights {
