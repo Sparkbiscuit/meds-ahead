@@ -21,6 +21,8 @@ final class UITestingLaunchTests: XCTestCase {
                      forKey: FinishedCourseNotice.setAsideKey)
         defaults.set(QuickCountPrompt.encodeSetAside([medicationID: now]), forKey: QuickCountPrompt.setAsideKey)
         QuickCountPrompt.rememberTap(of: medicationID, at: now, in: defaults)
+        // The quick count's UI tests need the missed-doses card it points at.
+        defaults.set("2026-9-25", forKey: TodayView.missedDosesSetAsideKey)
         defaults.set(true, forKey: "hasCompletedOnboarding")
         for key in MedsAppDelegate.uiTestingDefaultsKeys {
             XCTAssertNotNil(defaults.object(forKey: key), "why: \(key) was left by the run before")
@@ -38,6 +40,7 @@ final class UITestingLaunchTests: XCTestCase {
         XCTAssertTrue(FinishedCourseNotice.setAside(in: defaults.string(forKey: FinishedCourseNotice.setAsideKey) ?? "").isEmpty)
         XCTAssertTrue(QuickCountPrompt.decodeSetAside(defaults.data(forKey: QuickCountPrompt.setAsideKey) ?? Data()).isEmpty)
         XCTAssertNil(QuickCountPrompt.decodeTap(defaults.data(forKey: QuickCountPrompt.tapKey) ?? Data()))
+        XCTAssertNil(defaults.string(forKey: TodayView.missedDosesSetAsideKey), "the missed doses are not set aside")
         XCTAssertTrue(defaults.bool(forKey: "hasCompletedOnboarding"), "only what a test run can change is cleared")
     }
 }

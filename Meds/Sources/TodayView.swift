@@ -38,7 +38,7 @@ struct TodayView: View {
     /// Set aside for the rest of the day rather than forever: someone who tracks
     /// supply without logging every dose should not be nagged permanently, and
     /// someone who simply has not caught up yet should be asked again tomorrow.
-    @AppStorage("missedDosesSetAsideOn") private var missedDosesSetAsideOn = ""
+    @AppStorage(TodayView.missedDosesSetAsideKey) private var missedDosesSetAsideOn = ""
     /// Finished courses whose card was set aside, one per course.
     @AppStorage(FinishedCourseNotice.setAsideKey) private var finishedCoursesSetAside = ""
     @State private var showingArchiveError = false
@@ -52,6 +52,7 @@ struct TodayView: View {
     let onAdd: () -> Void
 
     private static let missedDoseLookbackDays = 2
+    static let missedDosesSetAsideKey = "missedDosesSetAsideOn"
     private static let missedDoseRowLimit = 3
 
     private var activeMedications: [Medication] {

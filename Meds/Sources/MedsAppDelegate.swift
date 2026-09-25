@@ -34,7 +34,8 @@ final class MedsAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
         CountCheckPolicy.askedMomentKey,
         FinishedCourseNotice.setAsideKey,
         QuickCountPrompt.setAsideKey,
-        QuickCountPrompt.tapKey
+        QuickCountPrompt.tapKey,
+        TodayView.missedDosesSetAsideKey
     ]
 
     static func clearUITestingDefaults(in defaults: UserDefaults) {
