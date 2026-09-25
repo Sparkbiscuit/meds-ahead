@@ -46,7 +46,12 @@ enum ScanEvidenceQuality {
     ) -> [ScanEvidence] {
         var result = existing.compactMap(sanitized).filter(isUsefulForAutofill)
         for item in additions.compactMap(sanitized) where isUsefulForAutofill(item) {
-            if let index = result.firstIndex(where: { isEquivalentReading($0, item) }) {
+            // Two readings of one code line differ in their digits and hardly
+            // at all in their letters, so the letter test calls them one line
+            // read twice and keeps whichever scores higher. For a code that
+            // would be choosing a product by OCR confidence; both go forward
+            // and the identification gate asks the label.
+            if let index = result.firstIndex(where: { isEquivalentReading($0, item) && !carryDifferentCodes($0, item) }) {
                 result[index] = preferred(result[index], item)
             } else {
                 result.append(item)
@@ -79,6 +84,13 @@ enum ScanEvidenceQuality {
         return shorter.count >= 5
             && missing <= allowedDistance
             && editDistance(shorter, longer) <= allowedDistance
+    }
+
+    private static func carryDifferentCodes(_ lhs: ScanEvidence, _ rhs: ScanEvidence) -> Bool {
+        guard lhs.kind == .text, rhs.kind == .text else { return false }
+        let left = Set(NationalDrugCode.readings(inLabelText: lhs.value).map(\.raw))
+        let right = Set(NationalDrugCode.readings(inLabelText: rhs.value).map(\.raw))
+        return !(left.isEmpty && right.isEmpty) && left != right
     }
 
     /// The better of two readings of the same line. When the better one comes

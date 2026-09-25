@@ -101,6 +101,22 @@ final class LabelScanPipelineTests: XCTestCase {
         XCTAssertEqual(reversed[0].lineIndex, 3)
     }
 
+    /// Two readings of one code line share their letters and differ in their
+    /// digits, which the merge took for one line read twice, keeping whichever
+    /// scored higher: a product chosen by OCR confidence. Both go forward now,
+    /// and the identification gate asks the label.
+    func testTwoReadingsOfACodeLineWithDifferentCodesAreBothKept() {
+        let capture = UUID()
+        let first = ScanEvidence(kind: .text, value: "MFR BIOGEN NDC 54405-005-02", confidence: 1,
+                                 origin: .cameraCapture, captureID: capture, lineIndex: 3)
+        let second = ScanEvidence(kind: .text, value: "MFR BIOGEN NDC 64406-006-02", confidence: 1,
+                                  origin: .cameraCapture, captureID: capture, lineIndex: 4)
+        XCTAssertEqual(ScanEvidenceQuality.mergingBest(existing: [], additions: [first, second]).map(\.value), [first.value, second.value])
+
+        let again = ScanEvidence(kind: .text, value: "MFR: BIOGEN NDC 64406-006-02", confidence: 1, origin: .liveCamera)
+        XCTAssertEqual(ScanEvidenceQuality.mergingBest(existing: [second], additions: [again]).count, 1, "the same code read twice is one line")
+    }
+
     /// The capture leads the merge so the cap cuts live extras, never the capture.
     func testTheCaptureSurvivesTheEvidenceCapAheadOfLiveItems() {
         // Lines that differ only by a digit read as one line to the merge, so each
