@@ -1012,6 +1012,13 @@ enum StillImageRecognizer {
     /// worse, a neighbouring product. Neither pass is right every time, so when
     /// the two read different codes both go forward and the identification gate
     /// keeps the one the label vouches for.
+    ///
+    /// When even that reads no listed code the label accepts, the code's line
+    /// is read at a spread of sizes and Vision's lower-ranked guesses are
+    /// consulted, under a stricter rule than any top reading faces: see
+    /// `alternateCodeLines`. On iOS 27 a shaken code line comes back with its
+    /// sixes read as fives at almost every size, and the right code turns up
+    /// only among the guesses below the top.
     private static func recognize(upright: CGImage, origin: ScanEvidence.Origin) throws -> Result {
         let handler = VNImageRequestHandler(cgImage: upright, orientation: .up, options: [:])
         let textRequest = makeTextRequest(languageCorrection: true)
@@ -1050,6 +1057,22 @@ enum StillImageRecognizer {
             let tiled = tiledCodeLines(in: upright)
             found += tiled
             report += tiled.isEmpty ? "; tiling found none" : "; tiling found \(tiled.count)"
+            readings += tiled.flatMap { NationalDrugCode.readings(inLabelText: $0.text) }
+        }
+        var regions: [CGRect] = []
+        for box in suspects.map(\.boundingBox) + found.map(\.box)
+            where !regions.contains(where: { overlap($0, box) > 0.5 }) {
+            regions.append(box)
+        }
+        // A listed code the label does not contradict ends the search. One it
+        // contradicts does not: the same drug at its other strength is just
+        // what a shaken line is misread as.
+        if !regions.isEmpty,
+           let judge = LabelJudge(label: makeEvidence(lines: lines, barcodes: [], origin: origin)),
+           !readings.contains(where: judge.settles) {
+            let alternates = alternateCodeLines(around: regions, in: upright, vouchedFor: judge.namesExactly)
+            found += alternates
+            report += "; the label vouched for \(alternates.count.counted("alternate reading", plural: "alternate readings"))"
         }
         var codesRead = Set(NationalDrugCode.readings(inLabelText: readTogether).map(\.raw))
         for line in found {
@@ -1125,10 +1148,24 @@ enum StillImageRecognizer {
         tiledCodeLines(in: image).map { CodeLine(text: $0.text, box: $0.box) }
     }
 
+    static func alternateCodeReadings(around boxes: [CGRect], in image: CGImage, label: [ScanEvidence]) -> [CodeLine] {
+        guard let judge = LabelJudge(label: label) else { return [] }
+        return alternateCodeLines(around: boxes, in: image, vouchedFor: judge.namesExactly).map { CodeLine(text: $0.text, box: $0.box) }
+    }
+
     /// Cuts the line out of the full-resolution image with room on every side —
     /// the code often runs on past the box the first pass drew — scales it up to
     /// a size Vision reads well, and reads it again without language correction.
     private static func zoomedCodeLines(around box: CGRect, in image: CGImage) -> [Line] {
+        guard let (crop, region, lineHeight) = lineCrop(around: box, in: image) else { return [] }
+        let scale = min(4, max(2, comfortableLineHeight / max(lineHeight, 1)))
+        guard let scaled = crop.scaled(by: scale) else { return [] }
+        return codeLines(in: scaled, region: region, imageSize: CGSize(width: image.width, height: image.height))
+    }
+
+    /// The line cut out of the full-resolution image with room on every side,
+    /// where it sits in the image, and how many pixels tall the line is.
+    private static func lineCrop(around box: CGRect, in image: CGImage) -> (CGImage, CGRect, CGFloat)? {
         let imageSize = CGSize(width: image.width, height: image.height)
         let pixelRect = pixelRect(fromNormalized: box, imageSize: imageSize)
         let padX = max(pixelRect.height * 2, pixelRect.width * 0.25)
@@ -1138,14 +1175,17 @@ enum StillImageRecognizer {
             .intersection(CGRect(origin: .zero, size: imageSize))
             .integral
         guard !region.isNull, region.width >= 8, region.height >= 8,
-              let crop = image.cropping(to: region) else { return [] }
-        let scale = min(4, max(2, comfortableLineHeight / max(pixelRect.height, 1)))
-        guard let scaled = crop.scaled(by: scale) else { return [] }
-        return codeLines(in: scaled, region: region, imageSize: imageSize)
+              let crop = image.cropping(to: region) else { return nil }
+        return (crop, region, pixelRect.height)
     }
 
     /// Reads the image in overlapping tiles at full resolution. A fallback for a
     /// frame whose first pass produced nothing that even looked like the code.
+    ///
+    /// A tile finds the line; the zoomed look reads it. The tile hands Vision
+    /// small print at its own few pixels, and iOS 27 reads the last digit of
+    /// such a line wrong ("-07" for "-02") where the zoom reads it right, so the
+    /// tile's own reading is kept only when the zoom finds no code at all.
     private static func tiledCodeLines(in image: CGImage) -> [Line] {
         let imageSize = CGSize(width: image.width, height: image.height)
         guard min(imageSize.width, imageSize.height) >= minimumTiledDimension else { return [] }
@@ -1169,6 +1209,109 @@ enum StillImageRecognizer {
                 for line in codeLines(in: crop, region: tile, imageSize: imageSize)
                     where !found.contains(where: { overlap($0.box, line.box) > 0.5 }) {
                     found.append(line)
+                }
+            }
+        }
+        var read: [Line] = []
+        for line in found {
+            let zoomed = zoomedCodeLines(around: line.box, in: image)
+            for reading in zoomed.isEmpty ? [line] : zoomed
+                where !read.contains(where: { overlap($0.box, reading.box) > 0.5 }) {
+                read.append(reading)
+            }
+        }
+        return read
+    }
+
+    /// The label, read the ordinary way, as the judge of codes the passes did
+    /// not read outright. Nil when it could vouch for none, because it shows
+    /// no confirmed name or no strength, which spares looks that could only
+    /// come back empty.
+    private struct LabelJudge {
+        let draft: MedicationDraft
+        let labelText: String
+        let directory: NDCDirectory
+
+        init?(label: [ScanEvidence], directory: NDCDirectory = .shared) {
+            guard !directory.isEmpty else { return nil }
+            let draft = MedicationLabelInterpreter.offlineDraft(label, ndcDirectory: directory)
+            guard draft.nameProvenance == .vocabulary || draft.nameProvenance == .strengthAnchored,
+                  !draft.name.isEmpty, !draft.strength.isEmpty else { return nil }
+            self.draft = draft
+            labelText = LabelCandidateBuilder.textLines(from: draft.evidence).joined(separator: "\n")
+            self.directory = directory
+        }
+
+        /// A reading of a listed product the label does not contradict, which
+        /// the identification gate will take as it stands.
+        func settles(_ reading: NDCReading) -> Bool {
+            reading.candidates.contains { code in
+                guard let product = directory.product(for: code) else { return false }
+                let match = NDCIdentification.Match(code: code, product: product, source: reading.source)
+                return NDCIdentification.verdict(for: match, against: draft, labelText: labelText) != .contradicted
+            }
+        }
+
+        /// See `NDCIdentification.labelNamesExactly`.
+        func namesExactly(_ code: NationalDrugCode) -> Bool {
+            guard let product = directory.product(for: code) else { return false }
+            let match = NDCIdentification.Match(code: code, product: product, source: .printedText)
+            return NDCIdentification.labelNamesExactly(match, draft: draft, labelText: labelText)
+        }
+    }
+
+    /// Text heights, in pixels, a code line is read at when looking for guesses
+    /// below Vision's top one. Where a shaken line reads right is close to
+    /// chance, a matter of how its blurred edges land on the pixel grid, so it
+    /// is read at a spread of sizes rather than at one.
+    private static let alternateLookHeights: [CGFloat] = [40, 50, 60, 80, 100, 120, 150]
+    /// Every look is a full recognition, so only the likeliest lines are
+    /// looked at, and only when nothing read is a code the label accepts.
+    private static let maximumAlternateRegions = 2
+
+    /// Vision's lower-ranked readings of each region's code line, kept only when
+    /// the label itself names the product they resolve to.
+    ///
+    /// A guess below the top one is a guess among guesses, and the likeliest
+    /// wrong one is a neighbouring code of the same labeler: the same drug at
+    /// another strength. On a shaken Tecfidera 240 mg line, the 120 mg code
+    /// turned up among the guesses more often than the right one. So a guess
+    /// must clear more than a top reading does: the label's confirmed name must
+    /// be the product's, its printed strength must be the product's strength,
+    /// and nothing on it may contradict the product. Only then does the code go
+    /// forward, where the ordinary gate judges it again beside everything else
+    /// read, and two products surviving is still no answer. The most such a
+    /// code can add is the brand, the form and the exact code for what the
+    /// label already says. Only language correction offers ranked guesses, so
+    /// these looks leave it on; the directory judges the code, not it.
+    private static func alternateCodeLines(
+        around boxes: [CGRect],
+        in image: CGImage,
+        vouchedFor vouched: (NationalDrugCode) -> Bool
+    ) -> [Line] {
+        let imageSize = CGSize(width: image.width, height: image.height)
+        var found: [Line] = []
+        var codesKept: Set<String> = []
+        for box in boxes.prefix(maximumAlternateRegions) {
+            guard let (crop, region, lineHeight) = lineCrop(around: box, in: image) else { continue }
+            for height in alternateLookHeights {
+                let scale = min(8, max(0.5, height / max(lineHeight, 1)))
+                guard let scaled = crop.scaled(by: scale) else { continue }
+                let handler = VNImageRequestHandler(cgImage: scaled, orientation: .up, options: [:])
+                let request = makeTextRequest(languageCorrection: true)
+                try? handler.perform([request])
+                for observation in request.results ?? [] {
+                    for candidate in observation.topCandidates(10) {
+                        guard let value = LabelTextPolicy.sanitized(candidate.string) else { continue }
+                        let readings = NationalDrugCode.readings(inLabelText: value)
+                        guard readings.contains(where: { $0.candidates.contains(where: vouched) }),
+                              codesKept.insert(readings.map(\.raw).joined(separator: " ")).inserted else { continue }
+                        found.append(Line(
+                            text: value,
+                            confidence: Double(candidate.confidence),
+                            box: fullImageBox(fromCropBox: observation.boundingBox, cropRect: region, imageSize: imageSize)
+                        ))
+                    }
                 }
             }
         }

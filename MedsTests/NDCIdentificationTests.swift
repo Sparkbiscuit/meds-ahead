@@ -294,6 +294,29 @@ final class NDCIdentificationTests: XCTestCase {
         XCTAssertEqual(scanned.productIdentifier, "64406-0006-02", "a barcode's check digit covers the package")
     }
 
+    /// The bar a guess below the recognizer's top reading must clear: the
+    /// label's confirmed name and its printed strength are the product's, and
+    /// nothing on it contradicts the product.
+    func testOnlyTheProductTheLabelNamesExactlyClearsTheBarForAGuess() throws {
+        let rows = self.rows + [("644060005", "dimethyl fumarate", "Tecfidera", "120 mg", "capsule")]
+        let directory = directory(rows)
+        func namesExactly(_ key: String, _ lines: [String]) throws -> Bool {
+            let label = MedicationLabelInterpreter.offlineDraft(evidence(lines), ndcDirectory: directory)
+            let text = LabelCandidateBuilder.textLines(from: label.evidence).joined(separator: "\n")
+            let code = try XCTUnwrap(NationalDrugCode(canonicalDigits: key + "02"))
+            let product = try XCTUnwrap(directory.product(for: code))
+            return NDCIdentification.labelNamesExactly(.init(code: code, product: product, source: .printedText), draft: label, labelText: text)
+        }
+        let tecfidera = ["DIMETHYL FUMARATE 240 MG DR CAPSULE", "TAKE 1 CAPSULE BY MOUTH TWICE DAILY"]
+
+        XCTAssertTrue(try namesExactly("644060006", tecfidera))
+        XCTAssertFalse(try namesExactly("644060005", tecfidera), "the same drug at another strength")
+        XCTAssertFalse(try namesExactly("644060006", ["DIMETHYL FUMARATE", "QTY: 60"]), "a name alone cannot tell the strengths apart")
+        XCTAssertFalse(try namesExactly("644060006", ["TACROLIMUS 240 MG CAPSULE"]), "another drug at the same strength")
+        XCTAssertFalse(try namesExactly("644060006", ["DIMETHYL FUMARATE 240 MG TABLET"]), "another form")
+        XCTAssertFalse(try namesExactly("644060006", ["240 MG CAPSULE", "TAKE 1 CAPSULE BY MOUTH TWICE DAILY"]), "a strength with no name")
+    }
+
     func testAnEmptyDirectoryChangesNothing() {
         let draft = MedicationLabelInterpreter.offlineDraft(
             evidence(["SERTRALINE HCL 50 MG TABLET", "NDC 0093-1039-01"]),

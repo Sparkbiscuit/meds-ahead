@@ -174,6 +174,21 @@ enum NDCIdentification {
         return corroborated ? .accepted : .uncorroborated
     }
 
+    /// The stricter bar for a code that was not the recognizer's first guess:
+    /// the label's confirmed name is the product's, its printed strength is the
+    /// product's strength, and nothing on it contradicts the product. A name
+    /// alone cannot tell a drug's strengths apart, and a guess one digit off is
+    /// most often the same labeler's same drug at another strength.
+    static func labelNamesExactly(_ match: Match, draft: MedicationDraft, labelText: String) -> Bool {
+        guard draft.nameProvenance == .vocabulary || draft.nameProvenance == .strengthAnchored,
+              !draft.name.isEmpty,
+              namesAgree(labelText: draft.name + " " + draft.brandName, product: match.product),
+              StrengthComparison.compare(label: draft.strength, product: match.product.strength) == .equivalent else {
+            return false
+        }
+        return verdict(for: match, against: draft, labelText: labelText) == .accepted
+    }
+
     /// Fills the identity fields from the directory when the label agrees. When it
     /// does not, the draft is returned as the parser left it, printed code and all.
     /// An accepted code also carries the RxNorm concept the bundled table gives

@@ -142,8 +142,10 @@ final class LabelPhotoRecognitionTests: XCTestCase {
 
     /// A code line the camera shook over: the first pass reads a well-formed
     /// code with the wrong digits, which names nothing (or another product),
-    /// and that must not count as "the code was read". The second look, on
-    /// the full-resolution line with language correction off, reads it right.
+    /// and that must not count as "the code was read". On iOS 26 the second
+    /// look, on the full-resolution line with language correction off, reads
+    /// it right; on iOS 27 every top reading is wrong and the code comes from
+    /// a lower-ranked guess the label names exactly. The report says which.
     func testAMotionBlurredCodeLineIsReadOnTheSecondLook() async throws {
         let sharp = renderedLabel(canvas: CGSize(width: 3024, height: 4032), pixelScale: 1, lines: [
             Line("SPRINGFIELD PHARMACY #2214", size: 112, bold: true),
@@ -157,6 +159,7 @@ final class LabelPhotoRecognitionTests: XCTestCase {
         let result = try await StillImageRecognizer.recognizeWithReport(image: image, origin: .cameraCapture)
         let draft = MedicationLabelInterpreter.offlineDraft(result.evidence)
         print("Motion-blurred code line: \(result.report)")
+        add(XCTAttachment(string: result.report))
 
         XCTAssertEqual(draft.nameProvenance, .ndc, "\(result.report); evidence: \(draft.evidence.map(\.value))")
         XCTAssertEqual(draft.productIdentifier, "64406-0006-02")
@@ -166,9 +169,11 @@ final class LabelPhotoRecognitionTests: XCTestCase {
         XCTAssertGreaterThan(codes.count, 1, "the first pass's misreading goes forward too; the gate chose between them: \(codes)")
     }
 
-    /// Soft focus on faint print: the first pass does not see the line at all,
-    /// and the full-resolution tiles find it.
-    func testASoftFocusedFaintCodeLineIsFoundByTheTiledPass() async throws {
+    /// Soft focus on faint print. On iOS 26 the first pass does not see the line
+    /// at all and the full-resolution tiles find it; iOS 27's first pass reads
+    /// it outright. Which pass read it is the runtime's business and the report
+    /// records it; the product coming out exact is the test.
+    func testASoftFocusedFaintCodeLineResolvesWhicheverPassReadsIt() async throws {
         let soft = renderedLabel(canvas: CGSize(width: 3024, height: 4032), pixelScale: 1, lines: [
             Line("SPRINGFIELD PHARMACY #2214", size: 112, bold: true),
             Line("RX# 4402917", size: 100, bold: true),
@@ -181,10 +186,12 @@ final class LabelPhotoRecognitionTests: XCTestCase {
         let result = try await StillImageRecognizer.recognizeWithReport(image: image, origin: .cameraCapture)
         let draft = MedicationLabelInterpreter.offlineDraft(result.evidence)
         print("Soft-focused code line: \(result.report)")
+        add(XCTAttachment(string: result.report))
 
-        XCTAssertTrue(result.report.contains("tiling found"), result.report)
         XCTAssertEqual(draft.nameProvenance, .ndc, "\(result.report); evidence: \(draft.evidence.map(\.value))")
         XCTAssertEqual(draft.productIdentifier, "64406-0006-02")
+        XCTAssertEqual(draft.brandName, "Tecfidera")
+        XCTAssertEqual(draft.strength, "240 mg")
     }
 
     private func blurred(_ image: UIImage, motionRadius: Double = 0, gaussianRadius: Double = 0) -> UIImage? {
@@ -253,6 +260,43 @@ final class LabelPhotoRecognitionTests: XCTestCase {
         XCTAssertEqual(NationalDrugCode.readings(inLabelText: reading.text).first?.candidates.map(\.hyphenated), ["64406-0006-02"], reading.text)
         XCTAssertEqual(reading.box.midY, 1 - (origin.y + 7) / canvas.height, accuracy: 0.01)
         XCTAssertGreaterThan(reading.box.midX, 0.6, "printed in the right-hand half")
+    }
+
+    /// Vision's lower-ranked guesses on their own, on a crisp line so the
+    /// guesses are predictable: one goes forward only when the label names
+    /// that very product, by its name and its strength both.
+    func testALowerRankedGuessNeedsTheLabelsNameAndStrength() throws {
+        let canvas = CGSize(width: 2400, height: 3200)
+        let text = "MFR: BIOGEN   NDC 64406-006-02"
+        let font = UIFont.systemFont(ofSize: 24)
+        let origin = CGPoint(x: 300, y: 2100)
+        let cgImage = try XCTUnwrap(renderedText(text, font: font, at: origin, canvas: canvas).cgImage)
+        let textSize = NSString(string: text).size(withAttributes: [.font: font])
+        let box = CGRect(
+            x: origin.x / canvas.width,
+            y: 1 - (origin.y + textSize.height) / canvas.height,
+            width: textSize.width / canvas.width,
+            height: textSize.height / canvas.height
+        )
+        func codes(vouchedForBy label: [String]) -> [String] {
+            let capture = UUID()
+            let evidence = label.enumerated().map { index, value in
+                ScanEvidence(kind: .text, value: value, origin: .cameraCapture, captureID: capture, lineIndex: index)
+            }
+            return StillImageRecognizer.alternateCodeReadings(around: [box], in: cgImage, label: evidence)
+                .flatMap { NationalDrugCode.readings(inLabelText: $0.text) }
+                .flatMap(\.candidates)
+                .map(\.hyphenated)
+        }
+
+        let named = codes(vouchedForBy: ["DIMETHYL FUMARATE 240 MG DR CAPSULE", "QTY: 60"])
+        XCTAssertTrue(named.contains("64406-0006-02"), "\(named)")
+        XCTAssertTrue(named.allSatisfy { $0.hasPrefix("64406-0006-") }, "only the product the label names: \(named)")
+
+        XCTAssertFalse(codes(vouchedForBy: ["DIMETHYL FUMARATE 120 MG DR CAPSULE"]).contains { $0.hasPrefix("64406-0006-") },
+                       "the label's strength is the 120 mg sibling's")
+        XCTAssertEqual(codes(vouchedForBy: ["DIMETHYL FUMARATE", "QTY: 60"]), [], "a name alone cannot tell the strengths apart")
+        XCTAssertEqual(codes(vouchedForBy: ["TACROLIMUS 1 MG CAPSULE"]), [], "another drug")
     }
 
     /// The same frame with the code split around its hyphen onto a second line,
