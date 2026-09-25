@@ -264,6 +264,16 @@ final class QuickCountPromptTests: XCTestCase {
         XCTAssertNil(QuickCountPrompt.decodeTap(Data()))
     }
 
+    /// Counting before the missed doses are logged takes them off twice, so
+    /// the card says so while the missed-doses card lists its medication.
+    func testTheCardAsksForMissedDosesFirst() {
+        let medicationID = UUID()
+        XCTAssertEqual(QuickCountPrompt.catchUpNote(for: medicationID, missedDoseMedicationIDs: [UUID(), medicationID]),
+                       "Log or skip its missed doses above first, so they don't come off the new count.")
+        XCTAssertNil(QuickCountPrompt.catchUpNote(for: medicationID, missedDoseMedicationIDs: [UUID()]))
+        XCTAssertNil(QuickCountPrompt.catchUpNote(for: medicationID, missedDoseMedicationIDs: []))
+    }
+
     func testTheSetAsidesKeepOnlyWhatStillHolds() {
         let old = UUID()
         let recent = UUID()

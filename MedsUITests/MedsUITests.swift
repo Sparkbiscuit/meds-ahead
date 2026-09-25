@@ -864,9 +864,20 @@ final class MedsUITests: XCTestCase {
         XCTAssertTrue(line("Counted 20 tablets on ").waitForExistence(timeout: 3))
     }
 
+    /// The quick count sits under the missed-doses card, which the stale
+    /// seed fills, so the doses are logged before anyone counts.
+    private func scrollToQuickCount(_ app: XCUIApplication, title: XCUIElement) {
+        let missed = app.staticTexts.matching(NSPredicate(format: "label ENDSWITH %@", "doses aren't logged")).firstMatch
+        XCTAssertTrue(missed.waitForExistence(timeout: 5), "no missed doses on Today")
+        for _ in 0..<5 where !(title.exists && title.isHittable) { app.swipeUp(velocity: .slow) }
+        XCTAssertTrue(title.isHittable, "no quick count on Today")
+        XCTAssertLessThan(missed.frame.maxY, title.frame.minY, "the quick count asks for a count before the missed doses are logged")
+    }
+
     /// Every dose for sixteen days went unlogged, so both scheduled
     /// medications need a count, and Today's quick count asks about the one
-    /// the weekly reminder would. Not Now hides it.
+    /// the weekly reminder would, once its missed doses are logged. Not Now
+    /// hides it.
     func testTheQuickCountCardCanBeSetAside() {
         let app = XCUIApplication()
         app.launchArguments = [
@@ -881,8 +892,9 @@ final class MedsUITests: XCTestCase {
 
         XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
         let title = app.staticTexts["Count needed: Dimethyl fumarate"]
-        XCTAssertTrue(title.waitForExistence(timeout: 5), "no quick count on Today")
+        scrollToQuickCount(app, title: title)
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label ENDSWITH %@", "weren't logged, so only a count can say what's left.")).firstMatch.exists)
+        XCTAssertEqual(app.staticTexts["quick-count-catch-up"].label, "Log or skip its missed doses above first, so they don't come off the new count.")
         app.buttons["quick-count-not-now"].tap()
         XCTAssertTrue(title.waitForNonExistence(timeout: 3), "Not Now left the card up")
         XCTAssertFalse(app.buttons["quick-count-now"].exists, "Not Now hides the card, not only the medication it named")
@@ -904,7 +916,7 @@ final class MedsUITests: XCTestCase {
 
         XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
         let title = app.staticTexts["Count needed: Dimethyl fumarate"]
-        XCTAssertTrue(title.waitForExistence(timeout: 5), "no quick count on Today")
+        scrollToQuickCount(app, title: title)
         app.buttons["quick-count-now"].tap()
 
         XCTAssertTrue(app.navigationBars["Correct Current Count"].waitForExistence(timeout: 3))

@@ -27,6 +27,12 @@ struct QuickCountPrompt: Equatable {
         let date: Date
     }
 
+    /// Said under the question while the missed-doses card above lists this
+    /// medication. A dose is taken off the supply when it is logged, so one
+    /// from before a count, logged after it, comes off a number that already
+    /// left it out.
+    static let catchUpNote = "Log or skip its missed doses above first, so they don't come off the new count."
+
     init(medication: Medication, forecast: SupplyForecast) {
         medicationID = medication.id
         displayName = medication.displayName
@@ -136,6 +142,11 @@ struct QuickCountPrompt: Equatable {
         return now < until
     }
 
+    /// The missed-doses note for this card, when those doses are listed.
+    static func catchUpNote(for medicationID: UUID, missedDoseMedicationIDs: [UUID]) -> String? {
+        missedDoseMedicationIDs.contains(medicationID) ? catchUpNote : nil
+    }
+
     static func rememberTap(of medicationID: UUID, at date: Date, in defaults: UserDefaults) {
         if let data = try? PropertyListEncoder().encode(Tap(medicationID: medicationID, date: date)) {
             defaults.set(data, forKey: tapKey)
@@ -170,6 +181,9 @@ struct QuickCountPrompt: Equatable {
 
 struct QuickCountCard: View {
     let prompt: QuickCountPrompt
+    /// `QuickCountPrompt.catchUpNote`, while the missed-doses card lists
+    /// this medication.
+    var catchUpNote: String? = nil
     let onCount: () -> Void
     let onNotNow: () -> Void
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -195,6 +209,13 @@ struct QuickCountCard: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    if let catchUpNote {
+                        Text(catchUpNote)
+                            .font(.subheadline.weight(.semibold))
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, 3)
+                            .accessibilityIdentifier("quick-count-catch-up")
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }

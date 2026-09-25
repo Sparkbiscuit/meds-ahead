@@ -111,8 +111,10 @@ struct TodayView: View {
                     notificationBanner
                     plannedThroughNotice(now: now)
                     pickupsCard(now: now)
-                    quickCountCard(now: now)
+                    // Catching up before counting: a dose logged after a
+                    // count comes off the number the count set.
                     missedDosesCard(now: now)
+                    quickCountCard(now: now)
                     if activeMedications.isEmpty {
                         EmptyStateCard(
                             symbol: "viewfinder",
@@ -189,8 +191,11 @@ struct TodayView: View {
             tapped: QuickCountPrompt.decodeTap(quickCountTapped),
             now: now
         ) {
+            // The doses the missed-doses card lists, as it lists them.
+            let missed = missedDosesSetAsideOn == dayKey(now) ? [] : missedDoses(now: now)
             QuickCountCard(
                 prompt: prompt,
+                catchUpNote: QuickCountPrompt.catchUpNote(for: prompt.medicationID, missedDoseMedicationIDs: missed.map(\.0.id)),
                 onCount: {
                     guard let medication = medications.first(where: { $0.id == prompt.medicationID }) else { return }
                     countRequest = CountCorrection.Request(medication: medication, forecast: prompt.forecast)
