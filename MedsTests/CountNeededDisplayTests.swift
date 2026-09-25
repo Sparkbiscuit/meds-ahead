@@ -42,4 +42,30 @@ final class CountNeededDisplayTests: XCTestCase {
         let steady = SupplyForecast(currentSupply: 27.125, depletionDate: nil, daysRemaining: nil, confidence: .unknown, explanation: "")
         XCTAssertEqual(SupplyChangeQuantity.countPrefill(for: steady), 27.125)
     }
+
+    /// Doses assumed short of using up the ledger are the same hazard: the
+    /// ledger's number prefilled, one tap confirmed it, and the doses the
+    /// forecast was charging vanished with the warning they had raised.
+    func testCorrectCountOpensEmptyWhileAnyDoseIsAssumed() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        func september(_ day: Int, _ hour: Int) -> Date {
+            calendar.date(from: DateComponents(year: 2026, month: 9, day: day, hour: hour))!
+        }
+        let medication = Medication(name: "Furosemide", createdAt: september(1, 7))
+        let schedule = DoseSchedule(medicationID: medication.id, minutesAfterMidnight: 8 * 60, doseQuantity: 1, startDate: september(1, 7))
+        let opening = InventoryEvent(medicationID: medication.id, date: september(1, 7), delta: 30, reason: .openingCount)
+        let stale = ForecastEngine.forecast(medication: medication, schedules: [schedule], inventoryEvents: [opening], doseEvents: [],
+                                            now: september(26, 7), calendar: calendar)
+        XCTAssertEqual(stale.assumedDoses, 25)
+        XCTAssertFalse(stale.needsCount, "5 are still assumed on hand")
+        XCTAssertEqual(stale.daysRemaining, 4)
+
+        XCTAssertNil(SupplyChangeQuantity.countPrefill(for: stale), "the ledger's 30 is not a count")
+        XCTAssertNil(SupplyChangeQuantity.value(from: "", prefilled: SupplyChangeQuantity.countPrefill(for: stale), requiresMoreThanZero: false),
+                     "Save Count stays disabled until a number is typed")
+
+        let counted = SupplyForecast(currentSupply: 30, depletionDate: nil, daysRemaining: nil, confidence: .high, explanation: "", assumedDoses: 0)
+        XCTAssertEqual(SupplyChangeQuantity.countPrefill(for: counted), 30, "with every dose logged, the ledger is what is on hand")
+    }
 }

@@ -706,11 +706,13 @@ enum SupplyChangeQuantity {
         return value.formatted(.number.grouping(.never).precision(.fractionLength(0...2)).locale(locale))
     }
 
-    /// The number Correct Count opens with: the ledger's, or nothing while a
-    /// count is needed. Prefilled then, one tap on Save would record a count
-    /// nobody made and clear the doses the forecast had to assume.
+    /// The number Correct Count opens with: the ledger's, or nothing while the
+    /// forecast assumes unlogged doses were taken, whether or not they use up
+    /// the ledger yet. Prefilled then, one tap on Save would record a count
+    /// nobody made, clear the doses the forecast had to assume, and move the
+    /// run-out date later.
     static func countPrefill(for forecast: SupplyForecast) -> Double? {
-        forecast.needsCount ? nil : forecast.currentSupply
+        forecast.needsCount || forecast.assumedDoses > 0 ? nil : forecast.currentSupply
     }
 
     static func value(
