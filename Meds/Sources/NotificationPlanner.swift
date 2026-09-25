@@ -472,8 +472,8 @@ enum NotificationPlanner {
             for candidate in candidates where CountCheckPolicy.isDue(candidate, now: now, calendar: calendar) {
                 retainedPrefixes.insert(NotificationIdentifiers.countCheckPrefix(medicationID: candidate.medicationID))
             }
-            if let target = CountCheckPolicy.target(from: candidates, now: now, calendar: calendar),
-               let moment = CountCheckPolicy.moment(for: target, after: now, lastAsked: options.lastCountCheck, calendar: calendar) {
+            if let planned = CountCheckPolicy.planned(from: candidates, after: now, lastAsked: options.lastCountCheck, calendar: calendar) {
+                let (target, moment) = planned
                 let detailed = plans.first { $0.medicationID == target.medicationID }?.detailedNotifications ?? false
                 refillNotifications.append(
                     PlannedNotification(

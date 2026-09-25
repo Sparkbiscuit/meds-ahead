@@ -110,6 +110,65 @@ final class CountCheckPolicyTests: XCTestCase {
         XCTAssertEqual(CountCheckPolicy.lastAsked(in: defaults, now: at(9, 8)), at(8, 10))
     }
 
+    /// Plans are made only when the app is used. One made the evening
+    /// before a count falls due holds the next morning's question, rather
+    /// than waiting for a plan made that morning before 10:00.
+    func testTheQuestionIsPlannedBeforeItsCountFallsDue() throws {
+        let id = UUID()
+        let plans = [plan(name: "Counted", id: id, check: candidate("Counted", id: id, counted: at(1, 15)))]
+        func check(at now: Date) -> PlannedNotification? {
+            NotificationPlanner.plan(for: plans, now: now, calendar: calendar).notifications.first { $0.kind == .countCheck }
+        }
+        let evening = try XCTUnwrap(check(at: at(7, 20)), "not yet due on the 7th, and nothing planned for the 8th")
+        XCTAssertEqual(evening.trigger, .date(at(8, 10)))
+        XCTAssertEqual(evening.medicationID, id)
+        XCTAssertEqual(check(at: at(8, 12))?.trigger, .date(at(15, 10)), "once the 8th's has passed, a week later")
+
+        // Nothing due yet: the first to fall due, and of those due then, the
+        // one the check asks about first.
+        let soonID = UUID()
+        let two = [
+            plan(name: "Later", check: candidate("Later", days: 30, counted: at(2, 9))),
+            plan(name: "Soon", id: soonID, check: candidate("Soon", id: soonID, days: 5, counted: at(3, 9)))
+        ]
+        let first = try XCTUnwrap(NotificationPlanner.plan(for: two, now: at(4, 12), calendar: calendar).notifications.first { $0.kind == .countCheck })
+        XCTAssertEqual(first.trigger, .date(at(9, 10)), "the first morning a count is a week old")
+        XCTAssertNotEqual(first.medicationID, soonID, "Soon is not due until the 10th")
+        XCTAssertNil(CountCheckPolicy.planned(from: [candidate("Never")], after: at(4, 12), calendar: calendar))
+    }
+
+    /// The question can be planned up to a week ahead. A course over by
+    /// then has nothing to count for, and the check asks about another
+    /// medication, or none.
+    func testACourseOverBeforeItsMomentIsNotAskedAbout() throws {
+        let courseID = UUID()
+        let course = candidate("Course", id: courseID, days: 2, counted: at(1, 9))
+        let ending = CountCheckPolicy.Candidate(medicationID: courseID, displayName: "Course", isEligible: true, daysRemaining: 2,
+                                                needsCount: false, lastCountDate: at(1, 9), courseEnd: at(10, 12))
+        XCTAssertEqual(CountCheckPolicy.planned(from: [course], after: at(8, 11), calendar: calendar)?.moment, at(15, 10))
+        XCTAssertNil(CountCheckPolicy.planned(from: [ending], after: at(8, 11), calendar: calendar), "the course ends on the 10th")
+        XCTAssertEqual(CountCheckPolicy.planned(from: [ending], after: at(8, 9), calendar: calendar)?.moment, at(8, 10),
+                       "still running that morning")
+
+        let ongoing = candidate("Ongoing", days: 40, counted: at(3, 9))
+        let other = try XCTUnwrap(CountCheckPolicy.planned(from: [ending, ongoing], after: at(8, 11), calendar: calendar))
+        XCTAssertEqual(other.candidate.displayName, "Ongoing")
+        XCTAssertEqual(other.moment, at(10, 10))
+    }
+
+    @MainActor
+    func testACourseCountedAtItsStartIsNotAskedAboutOnceItHasEnded() {
+        let medication = Medication(name: "Amoxicillin", createdAt: at(1))
+        let schedule = DoseSchedule(medicationID: medication.id, minutesAfterMidnight: 8 * 60, startDate: at(1),
+                                    endDate: ScheduleEngine.normalizedEndDate(forDay: at(10), calendar: calendar))
+        let ledger = [InventoryEvent(medicationID: medication.id, date: at(1, 9), delta: 20, reason: .openingCount)]
+        let built = NotificationPlanBuilder.make(medication: medication, schedules: [schedule], inventoryEvents: ledger, doseEvents: [],
+                                                 now: at(8, 11), calendar: calendar)
+        XCTAssertEqual(built.countCheck?.courseEnd, schedule.endDate)
+        let planned = NotificationPlanner.plan(for: [built], now: at(8, 11), calendar: calendar).notifications
+        XCTAssertFalse(planned.contains { $0.kind == .countCheck }, "the 15th's question would come five days after its last dose")
+    }
+
     func testTheLastQuestionIsOnlyAskedOnceItsMomentHasCome() throws {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "CountCheckPolicyTests.\(UUID().uuidString)"))
         XCTAssertNil(CountCheckPolicy.lastAsked(in: defaults, now: at(8)))

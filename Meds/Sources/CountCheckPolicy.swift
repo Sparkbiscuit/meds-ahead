@@ -26,12 +26,17 @@ enum CountCheckPolicy {
         /// The opening count or the latest correction. A refill adds to the
         /// count but nobody counted what was already there.
         let lastCountDate: Date?
+        /// The course's last day, when every schedule has one. The question
+        /// is planned up to a week ahead, and a course over by then has
+        /// nothing left to count for.
+        var courseEnd: Date? = nil
     }
 
     /// Whether the last count is a week old or more by the calendar, so one
     /// made on Tuesday afternoon is due the next Tuesday morning.
     static func isDue(_ candidate: Candidate, now: Date, calendar: Calendar = .autoupdatingCurrent) -> Bool {
         guard candidate.isEligible, let lastCountDate = candidate.lastCountDate else { return false }
+        if let courseEnd = candidate.courseEnd, calendar.startOfDay(for: courseEnd) < calendar.startOfDay(for: now) { return false }
         return SupplyAttention.days(from: lastCountDate, to: now, calendar: calendar) >= intervalDays
     }
 
@@ -39,6 +44,29 @@ enum CountCheckPolicy {
     /// first, then the soonest to run out.
     static func target(from candidates: [Candidate], now: Date, calendar: Calendar = .autoupdatingCurrent) -> Candidate? {
         candidates.filter { isDue($0, now: now, calendar: calendar) }.min(by: asksFirst)
+    }
+
+    /// The question the reminder plans: about `target` when one is due now,
+    /// and otherwise about the one `target` would choose at the first moment
+    /// a question can come. Plans are made only when the app is used, so
+    /// one made the evening before a count falls due must already hold the
+    /// next morning's question, or it comes a week late. A medication whose
+    /// course is over by its moment is not asked about then.
+    static func planned(
+        from candidates: [Candidate],
+        after now: Date,
+        lastAsked: Date? = nil,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> (candidate: Candidate, moment: Date)? {
+        let askable = candidates.compactMap { candidate -> (candidate: Candidate, moment: Date)? in
+            guard candidate.isEligible,
+                  let moment = moment(for: candidate, after: now, lastAsked: lastAsked, calendar: calendar),
+                  isDue(candidate, now: moment, calendar: calendar) else { return nil }
+            return (candidate, moment)
+        }
+        let chosen = target(from: askable.map(\.candidate), now: now, calendar: calendar)
+            ?? askable.map(\.moment).min().flatMap { target(from: askable.map(\.candidate), now: $0, calendar: calendar) }
+        return chosen.flatMap { chosen in askable.first { $0.candidate == chosen } }
     }
 
     /// 10:00 on the first day a whole number of weeks after the count's day
@@ -123,7 +151,8 @@ enum CountCheckPolicy {
             isEligible: !medication.isArchived && !medication.isAsNeeded && medication.refillRemindersEnabled && runningToday,
             daysRemaining: forecast.daysRemaining,
             needsCount: forecast.needsCount,
-            lastCountDate: lastCountDate
+            lastCountDate: lastCountDate,
+            courseEnd: ScheduleEngine.courseEnd(schedules: schedules, medicationID: medication.id)
         )
     }
 
