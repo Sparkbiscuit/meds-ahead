@@ -131,6 +131,17 @@ final class DuplicateMedicationMatcherTests: XCTestCase {
                        "a brand that is the name is not said twice")
     }
 
+    func testOneAmountWrittenAnotherWayIsTheSameStrength() {
+        let tacrolimus = Medication(name: "Tacrolimus", strength: "1 mg")
+        XCTAssertEqual(matches(MedicationDraft(name: "Tacrolimus", strength: "1.0 mg"), [tacrolimus]).map(\.id), [tacrolimus.id])
+        let halfMilligram = Medication(name: "Tacrolimus", strength: "0.5 mg")
+        XCTAssertEqual(matches(MedicationDraft(name: "Tacrolimus", strength: ".5 mg"), [halfMilligram]).map(\.id), [halfMilligram.id])
+        let vitaminD = Medication(name: "Cholecalciferol", strength: "1,000 IU")
+        XCTAssertEqual(matches(MedicationDraft(name: "Cholecalciferol", strength: "1000 IU"), [vitaminD]).map(\.id), [vitaminD.id])
+        XCTAssertTrue(matches(MedicationDraft(name: "Tacrolimus", strength: "5 mg"), [halfMilligram]).isEmpty)
+        XCTAssertTrue(matches(MedicationDraft(name: "Tacrolimus", strength: "0.75 mg"), [halfMilligram]).isEmpty)
+    }
+
     /// A manual entry has no code of its own, and its name and strength are
     /// all it can match by, even against a medication that has codes.
     func testAManualDraftMatchesByNameAndStrengthOnly() {

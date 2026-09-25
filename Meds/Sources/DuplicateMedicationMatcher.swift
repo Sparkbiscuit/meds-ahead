@@ -149,14 +149,21 @@ enum DuplicateMedicationMatcher {
 
     /// The parser's canonical form, so "20MG" is "20 mg", but only when that
     /// form is all the field holds: "25 mg ER" is not "25 mg", and the first
-    /// strength of "100 mg/5 mL, 200 mg" is not the whole of it.
+    /// strength of "100 mg/5 mL, 200 mg" is not the whole of it. Each number is
+    /// then written one way, so "1.0 mg" is "1 mg" and ".5 mg" is "0.5 mg":
+    /// equal amounts, never different ones.
     static func strengthKey(_ strength: String) -> String {
         let written = compact(strength)
+        var key = written
         if let canonical = ScanParser.normalizedStrength(strength),
            compact(canonical) == written.replacingOccurrences(of: ",", with: "") {
-            return compact(canonical)
+            key = compact(canonical)
         }
-        return written
+        // "1,000" is one thousand, as the directory's strengths are read.
+        key = key.replacing(/(\d),(\d{3})(?!\d)/) { "\($0.1)\($0.2)" }
+        return key.replacing(/\d*\.?\d+/) { match in
+            Decimal(string: String(match.output), locale: Locale(identifier: "en_US_POSIX")).map { "\($0)" } ?? String(match.output)
+        }
     }
 
     /// Two strengths that are both known and name different amounts. The label
