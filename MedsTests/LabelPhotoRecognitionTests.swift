@@ -301,9 +301,60 @@ final class LabelPhotoRecognitionTests: XCTestCase {
         XCTAssertTrue(astagraf.allSatisfy { $0.hasPrefix("00469-0677-") }, "only the product the label names: \(astagraf)")
     }
 
+    /// A guess brings forward the code the label vouched for and nothing else.
+    /// The rest of a lower-ranked reading is the recognizer's second thoughts
+    /// about print the first pass already read, and a quantity among it must
+    /// not reach the draft.
+    func testAGuessBringsOnlyItsCode() throws {
+        let guess = try guessedLines(atCodeLine: "NDC 64406-006-02   QTY: 90   REFILLS: 3")
+        let lines = guess(["DIMETHYL FUMARATE 240 MG DR CAPSULE", "QTY: 60"])
+
+        XCTAssertTrue(lines.contains { $0.text == "NDC 64406-006-02" }, "\(lines.map(\.text))")
+        for line in lines {
+            XCTAssertEqual(NationalDrugCode.readings(inLabelText: line.text).count, 1, line.text)
+            XCTAssertFalse(line.text.localizedCaseInsensitiveContains("QTY"), line.text)
+            XCTAssertFalse(line.text.localizedCaseInsensitiveContains("REFILL"), line.text)
+        }
+    }
+
+    /// A label whose code is missing from the snapshot runs the search of
+    /// guesses, and the search must come back empty-handed: a guess that
+    /// resolves to a listed product is, for this label, a misreading. The
+    /// name still comes from the label's own print.
+    func testACodeMissingFromTheDirectoryFillsNothingFromAGuess() async throws {
+        let image = renderedLabel(canvas: CGSize(width: 3024, height: 4032), pixelScale: 1, lines: [
+            Line("SPRINGFIELD PHARMACY #2214", size: 112, bold: true),
+            Line("RX# 4402917", size: 100, bold: true),
+            Line("DIMETHYL FUMARATE 240 MG DR CAPSULE", size: 120, bold: true),
+            Line("MFR: BIOGEN   NDC 99999-006-02", size: 40),
+            Line("TAKE 1 CAPSULE BY MOUTH TWICE DAILY", size: 106),
+            Line("QTY: 60", size: 112, bold: true)
+        ])
+        let result = try await StillImageRecognizer.recognizeWithReport(image: image, origin: .cameraCapture)
+        let draft = MedicationLabelInterpreter.offlineDraft(result.evidence)
+        add(XCTAttachment(string: result.report))
+
+        XCTAssertTrue(result.report.contains("the label vouched for 0 alternate readings"), result.report)
+        XCTAssertNotEqual(draft.nameProvenance, .ndc)
+        XCTAssertEqual(draft.identification, .unlisted(code: "99999-006-02"))
+        XCTAssertEqual(draft.productIdentifier, "99999-006-02")
+        XCTAssertEqual(draft.name, "Dimethyl fumarate")
+        XCTAssertEqual(draft.strength, "240 mg")
+    }
+
     /// Vision's lower-ranked guesses at a crisp code line, rendered alone in a
     /// camera-sized frame, as the codes that go forward for a given label.
     private func guesses(atCodeLine text: String) throws -> ([String]) -> [String] {
+        let guess = try guessedLines(atCodeLine: text)
+        return { label in
+            guess(label)
+                .flatMap { NationalDrugCode.readings(inLabelText: $0.text) }
+                .flatMap(\.candidates)
+                .map(\.hyphenated)
+        }
+    }
+
+    private func guessedLines(atCodeLine text: String) throws -> ([String]) -> [StillImageRecognizer.CodeLine] {
         let canvas = CGSize(width: 2400, height: 3200)
         let font = UIFont.systemFont(ofSize: 24)
         let origin = CGPoint(x: 300, y: 2100)
@@ -321,9 +372,6 @@ final class LabelPhotoRecognitionTests: XCTestCase {
                 ScanEvidence(kind: .text, value: value, origin: .cameraCapture, captureID: capture, lineIndex: index)
             }
             return StillImageRecognizer.alternateCodeReadings(around: [box], in: cgImage, label: evidence)
-                .flatMap { NationalDrugCode.readings(inLabelText: $0.text) }
-                .flatMap(\.candidates)
-                .map(\.hyphenated)
         }
     }
 

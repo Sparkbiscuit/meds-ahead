@@ -1064,11 +1064,11 @@ enum StillImageRecognizer {
             where !regions.contains(where: { overlap($0, box) > 0.5 }) {
             regions.append(box)
         }
+        var guessed: [Line] = []
         if !regions.isEmpty,
            let judge = judgeForAlternates(label: makeEvidence(lines: lines, barcodes: barcodes, origin: origin), codesRead: readings) {
-            let alternates = alternateCodeLines(around: regions, in: upright, vouchedFor: judge.namesExactly)
-            found += alternates
-            report += "; the label vouched for \(alternates.count.counted("alternate reading", plural: "alternate readings"))"
+            guessed = alternateCodeLines(around: regions, in: upright, vouchedFor: judge.namesExactly)
+            report += "; the label vouched for \(guessed.count.counted("alternate reading", plural: "alternate readings"))"
         }
         var codesRead = Set(NationalDrugCode.readings(inLabelText: readTogether).map(\.raw))
         for line in found {
@@ -1081,6 +1081,16 @@ enum StillImageRecognizer {
             guard !codes.isEmpty, !Set(codes).isSubset(of: codesRead) else { continue }
             codesRead.formUnion(codes)
             lines.removeAll { !carriesCode($0) && overlap($0.box, line.box) > 0.5 }
+            lines.append(line)
+        }
+        // A guess brings its code and displaces nothing. The rest of a guess
+        // is the recognizer's second thoughts about print the passes already
+        // read, a quantity or a date among it, and never outranks their
+        // reading of it.
+        for line in guessed {
+            let codes = NationalDrugCode.readings(inLabelText: line.text).map(\.raw)
+            guard !codes.isEmpty, !Set(codes).isSubset(of: codesRead) else { continue }
+            codesRead.formUnion(codes)
             lines.append(line)
         }
 
@@ -1292,8 +1302,8 @@ enum StillImageRecognizer {
     /// looked at, and only when nothing read is a code the label accepts.
     private static let maximumAlternateRegions = 2
 
-    /// Vision's lower-ranked readings of each region's code line, kept only when
-    /// the label itself names the product they resolve to.
+    /// Vision's lower-ranked readings of each region's code line, as the code
+    /// alone, kept only when the label itself names the product it resolves to.
     ///
     /// A guess below the top one is a guess among guesses, and the likeliest
     /// wrong one is a neighbouring code of the same labeler: the same drug at
@@ -1336,14 +1346,15 @@ enum StillImageRecognizer {
                 for observation in request.results ?? [] {
                     for candidate in observation.topCandidates(10) {
                         guard let value = LabelTextPolicy.sanitized(candidate.string) else { continue }
-                        let readings = NationalDrugCode.readings(inLabelText: value)
-                        guard readings.contains(where: { $0.candidates.contains(where: vouched) }),
-                              codesKept.insert(readings.map(\.raw).joined(separator: " ")).inserted else { continue }
-                        found.append(Line(
-                            text: value,
-                            confidence: Double(candidate.confidence),
-                            box: fullImageBox(fromCropBox: observation.boundingBox, cropRect: region, imageSize: imageSize)
-                        ))
+                        for reading in NationalDrugCode.readings(inLabelText: value)
+                            where reading.candidates.contains(where: vouched) && codesKept.insert(reading.raw).inserted {
+                            // Only the code the label vouched for goes forward.
+                            found.append(Line(
+                                text: "NDC \(reading.raw)",
+                                confidence: Double(candidate.confidence),
+                                box: fullImageBox(fromCropBox: observation.boundingBox, cropRect: region, imageSize: imageSize)
+                            ))
+                        }
                     }
                 }
             }
