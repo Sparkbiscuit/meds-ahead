@@ -457,4 +457,65 @@ final class MedsUITests: XCTestCase {
         app.buttons["Save Count"].tap()
         XCTAssertTrue(app.staticTexts["20 on hand"].waitForExistence(timeout: 3))
     }
+
+    /// When dated reminders run out within a few days, Today says so and says
+    /// what keeps them coming, readably at the largest text sizes.
+    func testThePlannedThroughNoticeIsShownAndAccessible() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-ui-testing",
+            "-skip-onboarding",
+            "-force-planned-through-notice",
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryAccessibilityXL"
+        ]
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+        let notice = app.descendants(matching: .any)["planned-through-notice"]
+        XCTAssertTrue(notice.waitForExistence(timeout: 5), "the notice never appeared")
+        XCTAssertTrue(notice.label.hasPrefix("Reminders are planned through "), notice.label)
+        XCTAssertTrue(notice.label.hasSuffix("Open Meds Ahead before then to keep them coming."), notice.label)
+        try app.performAccessibilityAudit(for: [
+            .elementDetection,
+            .hitRegion,
+            .sufficientElementDescription,
+            .textClipped,
+            .trait
+        ])
+    }
+
+    /// A second reminder is opt-in, and Settings says what it does and what
+    /// it cannot know about a dose given from another phone. The weekly count
+    /// check is on until turned off.
+    func testReminderChoicesInSettingsStartWhereTheyShould() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-skip-onboarding"]
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+        app.buttons["Settings"].tap()
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
+
+        let followUps = app.switches["follow-up-reminders"]
+        XCTAssertTrue(followUps.waitForExistence(timeout: 3))
+        XCTAssertEqual(followUps.value as? String, "0", "off unless someone chooses it")
+        let footer = app.staticTexts.matching(NSPredicate(format: "label == %@", "A second reminder 30 minutes after a dose time if it isn't logged on this phone. If more than one person gives doses, check with each other first."))
+        XCTAssertEqual(footer.count, 1, "the footer says what it does and what it cannot know")
+
+        let countCheck = app.switches["weekly-count-check"]
+        XCTAssertTrue(countCheck.exists)
+        XCTAssertEqual(countCheck.value as? String, "1", "on unless someone turns it off")
+
+        // The app clears these choices when it starts for a UI test, so a run
+        // stopped here leaves nothing behind for the next.
+        followUps.switches.firstMatch.tap()
+        XCTAssertEqual(followUps.value as? String, "1")
+        followUps.switches.firstMatch.tap()
+        XCTAssertEqual(followUps.value as? String, "0")
+        countCheck.switches.firstMatch.tap()
+        XCTAssertEqual(countCheck.value as? String, "0")
+        countCheck.switches.firstMatch.tap()
+        XCTAssertEqual(countCheck.value as? String, "1")
+    }
 }

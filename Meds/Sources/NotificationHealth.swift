@@ -27,7 +27,15 @@ final class NotificationHealth {
     private(set) var authorization: UNAuthorizationStatus = .notDetermined
     private(set) var plannedCount = 0
     private(set) var failedCount = 0
+    /// The last day every dated reminder is planned for, when one is wanted
+    /// after it. See `NotificationPlanOutcome.plannedThrough`.
+    private(set) var plannedThrough: Date?
     private var hasReported = false
+
+    /// How close the last planned day may come before Today says so. Opening
+    /// the app plans a week again, so this is only reached when the cap cut
+    /// the dated reminders short.
+    nonisolated static let plannedThroughNoticeDays = 3
 
     private init() {}
 
@@ -45,10 +53,33 @@ final class NotificationHealth {
         }
     }
 
-    func record(authorization: UNAuthorizationStatus, planned: Int, failed: Int) {
+    func record(authorization: UNAuthorizationStatus, planned: Int, failed: Int, plannedThrough: Date? = nil) {
         self.authorization = authorization
         plannedCount = planned
         failedCount = failed
+        self.plannedThrough = plannedThrough
         hasReported = true
+    }
+
+    /// The day to name in Today's notice, when reminders can be delivered at
+    /// all and the last planned day is close. A blocked or unasked permission
+    /// has its own banner, which says more.
+    func plannedThroughNotice(now: Date, calendar: Calendar = .autoupdatingCurrent) -> Date? {
+#if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-force-planned-through-notice") {
+            return calendar.date(byAdding: .day, value: 2, to: calendar.startOfDay(for: now))
+        }
+#endif
+        guard hasReported, state != .blocked, state != .unasked else { return nil }
+        return Self.noticeDay(plannedThrough: plannedThrough, now: now, calendar: calendar)
+    }
+
+    /// A last planned day from today through three days ahead. One already
+    /// behind today means dated reminders due soon were cut, and the
+    /// some-reminders-weren't-set banner already says that.
+    nonisolated static func noticeDay(plannedThrough: Date?, now: Date, calendar: Calendar) -> Date? {
+        guard let plannedThrough else { return nil }
+        let days = SupplyAttention.days(from: now, to: plannedThrough, calendar: calendar)
+        return (0...plannedThroughNoticeDays).contains(days) ? calendar.startOfDay(for: plannedThrough) : nil
     }
 }

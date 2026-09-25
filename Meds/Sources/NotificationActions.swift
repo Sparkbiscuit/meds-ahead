@@ -39,6 +39,8 @@ enum MedicationNotificationAction {
 }
 
 enum MedicationNotificationRoute {
+    /// A count check opens Today, where the quick count asks about the same
+    /// medication; everything but a refill alert does.
     static func destination(for userInfo: [AnyHashable: Any]) -> AppTab {
         userInfo["notificationKind"] as? String == "refill" ? .supply : .today
     }
@@ -75,11 +77,16 @@ enum NotificationDoseRecordingResult: Equatable {
 
 @MainActor
 enum NotificationDoseRecorder {
+    /// `slotDay` is a moment on the day a dated reminder or a follow-up
+    /// names. It decides the day when present: a follow-up for a 23:45 dose
+    /// is delivered after midnight, and the delivery's day would be the next
+    /// day's dose. The engine still says which dose that day is.
     static func record(
         status: DoseEventStatus,
         medicationID: UUID,
         scheduleID: UUID,
         notificationDate: Date,
+        slotDay: Date? = nil,
         in context: ModelContext,
         calendar: Calendar = .autoupdatingCurrent
     ) throws -> NotificationDoseRecordingResult {
@@ -91,7 +98,7 @@ enum NotificationDoseRecorder {
               schedule.medicationID == medicationID,
               let scheduledAt = ScheduleEngine.scheduledDate(
                 for: schedule,
-                on: notificationDate,
+                on: slotDay ?? notificationDate,
                 calendar: calendar
               ) else {
             return .missingContext

@@ -80,6 +80,102 @@ final class NotificationActionsTests: XCTestCase {
         XCTAssertEqual(try fixture.context.fetchCount(FetchDescriptor<DoseEvent>()), 1)
     }
 
+    /// A dated reminder or a follow-up names its slot. A follow-up for a
+    /// 23:45 dose arrives at 00:15, on a day with a 23:45 dose of its own,
+    /// which is not the dose it asked about.
+    @MainActor
+    func testAReminderNamingItsSlotLogsThatDaysDose() throws {
+        let fixture = try makeFixture()
+        fixture.schedule.minutesAfterMidnight = 23 * 60 + 45
+        try fixture.context.save()
+        let slot = try XCTUnwrap(fixture.calendar.date(bySettingHour: 23, minute: 45, second: 0, of: fixture.scheduledDate))
+        let delivered = slot.addingTimeInterval(ScheduleEngine.dueWindow)
+        XCTAssertFalse(fixture.calendar.isDate(delivered, inSameDayAs: slot))
+
+        let result = try NotificationDoseRecorder.record(
+            status: .taken,
+            medicationID: fixture.medication.id,
+            scheduleID: fixture.schedule.id,
+            notificationDate: delivered,
+            slotDay: slot,
+            in: fixture.context,
+            calendar: fixture.calendar
+        )
+
+        XCTAssertEqual(result, .recorded)
+        let event = try XCTUnwrap(try fixture.context.fetch(FetchDescriptor<DoseEvent>()).first)
+        XCTAssertEqual(event.scheduledAt, slot)
+        XCTAssertEqual(
+            try NotificationDoseRecorder.record(status: .taken, medicationID: fixture.medication.id, scheduleID: fixture.schedule.id,
+                                                notificationDate: delivered, slotDay: slot, in: fixture.context, calendar: fixture.calendar),
+            .alreadyRecorded
+        )
+    }
+
+    func testTheDayARequestNamesSurvivesItsUserInfo() throws {
+        var gmt = Calendar(identifier: .gregorian)
+        gmt.timeZone = TimeZone(secondsFromGMT: 0)!
+        let slot = try XCTUnwrap(gmt.date(from: DateComponents(year: 2026, month: 9, day: 10, hour: 23, minute: 45)))
+        let userInfo: [AnyHashable: Any] = [NotificationIdentifiers.slotDayKey: NotificationIdentifiers.slotDayValue(slot, calendar: gmt)]
+        XCTAssertEqual(userInfo[NotificationIdentifiers.slotDayKey] as? String, "20260910")
+        XCTAssertEqual(NotificationIdentifiers.slotDay(in: userInfo, calendar: gmt),
+                       gmt.date(from: DateComponents(year: 2026, month: 9, day: 10, hour: 12)))
+        XCTAssertNil(NotificationIdentifiers.slotDay(in: [:], calendar: gmt))
+        XCTAssertNil(NotificationIdentifiers.slotDay(in: [NotificationIdentifiers.slotDayKey: "1788000000.25"], calendar: gmt))
+
+        // The same day whatever calendar the phone is set to.
+        var japanese = Calendar(identifier: .japanese)
+        japanese.timeZone = gmt.timeZone
+        XCTAssertEqual(NotificationIdentifiers.slotDayValue(slot, calendar: japanese), "20260910")
+    }
+
+    /// A course's reminder planned in Sydney for 08:00 on the 11th rings at
+    /// 08:00 on the 11th in Los Angeles, where the family has flown: its
+    /// trigger follows the phone's clock. That instant in Sydney is the 10th
+    /// in Los Angeles, and Taken must still log the 11th's dose.
+    @MainActor
+    func testADatedReminderAnsweredInAnotherTimeZoneLogsTheDayItNamed() throws {
+        var sydney = Calendar(identifier: .gregorian)
+        sydney.timeZone = try XCTUnwrap(TimeZone(identifier: "Australia/Sydney"))
+        var losAngeles = Calendar(identifier: .gregorian)
+        losAngeles.timeZone = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
+        let schema = Schema([Medication.self, DoseSchedule.self, DoseEvent.self, InventoryEvent.self])
+        let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)])
+        let context = container.mainContext
+        let medication = Medication(name: "Course")
+        let schedule = DoseSchedule(
+            medicationID: medication.id,
+            minutesAfterMidnight: 8 * 60,
+            startDate: try XCTUnwrap(sydney.date(from: DateComponents(year: 2026, month: 9, day: 1))),
+            endDate: try XCTUnwrap(sydney.date(from: DateComponents(year: 2026, month: 9, day: 13)))
+        )
+        context.insert(medication)
+        context.insert(schedule)
+        try context.save()
+
+        let plannedAt = try XCTUnwrap(sydney.date(from: DateComponents(year: 2026, month: 9, day: 10, hour: 12)))
+        let built = NotificationPlanBuilder.make(medication: medication, schedules: [schedule], inventoryEvents: [], doseEvents: [],
+                                                 now: plannedAt, calendar: sydney)
+        let reminder = try XCTUnwrap(NotificationPlanner.plan(for: [built], now: plannedAt, calendar: sydney)
+            .notifications.first { $0.identifier == "meds.group.dose.date.20260911.0800" })
+        let content = NotificationService.content(for: reminder, calendar: sydney)
+        let deliveredInLosAngeles = try XCTUnwrap(losAngeles.date(from: DateComponents(year: 2026, month: 9, day: 11, hour: 8)))
+
+        let result = try NotificationDoseRecorder.record(
+            status: .taken,
+            medicationID: medication.id,
+            scheduleID: schedule.id,
+            notificationDate: deliveredInLosAngeles,
+            slotDay: NotificationIdentifiers.slotDay(in: content.userInfo, calendar: losAngeles),
+            in: context,
+            calendar: losAngeles
+        )
+
+        XCTAssertEqual(result, .recorded)
+        XCTAssertEqual(try context.fetch(FetchDescriptor<DoseEvent>()).first?.scheduledAt, deliveredInLosAngeles,
+                       "the 11th's dose, at 08:00 where the phone is now")
+    }
+
     func testOnlyMedicationQuickActionsMapToDoseStatuses() {
         XCTAssertEqual(
             MedicationNotificationAction.status(for: MedicationNotificationAction.markTakenIdentifier),

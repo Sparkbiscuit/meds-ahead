@@ -55,15 +55,33 @@ enum ScheduleEngine {
         on day: Date,
         calendar: Calendar = .autoupdatingCurrent
     ) -> Bool {
-        let start = calendar.startOfDay(for: schedule.startDate)
+        isActive(
+            weekdayMask: schedule.weekdayMask,
+            startDate: schedule.startDate,
+            endDate: schedule.endDate,
+            on: day,
+            calendar: calendar
+        )
+    }
+
+    /// The day rules alone, from plain values: the one copy `slotDate` and
+    /// the model's `isActive` both answer from.
+    static func isActive(
+        weekdayMask: Int,
+        startDate: Date,
+        endDate: Date?,
+        on day: Date,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> Bool {
+        let start = calendar.startOfDay(for: startDate)
         let target = calendar.startOfDay(for: day)
         guard target >= start else { return false }
-        if let endDate = schedule.endDate,
+        if let endDate,
            target > calendar.startOfDay(for: endDate) {
             return false
         }
         let weekday = calendar.component(.weekday, from: target) - 1
-        return schedule.weekdayMask & (1 << weekday) != 0
+        return weekdayMask & (1 << weekday) != 0
     }
 
     static func scheduledDate(
@@ -71,9 +89,30 @@ enum ScheduleEngine {
         on day: Date,
         calendar: Calendar = .autoupdatingCurrent
     ) -> Date? {
-        guard isActive(schedule, on: day, calendar: calendar) else { return nil }
-        let hour = schedule.minutesAfterMidnight / 60
-        let minute = schedule.minutesAfterMidnight % 60
+        slotDate(
+            minutesAfterMidnight: schedule.minutesAfterMidnight,
+            weekdayMask: schedule.weekdayMask,
+            startDate: schedule.startDate,
+            endDate: schedule.endDate,
+            on: day,
+            calendar: calendar
+        )
+    }
+
+    /// The same answer from a schedule's plain values. The notification
+    /// planner works from copies taken off the store, and the days a reminder
+    /// rings must be the days Today offers a dose, so both ask here.
+    static func slotDate(
+        minutesAfterMidnight: Int,
+        weekdayMask: Int,
+        startDate: Date,
+        endDate: Date?,
+        on day: Date,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> Date? {
+        guard isActive(weekdayMask: weekdayMask, startDate: startDate, endDate: endDate, on: day, calendar: calendar) else { return nil }
+        let hour = minutesAfterMidnight / 60
+        let minute = minutesAfterMidnight % 60
         guard let date = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: day) else { return nil }
         // A time already past when the schedule was saved was never a dose this
         // app asked for: offered anyway, a medication added at 15:00 showed its
@@ -82,7 +121,7 @@ enum ScheduleEngine {
         // due window stays, since Today would call it due. Only the start day can
         // bind, and an edited time keeps its schedule's start date, so the days
         // before the edit keep their slots.
-        guard date >= schedule.startDate.addingTimeInterval(-dueWindow) else { return nil }
+        guard date >= startDate.addingTimeInterval(-dueWindow) else { return nil }
         return date
     }
 
