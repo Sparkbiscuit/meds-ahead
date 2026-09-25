@@ -486,8 +486,9 @@ final class MedsUITests: XCTestCase {
     }
 
     /// A second reminder is opt-in, and Settings says what it does and what
-    /// it cannot know about a dose given from another phone.
-    func testFollowUpRemindersAreOffUntilTurnedOn() {
+    /// it cannot know about a dose given from another phone. The weekly count
+    /// check is on until turned off.
+    func testReminderChoicesInSettingsStartWhereTheyShould() {
         let app = XCUIApplication()
         app.launchArguments = ["-ui-testing", "-skip-onboarding"]
         app.launch()
@@ -502,10 +503,18 @@ final class MedsUITests: XCTestCase {
         let footer = app.staticTexts.matching(NSPredicate(format: "label == %@", "A second reminder 30 minutes after a dose time if it isn't logged on this phone. If more than one person gives doses, check with each other first."))
         XCTAssertEqual(footer.count, 1, "the footer says what it does and what it cannot know")
 
-        // Settings persist between runs, so the test leaves it as it found it.
+        let countCheck = app.switches["weekly-count-check"]
+        XCTAssertTrue(countCheck.exists)
+        XCTAssertEqual(countCheck.value as? String, "1", "on unless someone turns it off")
+
+        // Settings persist between runs, so the test leaves them as it found them.
         followUps.switches.firstMatch.tap()
         XCTAssertEqual(followUps.value as? String, "1")
         followUps.switches.firstMatch.tap()
         XCTAssertEqual(followUps.value as? String, "0")
+        countCheck.switches.firstMatch.tap()
+        XCTAssertEqual(countCheck.value as? String, "0")
+        countCheck.switches.firstMatch.tap()
+        XCTAssertEqual(countCheck.value as? String, "1")
     }
 }

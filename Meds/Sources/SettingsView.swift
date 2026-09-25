@@ -9,6 +9,7 @@ struct SettingsView: View {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = true
     @AppStorage(NotificationPlanOptions.followUpRemindersKey) private var followUpReminders = false
+    @AppStorage(NotificationPlanOptions.weeklyCountCheckKey) private var weeklyCountCheck = true
     @State private var notificationStatus = "Checking…"
     @State private var showingSafety = false
     @State private var showingPrivacy = false
@@ -57,6 +58,13 @@ struct SettingsView: View {
                     .accessibilityIdentifier("follow-up-reminders")
             } footer: {
                 Text("A second reminder 30 minutes after a dose time if it isn't logged on this phone. If more than one person gives doses, check with each other first.")
+            }
+
+            Section {
+                Toggle("Weekly Count Check", isOn: $weeklyCountCheck)
+                    .accessibilityIdentifier("weekly-count-check")
+            } footer: {
+                Text("At most once a week, a reminder to count the medication that runs out soonest, when its last count is a week old or more.")
             }
 
             Section {
@@ -148,6 +156,7 @@ struct SettingsView: View {
             Task { await refreshNotificationStatus() }
         }
         .onChange(of: followUpReminders) { replanNotifications() }
+        .onChange(of: weeklyCountCheck) { replanNotifications() }
         .sheet(isPresented: $showingStory) {
             InformationSheet(
                 title: "Why I Made Meds Ahead",

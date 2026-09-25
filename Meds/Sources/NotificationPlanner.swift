@@ -25,6 +25,8 @@ struct MedicationNotificationPlan: Sendable {
     /// The forecast's assumed doses used up the ledger, so `depletionDate` is
     /// where they ran out, not a day to plan a refill by.
     var needsCount = false
+    /// What the weekly count check weighs about this medication.
+    var countCheck: CountCheckPolicy.Candidate? = nil
 }
 
 struct ScheduleNotificationPlan: Sendable {
@@ -54,6 +56,9 @@ enum PlannedNotificationKind: Equatable, Sendable {
     /// The morning a refill in progress stops standing in for the low-supply
     /// warning: asks whether it has arrived. Planned with the refill alerts too.
     case refillCheck
+    /// The weekly question about one medication's count. Planned with the
+    /// refill alerts, whose warnings it keeps honest.
+    case countCheck
 }
 
 enum PlannedNotificationTrigger: Equatable, Hashable, Sendable {
@@ -86,13 +91,19 @@ struct PlannedNotification: Equatable, Sendable {
 /// The reminder choices made once, for the whole app, in Settings.
 struct NotificationPlanOptions: Equatable, Sendable {
     static let followUpRemindersKey = "followUpRemindersEnabled"
+    static let weeklyCountCheckKey = "weeklyCountCheckEnabled"
 
     /// Off until chosen. With two caregivers, a dose given and logged on the
     /// other phone is unlogged on this one, and its follow-up still rings.
     var followUpReminders = false
+    var weeklyCountCheck = true
 
     static func stored(in defaults: UserDefaults = .standard) -> NotificationPlanOptions {
-        NotificationPlanOptions(followUpReminders: defaults.bool(forKey: followUpRemindersKey))
+        NotificationPlanOptions(
+            followUpReminders: defaults.bool(forKey: followUpRemindersKey),
+            // Never set means never turned off.
+            weeklyCountCheck: defaults.object(forKey: weeklyCountCheckKey) as? Bool ?? true
+        )
     }
 }
 
@@ -431,6 +442,32 @@ enum NotificationPlanner {
             )
         }
 
+        if options.weeklyCountCheck {
+            let candidates = plans.compactMap(\.countCheck)
+            // One asked already stays until the medication is counted.
+            for candidate in candidates where CountCheckPolicy.isDue(candidate, now: now, calendar: calendar) {
+                retainedPrefixes.insert(NotificationIdentifiers.countCheckPrefix(medicationID: candidate.medicationID))
+            }
+            if let target = CountCheckPolicy.target(from: candidates, now: now, calendar: calendar),
+               let moment = CountCheckPolicy.moment(for: target, after: now, calendar: calendar) {
+                let detailed = plans.first { $0.medicationID == target.medicationID }?.detailedNotifications ?? false
+                refillNotifications.append(
+                    PlannedNotification(
+                        identifier: NotificationIdentifiers.countCheck(medicationID: target.medicationID, on: moment, calendar: calendar),
+                        kind: .countCheck,
+                        title: detailed ? "Quick count: \(target.displayName)" : "Quick count",
+                        body: detailed
+                            ? "A 20-second count keeps its run-out date honest. Open Meds Ahead to add it."
+                            : "A 20-second count keeps a run-out date honest. Open Meds Ahead to see which medication.",
+                        trigger: .date(moment),
+                        medicationID: target.medicationID,
+                        scheduleID: nil,
+                        groupedDoseCount: 0
+                    )
+                )
+            }
+        }
+
         // Nearest refill alerts matter most when trimming is unavoidable.
         refillNotifications.sort { lhs, rhs in
             guard case let .date(left) = lhs.trigger, case let .date(right) = rhs.trigger else { return false }
@@ -763,7 +800,15 @@ enum NotificationPlanBuilder {
             rxNumber: medication.rxNumber,
             refillStatusDate: medication.refillStatusDate,
             onHand: forecast.currentSupply > 0,
-            needsCount: forecast.needsCount
+            needsCount: forecast.needsCount,
+            countCheck: CountCheckPolicy.candidate(
+                for: medication,
+                schedules: schedules,
+                inventoryEvents: inventoryEvents,
+                forecast: forecast,
+                now: now,
+                calendar: calendar
+            )
         )
     }
 

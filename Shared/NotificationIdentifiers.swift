@@ -23,6 +23,15 @@ enum NotificationIdentifiers {
         "meds.group.followup.\(dayCode(slot, calendar: calendar)).\(timeCode(slot, calendar: calendar))"
     }
 
+    /// The weekly count check for one medication, on the day it asks.
+    static func countCheck(medicationID: UUID, on day: Date, calendar: Calendar) -> String {
+        countCheckPrefix(medicationID: medicationID) + dayCode(day, calendar: calendar)
+    }
+
+    static func countCheckPrefix(medicationID: UUID) -> String {
+        "meds.countcheck.\(medicationID.uuidString)."
+    }
+
     /// A day as yyyyMMdd in the given calendar.
     static func dayCode(_ date: Date, calendar: Calendar) -> String {
         let parts = calendar.dateComponents([.year, .month, .day], from: date)

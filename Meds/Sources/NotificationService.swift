@@ -98,6 +98,7 @@ actor NotificationService {
             userInfo["notificationKind"] = switch item.kind {
             case .dose: "dose"
             case .followUp: "followUp"
+            case .countCheck: "countCheck"
             case .refill, .expiration, .refillCheck: "refill"
             }
             content.userInfo = userInfo

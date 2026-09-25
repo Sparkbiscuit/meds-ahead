@@ -39,6 +39,8 @@ enum MedicationNotificationAction {
 }
 
 enum MedicationNotificationRoute {
+    /// A count check opens Today, where the quick count asks about the same
+    /// medication; everything but a refill alert does.
     static func destination(for userInfo: [AnyHashable: Any]) -> AppTab {
         userInfo["notificationKind"] as? String == "refill" ? .supply : .today
     }
