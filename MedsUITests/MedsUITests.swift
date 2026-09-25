@@ -1117,6 +1117,7 @@ final class MedsUITests: XCTestCase {
 
         app.buttons["why-count-now"].tap()
         XCTAssertTrue(app.navigationBars["Correct Current Count"].waitForExistence(timeout: 3))
+        XCTAssertEqual(app.staticTexts["supply-change-subject"].label, "Furosemide")
         let quantity = app.textFields["supply-quantity"]
         XCTAssertEqual(quantity.value as? String, "28", "nothing is assumed, so the count opens on the ledger's number")
         quantity.tap()
@@ -1190,6 +1191,7 @@ final class MedsUITests: XCTestCase {
         app.buttons["quick-count-now"].tap()
 
         XCTAssertTrue(app.navigationBars["Correct Current Count"].waitForExistence(timeout: 3))
+        XCTAssertEqual(app.staticTexts["supply-change-subject"].label, "Dimethyl fumarate", "the sheet names what is being counted")
         XCTAssertFalse(app.buttons["Save Count"].isEnabled, "nothing is filled in to confirm with one tap")
         let quantity = app.textFields["supply-quantity"]
         quantity.tap()

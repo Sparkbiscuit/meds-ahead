@@ -60,10 +60,15 @@ struct SupplyChangeSheet: View {
     /// Nil opens the field empty.
     let initialValue: Double?
     let actionTitle: String
+    /// The medication, named above the field when the sheet opens from a
+    /// screen other than its own: the title has no room for it, and the card
+    /// that named it is behind the sheet.
+    let subject: String?
     let onSave: (Double, String) -> Void
     @State private var text: String
     @State private var note = ""
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     /// Read from the text on every change, as the editor's dose field is, never
     /// from a value a formatted field writes back: on a phone the editor's
@@ -80,6 +85,7 @@ struct SupplyChangeSheet: View {
         form: MedicationForm,
         initialValue: Double?,
         actionTitle: String,
+        subject: String? = nil,
         onSave: @escaping (Double, String) -> Void
     ) {
         self.title = title
@@ -87,15 +93,21 @@ struct SupplyChangeSheet: View {
         self.form = form
         self.initialValue = initialValue
         self.actionTitle = actionTitle
+        self.subject = subject
         self.onSave = onSave
         _text = State(initialValue: initialValue.map { SupplyChangeQuantity.text(for: $0) } ?? "")
     }
 
     var body: some View {
+        // The unit under the field at the largest sizes: beside it, "capsules"
+        // broke mid-word.
+        let quantityLayout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading))
+            : AnyLayout(HStackLayout())
         NavigationStack {
             Form {
                 Section {
-                    HStack {
+                    quantityLayout {
                         TextField("Quantity", text: $text)
                             .keyboardType(.decimalPad)
                             .font(.title2.weight(.semibold))
@@ -104,6 +116,14 @@ struct SupplyChangeSheet: View {
                             .foregroundStyle(.secondary)
                     }
                     TextField("Optional note", text: $note, axis: .vertical)
+                } header: {
+                    if let subject {
+                        Text(subject)
+                            .font(.headline)
+                            .textCase(nil)
+                            .accessibilityAddTraits(.isHeader)
+                            .accessibilityIdentifier("supply-change-subject")
+                    }
                 } footer: {
                     Text(message)
                 }
@@ -122,7 +142,9 @@ struct SupplyChangeSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium])
+        // As the add-bottle sheet does: at the largest sizes half a screen
+        // cuts off the guidance under the field.
+        .presentationDetents(dynamicTypeSize.isAccessibilitySize ? [.large] : [.medium])
     }
 }
 
@@ -204,7 +226,8 @@ struct CorrectCountSheet: View {
             message: "Count everything on hand, including doses already placed in pill organizers.",
             form: request.medication.form,
             initialValue: request.initialValue,
-            actionTitle: "Save Count"
+            actionTitle: "Save Count",
+            subject: request.medication.displayName
         ) { actualCount, note in
             do {
                 try CountCorrection.record(actualCount: actualCount, note: note, for: request.medication, in: modelContext)
