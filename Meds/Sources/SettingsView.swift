@@ -64,7 +64,7 @@ struct SettingsView: View {
                 Toggle("Weekly Count Check", isOn: $weeklyCountCheck)
                     .accessibilityIdentifier("weekly-count-check")
             } footer: {
-                Text("At most once a week, a reminder to count the medication that runs out soonest, when its last count is a week old or more.")
+                Text("At most once a week, a reminder to count one medication whose last count is a week old or more: one that needs a count first, then the one that runs out soonest. It also shows Today's count card.")
             }
 
             Section {

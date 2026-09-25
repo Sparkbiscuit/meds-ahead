@@ -422,9 +422,10 @@ final class NotificationPlannerTests: XCTestCase {
         let outcome = NotificationPlanner.plan(for: [plan], now: at(6, 7), calendar: calendar)
         XCTAssertFalse(outcome.notifications.contains { $0.kind == .refill || $0.kind == .refillCheck }, "\(outcome.notifications.map(\.kind))")
         // What it does get is the weekly question, the morning its count is
-        // a week old.
+        // a week old, worded as the count it needs.
         let check = try XCTUnwrap(outcome.notifications.first { $0.kind == .countCheck })
         XCTAssertEqual(check.trigger, .date(at(8, 10)))
+        XCTAssertEqual(check.title, "Count needed: Furosemide")
         XCTAssertTrue(outcome.retains("meds.\(medication.id.uuidString).refill.08012026"), "a warning already given stays")
         XCTAssertTrue(outcome.retains("meds.\(medication.id.uuidString).refillcheck.20260810"), "and so does a question already asked")
 

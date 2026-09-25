@@ -475,14 +475,22 @@ enum NotificationPlanner {
             if let planned = CountCheckPolicy.planned(from: candidates, after: now, lastAsked: options.lastCountCheck, calendar: calendar) {
                 let (target, moment) = planned
                 let detailed = plans.first { $0.medicationID == target.medicationID }?.detailedNotifications ?? false
+                // Worded as Today's card words it. A count needed is not a
+                // nicety: no low-supply alert can be planned without it.
+                let title = target.needsCount ? "Count needed" : "Quick count"
+                let body = target.needsCount
+                    ? (detailed
+                        ? "Only a count can say what's left, and no low-supply alert can come until then. Open Meds Ahead to add it."
+                        : "Only a count can say what's left of a medication, and no low-supply alert can come until then. Open Meds Ahead to see which.")
+                    : (detailed
+                        ? "A few seconds of counting keeps its run-out date honest. Open Meds Ahead to add it."
+                        : "A few seconds of counting keeps a run-out date honest. Open Meds Ahead to see which medication.")
                 refillNotifications.append(
                     PlannedNotification(
                         identifier: NotificationIdentifiers.countCheck(medicationID: target.medicationID, on: moment, calendar: calendar),
                         kind: .countCheck,
-                        title: detailed ? "Quick count: \(target.displayName)" : "Quick count",
-                        body: detailed
-                            ? "A 20-second count keeps its run-out date honest. Open Meds Ahead to add it."
-                            : "A 20-second count keeps a run-out date honest. Open Meds Ahead to see which medication.",
+                        title: detailed ? "\(title): \(target.displayName)" : title,
+                        body: body,
                         trigger: .date(moment),
                         medicationID: target.medicationID,
                         scheduleID: nil,

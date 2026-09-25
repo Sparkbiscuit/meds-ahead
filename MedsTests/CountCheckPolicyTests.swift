@@ -208,7 +208,7 @@ final class CountCheckPolicyTests: XCTestCase {
         XCTAssertEqual(check.trigger, .date(at(15, 10)))
         XCTAssertEqual(check.medicationID, soonID)
         XCTAssertEqual(check.title, "Quick count")
-        XCTAssertEqual(check.body, "A 20-second count keeps a run-out date honest. Open Meds Ahead to see which medication.")
+        XCTAssertEqual(check.body, "A few seconds of counting keeps a run-out date honest. Open Meds Ahead to see which medication.")
         XCTAssertFalse(check.title.contains("Soon") || check.body.contains("Soon"), "private copy names nothing")
         XCTAssertFalse(check.supportsDoseQuickActions)
 
@@ -216,6 +216,22 @@ final class CountCheckPolicyTests: XCTestCase {
         let named = NotificationPlanner.plan(for: [plan(name: "Tacrolimus", id: namedID, detailed: true, check: candidate("Tacrolimus", id: namedID, counted: at(1, 15)))],
                                              now: at(9, 8), calendar: calendar)
         XCTAssertEqual(named.notifications.first { $0.kind == .countCheck }?.title, "Quick count: Tacrolimus")
+
+        // A count needed is worded as Today's card words it: no low-supply
+        // alert can be planned until the count.
+        let neededID = UUID()
+        let needed = try XCTUnwrap(NotificationPlanner.plan(
+            for: [plan(name: "Tacrolimus", id: neededID, detailed: true, check: candidate("Tacrolimus", id: neededID, days: 0, needsCount: true, counted: at(1, 15)))],
+            now: at(9, 8), calendar: calendar
+        ).notifications.first { $0.kind == .countCheck })
+        XCTAssertEqual(needed.title, "Count needed: Tacrolimus")
+        XCTAssertEqual(needed.body, "Only a count can say what's left, and no low-supply alert can come until then. Open Meds Ahead to add it.")
+        let neededQuietly = try XCTUnwrap(NotificationPlanner.plan(
+            for: [plan(name: "Tacrolimus", id: neededID, check: candidate("Tacrolimus", id: neededID, days: 0, needsCount: true, counted: at(1, 15)))],
+            now: at(9, 8), calendar: calendar
+        ).notifications.first { $0.kind == .countCheck })
+        XCTAssertEqual(neededQuietly.title, "Count needed")
+        XCTAssertFalse(neededQuietly.body.contains("Tacrolimus"), "private copy names nothing")
 
         let off = NotificationPlanner.plan(for: plans, now: at(9, 8), calendar: calendar,
                                            options: NotificationPlanOptions(weeklyCountCheck: false))
