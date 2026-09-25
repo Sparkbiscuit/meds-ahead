@@ -383,12 +383,29 @@ final class CourseDisplayTests: XCTestCase {
     }
 
     func testTheSetAsideListKeepsEachCourseOnce() {
-        let first = FinishedCourseNotice.adding("a", to: "")
-        XCTAssertEqual(first, "a")
-        let both = FinishedCourseNotice.adding("b", to: first)
-        XCTAssertEqual(FinishedCourseNotice.setAside(in: both), ["a", "b"])
-        XCTAssertEqual(FinishedCourseNotice.adding("a", to: both), both)
+        let a = FinishedCourseNotice.key(medicationID: UUID(), end: lastDay(9))
+        let b = FinishedCourseNotice.key(medicationID: UUID(), end: lastDay(10))
+        let first = FinishedCourseNotice.adding(a, to: "", now: now)
+        XCTAssertEqual(first, a)
+        let both = FinishedCourseNotice.adding(b, to: first, now: now)
+        XCTAssertEqual(FinishedCourseNotice.setAside(in: both), [a, b])
+        XCTAssertEqual(FinishedCourseNotice.adding(a, to: both, now: now), both)
         XCTAssertEqual(FinishedCourseNotice.setAside(in: ""), [])
+    }
+
+    /// A course whose card can no longer come back is dropped from the list
+    /// as another is added, so the list does not grow for ever.
+    func testTheSetAsideListLetsGoOfCoursesTooOldToOffer() {
+        let old = FinishedCourseNotice.key(medicationID: UUID(), end: lastDay(9))
+        let recent = FinishedCourseNotice.key(medicationID: UUID(), end: lastDay(11))
+        let stored = FinishedCourseNotice.adding(recent, to: FinishedCourseNotice.adding(old, to: "", now: september(12, 9)), now: september(12, 9))
+        XCTAssertEqual(FinishedCourseNotice.setAside(in: stored), [old, recent])
+
+        let later = FinishedCourseNotice.key(medicationID: UUID(), end: lastDay(14))
+        XCTAssertEqual(FinishedCourseNotice.setAside(in: FinishedCourseNotice.adding(later, to: stored, now: september(15, 9))), [recent, later],
+                       "ended the 9th, it is no longer offered on the 15th")
+        XCTAssertEqual(FinishedCourseNotice.setAside(in: FinishedCourseNotice.adding(later, to: "unreadable\n" + stored, now: september(12, 9))), [old, recent, later],
+                       "a line that names no end is dropped")
     }
 
     // MARK: - Printed list

@@ -171,7 +171,19 @@ enum FinishedCourseNotice {
         Set(stored.split(separator: "\n").map(String.init))
     }
 
-    static func adding(_ key: String, to stored: String) -> String {
-        (setAside(in: stored).union([key])).sorted().joined(separator: "\n")
+    /// The list with `key` added, less the courses that ended too long ago
+    /// to be offered again in any time zone: four days after the stored end
+    /// is past the last day `recentDays` allows wherever the phone is, so
+    /// the list holds only cards that could still come back.
+    static func adding(_ key: String, to stored: String, now: Date = .now) -> String {
+        let offeredSince = now.addingTimeInterval(-Double(recentDays + 1) * 24 * 60 * 60)
+        return setAside(in: stored).union([key])
+            .filter { $0 == key || (end(of: $0).map { $0 >= offeredSince } ?? false) }
+            .sorted()
+            .joined(separator: "\n")
+    }
+
+    private static func end(of key: String) -> Date? {
+        key.split(separator: "@").last.flatMap { Int($0) }.map { Date(timeIntervalSinceReferenceDate: TimeInterval($0)) }
     }
 }
