@@ -458,6 +458,113 @@ final class MedsUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["20 on hand"].waitForExistence(timeout: 3))
     }
 
+    /// A second bottle of a medication already tracked goes into that one's
+    /// count instead of becoming a second medication with its own reminders.
+    /// The review says so, the bottle is recorded as a refill, and the flow
+    /// goes back to the scanner for the next bottle.
+    func testScanningABottleAlreadyTrackedAddsItToThatMedication() {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-ui-testing",
+            "-skip-onboarding",
+            "-seed-demo-data",
+            "-simulate-scan-result",
+            "-simulate-scan-name", "Furosemide",
+            "-simulate-scan-strength", "20 mg",
+            "-simulate-scan-quantity", "30",
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryL"
+        ]
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["Add"].tap()
+        let banner = app.descendants(matching: .any)["duplicate-banner"]
+        XCTAssertTrue(banner.waitForExistence(timeout: 5), "the review never said Furosemide is already here")
+        XCTAssertTrue(banner.label.contains("Already in Meds Ahead: Furosemide 20 mg"), banner.label)
+        let addToExisting = app.buttons["add-to-existing"]
+        XCTAssertEqual(addToExisting.label, "Add this bottle to Furosemide")
+        addToExisting.tap()
+
+        let quantity = app.textFields["bottle-quantity"]
+        XCTAssertTrue(quantity.waitForExistence(timeout: 3))
+        XCTAssertEqual((quantity.value as? String) ?? "", quantity.placeholderValue ?? "", "the bottle's count starts empty")
+        XCTAssertFalse(app.buttons["save-bottle"].isEnabled, "nothing to add yet")
+        let note = app.descendants(matching: .any)["bottle-label-quantity-note"]
+        XCTAssertTrue(note.label.hasPrefix("Label says 30 when full"), note.label)
+        app.buttons["bottle-use-label-quantity"].tap()
+        XCTAssertEqual(quantity.value as? String, "30")
+        app.buttons["save-bottle"].tap()
+
+        let tally = app.descendants(matching: .any)["setup-tally"]
+        XCTAssertTrue(tally.waitForExistence(timeout: 5), "the flow did not go back to the scanner")
+        XCTAssertEqual(tally.label, "Added to Furosemide")
+        app.buttons["setup-done"].tap()
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+
+        app.tabBars.buttons["Supply"].tap()
+        let row = app.staticTexts["Furosemide"]
+        XCTAssertTrue(row.waitForExistence(timeout: 3))
+        XCTAssertEqual(app.staticTexts.matching(identifier: "Furosemide").count, 1, "a second Furosemide was created")
+        row.tap()
+        XCTAssertTrue(app.staticTexts["58 on hand"].waitForExistence(timeout: 3), "28 on hand plus the bottle's 30")
+        let refill = app.staticTexts["Refill added: +30"]
+        for _ in 0..<6 where !refill.exists {
+            app.swipeUp()
+        }
+        XCTAssertTrue(refill.exists, "the bottle is not in the activity")
+    }
+
+    /// At the largest text size the banner, its button, the bottle sheet and
+    /// the bar under the camera are all still reachable and described.
+    func testAddingABottleToATrackedMedicationAtLargestAccessibilityText() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-ui-testing",
+            "-skip-onboarding",
+            "-seed-demo-data",
+            "-simulate-scan-result",
+            "-simulate-scan-name", "Furosemide",
+            "-simulate-scan-strength", "20 mg",
+            "-simulate-scan-quantity", "30",
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryAccessibilityXXXL"
+        ]
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["Add"].tap()
+        let addToExisting = app.buttons["add-to-existing"]
+        XCTAssertTrue(addToExisting.waitForExistence(timeout: 5))
+        XCTAssertTrue(addToExisting.isHittable, "the banner's button is out of reach")
+        try app.performAccessibilityAudit(for: [
+            .elementDetection,
+            .hitRegion,
+            .sufficientElementDescription,
+            .trait
+        ])
+
+        addToExisting.tap()
+        let useLabelQuantity = app.buttons["bottle-use-label-quantity"]
+        XCTAssertTrue(useLabelQuantity.waitForExistence(timeout: 3))
+        for _ in 0..<6 where !useLabelQuantity.isHittable { app.swipeUp() }
+        XCTAssertTrue(useLabelQuantity.isHittable, "the label's count cannot be reached at the largest text size")
+        useLabelQuantity.tap()
+        XCTAssertEqual(useLabelQuantity.label, "Using 30 for this bottle")
+        try app.performAccessibilityAudit(for: [
+            .elementDetection,
+            .hitRegion,
+            .sufficientElementDescription,
+            .trait
+        ])
+        app.buttons["save-bottle"].tap()
+
+        let done = app.buttons["setup-done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 5))
+        XCTAssertTrue(done.isHittable, "Done is out of reach")
+        XCTAssertEqual(app.descendants(matching: .any)["setup-tally"].label, "Added to Furosemide")
+    }
+
     /// Scanning one bottle after another: each save returns to a new scanner
     /// with nothing of the last bottle in it, the bar under the camera counts
     /// what has gone in, and Done closes the flow.

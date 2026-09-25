@@ -22,9 +22,14 @@ struct MedicationEditorView: View {
     private let draftCaptureNote: String
     private let draftLabelQuantity: Double?
     private let draftLabelQuantityNote: String?
+    /// The draft as it arrived, for which fields its label read.
+    private let reviewedDraft: MedicationDraft
     /// Called with the medication once it is saved, so the add flow can say
     /// what went in.
     private let onSaved: ((Medication) -> Void)?
+    /// Offered a bottle of a medication already tracked, to add to that one
+    /// instead of saving a second. Without it the review offers nothing.
+    private let onAddBottle: ((AddBottleRequest) -> Void)?
     /// Called after a save that changed what past days were scheduled to hold
     /// while the forecast was assuming unlogged doses: only a count can say
     /// what those doses took, so the presenter asks for one.
@@ -75,6 +80,7 @@ struct MedicationEditorView: View {
         medication: Medication? = nil,
         draft: MedicationDraft = MedicationDraft(),
         onSaved: ((Medication) -> Void)? = nil,
+        onAddBottle: ((AddBottleRequest) -> Void)? = nil,
         onAskForCount: (() -> Void)? = nil
     ) {
         self.medication = medication
@@ -85,7 +91,9 @@ struct MedicationEditorView: View {
         self.draftCaptureNote = draft.captureNote
         self.draftLabelQuantity = draft.labelDispensedQuantity
         self.draftLabelQuantityNote = draft.labelDispensedNote
+        self.reviewedDraft = draft
         self.onSaved = onSaved
+        self.onAddBottle = onAddBottle
         self.onAskForCount = onAskForCount
         let resolvedForm = medication?.form ?? draft.form
         _name = State(initialValue: medication?.name ?? draft.name)
@@ -169,6 +177,10 @@ struct MedicationEditorView: View {
 
     var body: some View {
         Form {
+            let duplicates = duplicateMatches
+            if !duplicates.isEmpty {
+                duplicateSection(duplicates)
+            }
             if !draftEvidence.isEmpty {
                 scanSummarySection
             } else if draftSource == .appleHealth, !isEditing {
@@ -451,6 +463,70 @@ struct MedicationEditorView: View {
             reconcileNames(after: oldValue)
         }
         .task { loadExistingSchedulesIfNeeded() }
+    }
+
+    /// Worked out from the fields as they stand, so a manual entry meets the
+    /// banner as its name and strength are typed, and a code chosen under Use
+    /// This Product counts once it is chosen. Health drafts are left out: the
+    /// Health list already says which are here, and a Health entry is not a
+    /// bottle to add.
+    private var duplicateMatches: [Medication] {
+        guard !isEditing, draftSource != .appleHealth, onAddBottle != nil else { return [] }
+        let identity = DuplicateMedicationMatcher.Identity(
+            name: name,
+            strength: strength,
+            productIdentifier: productIdentifier,
+            productIdentifierType: productIdentifierType,
+            rxNormCode: rxNormCode,
+            nameProvenance: nameProvenance
+        )
+        return DuplicateMedicationMatcher.matches(for: identity, among: allMedications)
+    }
+
+    /// Above everything else on the screen, because it decides whether the rest
+    /// is needed: a bottle added to a medication already here needs no name,
+    /// schedule or reminders of its own.
+    private func duplicateSection(_ matches: [Medication]) -> some View {
+        Section {
+            ForEach(matches) { match in
+                VStack(alignment: .leading, spacing: 10) {
+                    Label {
+                        Text("Already in Meds Ahead: \(DuplicateMedicationMatcher.description(of: match))")
+                            .font(.subheadline.weight(.semibold))
+                            .fixedSize(horizontal: false, vertical: true)
+                    } icon: {
+                        Image(systemName: "square.stack.3d.up.fill")
+                            .foregroundStyle(.orange)
+                            .accessibilityHidden(true)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("duplicate-banner")
+                    Button {
+                        onAddBottle?(AddBottleRequest(
+                            medication: match,
+                            labelQuantity: draftLabelQuantity,
+                            labelQuantityNote: draftLabelQuantityNote,
+                            labelUpdates: AddBottleRecord.LabelUpdates.reviewed(
+                                draft: reviewedDraft,
+                                refillsText: refillsText,
+                                expirationDate: hasExpirationDate ? expirationDate : nil,
+                                rxNumber: rxNumber
+                            )
+                        ))
+                    } label: {
+                        Text("Add this bottle to \(match.displayName)")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .foregroundStyle(AppTheme.onAccent)
+                    .controlSize(.large)
+                    .accessibilityIdentifier("add-to-existing")
+                }
+                .padding(.vertical, 4)
+            }
+        } footer: {
+            Text("Adding it there keeps one count and one set of reminders. If this bottle is someone else's, review below and tap Add.")
+        }
     }
 
     /// A label prints one of a medication's two names, and a person copying from it
@@ -1136,6 +1212,11 @@ private struct ScheduleDoseQuantityField: View {
 struct AddMedicationFlow: View {
     @Environment(\.dismiss) private var dismiss
     @State private var navigation = Navigation()
+    @State private var bottleRequest: AddBottleRequest?
+    /// The review a bottle request came from, and the medication's name once
+    /// the bottle is in. The flow moves on only when the sheet is gone.
+    @State private var bottleDraft: MedicationDraft?
+    @State private var bottleAddedTo: String?
 
     /// The reviewed draft travels inside the path value rather than in separate
     /// state the destination closure reads later. Two earlier shapes both lost a
@@ -1257,7 +1338,11 @@ struct AddMedicationFlow: View {
                 case let .editor(draft):
                     MedicationEditorView(
                         draft: draft,
-                        onSaved: { medication in finish(.added(medication.displayName), from: draft) }
+                        onSaved: { medication in finish(.added(medication.displayName), from: draft) },
+                        onAddBottle: { request in
+                            bottleDraft = draft
+                            bottleRequest = request
+                        }
                     )
                 case .healthImport:
                     if #available(iOS 26.0, *) {
@@ -1270,10 +1355,27 @@ struct AddMedicationFlow: View {
                 }
             }
         }
+        // Presented from here rather than from the review, because the review
+        // leaves the path once the bottle is in: the sheet belongs to a screen
+        // that stays, and the flow moves on only once the sheet has closed.
+        .sheet(item: $bottleRequest, onDismiss: finishAddingBottle) { request in
+            AddBottleSheet(request: request) { medication in
+                bottleAddedTo = medication.displayName
+            }
+        }
     }
 
     private func finish(_ outcome: Navigation.Outcome, from draft: MedicationDraft) {
         if navigation.finish(outcome, from: draft) == .close { dismiss() }
+    }
+
+    private func finishAddingBottle() {
+        defer {
+            bottleDraft = nil
+            bottleAddedTo = nil
+        }
+        guard let bottleAddedTo, let bottleDraft else { return }
+        finish(.addedTo(bottleAddedTo), from: bottleDraft)
     }
 }
 
