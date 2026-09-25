@@ -543,6 +543,37 @@ final class NDCIdentificationTests: XCTestCase {
         XCTAssertEqual(tacrolimus.identification, .accepted(code: "71432-2002-01"))
     }
 
+    /// A dosing interval on the drug's line is how often, not how the product
+    /// releases. "Every 12 hours" is Prograf's schedule, and it must never
+    /// vouch for an Astagraf XL code misread off a Prograf bottle.
+    func testADosingIntervalDoesNotVouchForExtendedRelease() {
+        for lines in [
+            ["RIVERSIDE PHARMACY", "TACROLIMUS 1 MG CAPSULE EVERY 12 HOURS", "NDC 0469-0677-73"],
+            ["RIVERSIDE PHARMACY", "TAKE 1 TACROLIMUS 1 MG CAPSULE BY MOUTH EVERY 12 HOURS", "NDC 0469-0677-73"],
+            ["RIVERSIDE PHARMACY", "TACROLIMUS 1 MG CAPSULE 12 HR", "NDC 0469-0677-73"],
+            ["RIVERSIDE PHARMACY", "TACROLIMUS 1 MG CAPSULE EVERY 24 HOURS", "NDC 0469-0677-73"]
+        ] {
+            let draft = releasedDraft(lines)
+            XCTAssertEqual(draft.identification, .uncorroborated(code: "00469-0677-73", product: "Tacrolimus 1 mg (Astagraf XL)"), "\(lines)")
+            XCTAssertNotEqual(draft.nameProvenance, .ndc, "\(lines)")
+            XCTAssertEqual(draft.brandName, "", "\(lines)")
+            XCTAssertEqual(draft.rxNormCode, "", "\(lines)")
+        }
+    }
+
+    /// A narrow label wraps "TACROLIMUS XL 1 MG CAPSULE" onto two lines.
+    func testWrappedReleaseLettersRefuseAnImmediateReleaseCode() {
+        for lines in [
+            ["RIVERSIDE PHARMACY", "TACROLIMUS", "XL 1 MG CAPSULE", "NDC 0469-0617-73"],
+            ["RIVERSIDE PHARMACY", "TACROLIMUS 1 MG", "ER CAPSULE", "NDC 0469-0617-73"]
+        ] {
+            let draft = releasedDraft(lines)
+            XCTAssertEqual(draft.identification, .contradicted(code: "00469-0617-73", product: "Tacrolimus 1 mg (Prograf)"), "\(lines)")
+            XCTAssertNotEqual(draft.brandName, "Prograf", "\(lines)")
+            XCTAssertEqual(draft.rxNormCode, "", "\(lines)")
+        }
+    }
+
     /// A guess at a neighbouring code goes forward only when the label rules
     /// out every other product of the labeler; a release it prints rules out
     /// the other release.

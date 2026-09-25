@@ -96,7 +96,9 @@ enum ReleaseForm: String, Hashable, Sendable {
 
     /// The release evidence on the lines of `labelText` that carry one of
     /// `nameWords`. A phrase such as "Extended-Release Capsules" also counts
-    /// on the line after, where a manufacturer's label sets it under the name.
+    /// on the line after, where a manufacturer's label sets it under the name,
+    /// and so do extended-release letters that open the rest of the
+    /// description there.
     static func evidence(in labelText: String, namedBy nameWords: Set<String>) -> Evidence {
         let nameWords = nameWords.filter { $0.count >= 4 }
         var evidence = Evidence()
@@ -115,8 +117,13 @@ enum ReleaseForm: String, Hashable, Sendable {
                     evidence.stated.insert(release)
                     if word.count <= 3, evidence.letters[release] == nil { evidence.letters[release] = word.uppercased() }
                 }
-                if lower.contains(hourDuration) || lineWords.contains(where: { $0 == "24hr" || $0 == "12hr" }) {
+                if lower.replacing(dosingInterval, with: " ").contains(hourDuration) {
                     evidence.suggested.insert(.extended)
+                }
+            } else if previousNamedTheDrug, continuesTheDescription(lineWords, lower) {
+                for (release, word) in abbreviations(in: lower) where wrappedLetters.contains(word) {
+                    evidence.stated.insert(release)
+                    if evidence.letters[release] == nil { evidence.letters[release] = word.uppercased() }
                 }
             }
             previousNamedTheDrug = namesTheDrug
@@ -128,7 +135,14 @@ enum ReleaseForm: String, Hashable, Sendable {
     private static let extendedPhrase = /\b(?:extended|sustained|controlled)[\s-]*release/
     private static let delayedPhrase = /\b(?:delayed[\s-]*release|enteric[\s-]*coated)/
     private static let immediatePhrase = /\bimmediate[\s-]*release/
-    private static let hourDuration = /\b(?:12|24)[\s-]*(?:hr|hrs|hour|hours)\b/
+    /// "24 HR" or "24-Hour" as a product's name carries it. Twelve hours is
+    /// left out: "every 12 hours" is how immediate-release tacrolimus is
+    /// taken, and a label that says it must not vouch for the extended-release
+    /// product.
+    private static let hourDuration = /\b24[\s-]*(?:hr|hour)\b/
+    /// "Every 24 hours", "q 12 hr", "in 24 hours": how often, not how the
+    /// product releases.
+    private static let dosingInterval = /\b(?:every|each|per|in|within|for|q)\s*\d+[\s-]*(?:hr|hrs|hour|hours|h)\b/
     /// A prescriber, "DR. A. GREENE" or "DR JONES", rather than delayed release.
     private static let prescriber = /\bdr\b\.?\s*(?:[a-z]\.\s*)*[a-z]{2,}/
 
@@ -149,6 +163,23 @@ enum ReleaseForm: String, Hashable, Sendable {
         }
         return words(in: withoutPrescriber).compactMap { word in named(by: word).map { ($0, word) } }
     }
+
+    /// The extended-release letters that still count on the line after the
+    /// drug's, where a narrow label wraps "TACROLIMUS" / "XL 1 MG CAPSULE".
+    /// DR, EC and LA stay on the drug's own line: they are also a prescriber,
+    /// a manufacturer and a state, and those are what follow a drug's line.
+    private static let wrappedLetters: Set<String> = ["er", "xl", "xr", "sr", "cr", "cd", "xt"]
+
+    /// Whether a line reads as the rest of the drug's description: it names a
+    /// form or a strength, or carries nothing but release letters.
+    private static func continuesTheDescription(_ lineWords: [String], _ lower: String) -> Bool {
+        guard !lineWords.isEmpty else { return false }
+        return lineWords.allSatisfy(wrappedLetters.contains)
+            || !formWords.isDisjoint(with: lineWords)
+            || lower.contains(strength)
+    }
+
+    private static let strength = /\b\d+(?:\.\d+)?\s*(?:mg|mcg|g|ml)\b/
 
     /// What follows "DR" when it is the release: the form it describes.
     private static let formWords: Set<String> = [

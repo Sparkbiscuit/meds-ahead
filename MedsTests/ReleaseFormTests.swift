@@ -68,6 +68,44 @@ final class ReleaseFormTests: XCTestCase {
         XCTAssertEqual(ReleaseForm.evidence(in: "NEXIUM 24HR 20 MG", namedBy: ["nexium"]).suggested, [.extended])
     }
 
+    /// "Every 12 hours" is how immediate-release tacrolimus is taken. A
+    /// dosing interval, on the drug's line or not, says nothing about release,
+    /// and neither does a twelve-hour count.
+    func testADosingIntervalIsNotARelease() {
+        func suggested(_ text: String) -> Set<ReleaseForm> {
+            ReleaseForm.evidence(in: text, namedBy: tacrolimus).suggested
+        }
+        XCTAssertEqual(suggested("TACROLIMUS 1 MG CAPSULE EVERY 12 HOURS"), [])
+        XCTAssertEqual(suggested("TAKE 1 TACROLIMUS 1 MG CAPSULE BY MOUTH EVERY 12 HOURS"), [])
+        XCTAssertEqual(suggested("TACROLIMUS 1 MG CAPSULE 12 HR"), [])
+        XCTAssertEqual(suggested("TACROLIMUS 1 MG CAPSULE EVERY 24 HOURS"), [])
+        XCTAssertEqual(suggested("TACROLIMUS 1 MG CAPSULE ONCE IN 24 HR"), [])
+        XCTAssertEqual(suggested("TACROLIMUS 1 MG CAPSULE Q 24 HR"), [])
+        XCTAssertEqual(suggested("TACROLIMUS 1 MG CAPSULE Q24H"), [])
+        XCTAssertEqual(suggested("TACROLIMUS 24 HR 1 MG CAPSULE"), [.extended], "the product's own duration still counts")
+        XCTAssertEqual(suggested("TACROLIMUS 24-HOUR 1 MG CAPSULE"), [.extended])
+    }
+
+    /// A narrow label wraps the drug's line, and the release letters land on
+    /// the next one. They count there when that line is the rest of the
+    /// description; DR, EC and LA never do, because a prescriber, a
+    /// manufacturer and an address are what follow a drug's line.
+    func testReleaseLettersWrappedOntoTheNextLine() {
+        func stated(_ text: String) -> Set<ReleaseForm> {
+            ReleaseForm.evidence(in: text, namedBy: tacrolimus).stated
+        }
+        XCTAssertEqual(stated("TACROLIMUS\nXL 1 MG CAPSULE"), [.extended])
+        XCTAssertEqual(stated("TACROLIMUS 1 MG\nER CAPSULE"), [.extended])
+        XCTAssertEqual(stated("TACROLIMUS 1 MG CAPSULE\nXR"), [.extended])
+        XCTAssertEqual(ReleaseForm.evidence(in: "TACROLIMUS\nXL 1 MG CAPSULE", namedBy: tacrolimus).printedLetters(for: .extended), "XL")
+
+        XCTAssertEqual(stated("TACROLIMUS 1 MG CAPSULE\nSR PHARMACY SERVICES"), [], "not the rest of the description")
+        XCTAssertEqual(stated("TACROLIMUS 1 MG\nDR CAPSULE"), [])
+        XCTAssertEqual(stated("TACROLIMUS 1 MG CAPSULE\nDR. A. GREENE"), [])
+        XCTAssertEqual(stated("TACROLIMUS 1 MG CAPSULE\nSHREVEPORT, LA 71101"), [])
+        XCTAssertEqual(stated("RIVERSIDE PHARMACY\nXL 1 MG CAPSULE\nTACROLIMUS"), [], "only the line after the drug's")
+    }
+
     func testANameKeepsTheLabelsOwnLetters() {
         let evidence = ReleaseForm.evidence(in: "DILTIAZEM CD 120 MG CAPSULE", namedBy: ["diltiazem"])
         XCTAssertEqual(evidence.modified, .extended)
