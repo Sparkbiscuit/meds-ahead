@@ -632,7 +632,7 @@ final class MedsUITests: XCTestCase {
 
         scanAndAdd(expectedName: "Prednisone", labelLine: "PREDNISONE 5 MG", lastLabelLine: "TACROLIMUS 1 MG")
         XCTAssertTrue(tally.waitForExistence(timeout: 5))
-        XCTAssertEqual(tally.label, "2 added: Tacrolimus and Prednisone")
+        XCTAssertEqual(tally.label, "2 added: Prednisone and Tacrolimus")
         app.buttons["setup-done"].tap()
         XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
 

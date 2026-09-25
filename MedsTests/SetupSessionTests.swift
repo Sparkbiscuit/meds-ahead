@@ -14,11 +14,11 @@ final class SetupSessionTests: XCTestCase {
         XCTAssertEqual(tally.summary(locale: british), "1 added: Furosemide")
 
         tally.recordAdded("Tacrolimus")
-        XCTAssertEqual(tally.summary(locale: british), "2 added: Furosemide and Tacrolimus")
+        XCTAssertEqual(tally.summary(locale: british), "2 added: Tacrolimus and Furosemide", "the newest first")
 
         tally.recordAdded("Prednisone ")
-        XCTAssertEqual(tally.summary(locale: british), "3 added: Furosemide, Tacrolimus and Prednisone")
-        XCTAssertEqual(tally.summary(locale: Locale(identifier: "en_US")), "3 added: Furosemide, Tacrolimus, and Prednisone",
+        XCTAssertEqual(tally.summary(locale: british), "3 added: Prednisone, Tacrolimus and Furosemide")
+        XCTAssertEqual(tally.summary(locale: Locale(identifier: "en_US")), "3 added: Prednisone, Tacrolimus, and Furosemide",
                        "the locale's own list, serial comma and all")
     }
 
@@ -28,9 +28,29 @@ final class SetupSessionTests: XCTestCase {
         XCTAssertEqual(tally.summary(locale: british), "Added to Furosemide")
 
         tally.recordAdded("Tacrolimus")
+        XCTAssertEqual(tally.summary(locale: british), "1 added: Tacrolimus · Added to Furosemide")
         tally.recordAddedTo("Furosemide")
         tally.recordAddedTo("Amlodipine")
-        XCTAssertEqual(tally.summary(locale: british), "1 added: Tacrolimus · Added to Furosemide and Amlodipine")
+        XCTAssertEqual(tally.summary(locale: british), "Added to Amlodipine and Furosemide · 1 added: Tacrolimus",
+                       "whichever kind of bottle came last leads, and a medication is named once")
+    }
+
+    /// The bar has two lines. On a dozen-bottle day it is the oldest names
+    /// that run off its end, never the bottle just saved or where it went.
+    func testTheLatestBottleLeadsALongTally() {
+        var tally = SetupSessionTally()
+        for name in ["Tacrolimus", "Mycophenolate mofetil", "Prednisone", "Valganciclovir", "Pantoprazole", "Amlodipine"] {
+            tally.recordAdded(name)
+        }
+        let six = tally.summary(locale: british) ?? ""
+        XCTAssertTrue(six.hasPrefix("6 added: Amlodipine, Pantoprazole, Valganciclovir"), six)
+        XCTAssertTrue(six.hasSuffix("Mycophenolate mofetil and Tacrolimus"), six)
+
+        tally.recordAddedTo("Furosemide")
+        XCTAssertTrue(tally.summary(locale: british)?.hasPrefix("Added to Furosemide · 6 added: Amlodipine") == true)
+        tally.recordAdded("Sulfamethoxazole / Trimethoprim")
+        XCTAssertTrue(tally.summary(locale: british)?.hasPrefix("7 added: Sulfamethoxazole / Trimethoprim, Amlodipine") == true)
+        XCTAssertTrue(tally.summary(locale: british)?.hasSuffix(" · Added to Furosemide") == true)
     }
 
     private func scannedDraft(_ label: String) -> MedicationDraft {
@@ -59,7 +79,7 @@ final class SetupSessionTests: XCTestCase {
         navigation.path.append(.editor(second))
         XCTAssertEqual(navigation.finish(.addedTo("Furosemide"), from: second), .scanNext)
         XCTAssertEqual(navigation.path, [.scanner(2)])
-        XCTAssertEqual(navigation.tally.summary(locale: british), "1 added: Tacrolimus · Added to Furosemide")
+        XCTAssertEqual(navigation.tally.summary(locale: british), "Added to Furosemide · 1 added: Tacrolimus")
 
         // Back out to the menu and scan again: still a scanner never seen.
         navigation.path.removeAll()

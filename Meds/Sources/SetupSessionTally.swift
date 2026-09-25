@@ -26,17 +26,21 @@ struct SetupSessionTally: Hashable, Sendable {
         entries.append(.addedTo(name.trimmingCharacters(in: .whitespacesAndNewlines)))
     }
 
-    /// "3 added: Tacrolimus, Prednisone and Furosemide · Added to Amlodipine",
-    /// or nil before the first bottle. The list is the locale's own, so a
-    /// region that writes a serial comma gets one.
+    /// "3 added: Furosemide, Prednisone and Tacrolimus · Added to Amlodipine",
+    /// or nil before the first bottle. Newest first, and whichever kind of
+    /// bottle came last leads: the bar has room for two lines, and by the
+    /// sixth bottle what the caregiver is checking is the one just saved, so
+    /// the oldest names are the ones cut short. The list is the locale's own,
+    /// so a region that writes a serial comma gets one.
     func summary(locale: Locale = .autoupdatingCurrent) -> String? {
-        let added = entries.compactMap { entry -> String? in
+        let newestFirst = entries.reversed()
+        let added = newestFirst.compactMap { entry -> String? in
             if case let .added(name) = entry { name } else { nil }
         }
         // A medication named once however many bottles went into it: the line
         // says where bottles went, and a name repeated reads as two medications.
         var addedTo: [String] = []
-        for case let .addedTo(name) in entries where !addedTo.contains(name) {
+        for case let .addedTo(name) in newestFirst where !addedTo.contains(name) {
             addedTo.append(name)
         }
         var parts: [String] = []
@@ -44,7 +48,8 @@ struct SetupSessionTally: Hashable, Sendable {
             parts.append("\(added.count) added: \(added.formatted(.list(type: .and).locale(locale)))")
         }
         if !addedTo.isEmpty {
-            parts.append("Added to \(addedTo.formatted(.list(type: .and).locale(locale)))")
+            let part = "Added to \(addedTo.formatted(.list(type: .and).locale(locale)))"
+            if case .addedTo = entries.last { parts.insert(part, at: 0) } else { parts.append(part) }
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
