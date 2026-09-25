@@ -28,6 +28,11 @@ struct HealthMedicationSummary: Hashable, Sendable, Identifiable {
     /// Every RxNorm coding Health carries for the medication; the sync matches
     /// on any of them.
     var rxNormCodes: Set<String> = []
+    /// The release the products under `rxNormCode` share, when the bundled
+    /// tables know them. Looked up as the medication is read, because finding
+    /// a code's products reads the whole RxNorm table, and the review list
+    /// must not do that on the main actor each time it draws.
+    var codedRelease: ReleaseForm?
 }
 
 /// Turns a Health medication into a draft for the review screen.
@@ -50,7 +55,14 @@ enum HealthMedicationMapper {
         draft.strength = ScanParser.normalizedStrength(text) ?? ""
         let bracketedBrand = text.firstMatch(of: bracketedBrandPattern).map { String($0.1).trimmingCharacters(in: .whitespaces) }
         let cleaned = cleanedName(from: text)
-        let identity = resolvedIdentity(cleaned, bracketedBrand: bracketedBrand)
+        let nameWords = Set(cleaned.lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init))
+        var release = ReleaseForm.evidence(in: text, namedBy: nameWords)
+        // A name that states no release takes the one its code names: an entry
+        // reading "Tacrolimus 1 mg" and coded as Astagraf XL is not Prograf.
+        if release.stated.isEmpty, let coded = summary.codedRelease, coded.isModified {
+            release.stated = [coded]
+        }
+        let identity = resolvedIdentity(cleaned, bracketedBrand: bracketedBrand, release: release)
         draft.name = identity.name
         draft.brandName = identity.brand
         draft.form = form(for: summary.form) ?? ScanParser.inferForm(from: text)
@@ -64,9 +76,25 @@ enum HealthMedicationMapper {
         return draft
     }
 
+    /// The release of the products an RxNorm code names, when they all agree
+    /// and the bundled tables know them.
+    static func release(
+        ofRxNormCode code: String,
+        rxNormTable: RxNormTable = .shared,
+        directory: NDCDirectory = .shared
+    ) -> ReleaseForm? {
+        let releases = Set(rxNormTable.productKeys(for: code).compactMap { directory.product(forKey: $0)?.comparableRelease })
+        return releases.count == 1 ? releases.first : nil
+    }
+
+    /// RxNorm's names lead an extended-release product with its duration:
+    /// "24 HR tacrolimus 1 MG Extended Release Oral Capsule".
+    private static let leadingDurationPattern = /(?i)^\s*(?:12|24)\s*HR\b/
+
     /// The name with its strength, form and route wording set aside.
     static func cleanedName(from displayText: String) -> String {
-        var cleaned = displayText.replacing(bracketedBrandPattern, with: " ")
+        var cleaned = displayText.replacing(leadingDurationPattern, with: " ")
+        cleaned = cleaned.replacing(bracketedBrandPattern, with: " ")
         cleaned = cleaned.replacing(strengthPattern, with: " ")
         cleaned = cleaned.replacing(formAndRoutePattern, with: " ")
         cleaned = cleaned.replacingOccurrences(of: "  ", with: " ")
@@ -80,13 +108,39 @@ enum HealthMedicationMapper {
     /// sertraline beside it rather than stand alone as the generic. A name neither
     /// knows is kept exactly as the person typed it: it is their word for their
     /// medication, not a reading to gate.
-    static func resolvedIdentity(_ cleaned: String, bracketedBrand: String?) -> (name: String, brand: String) {
-        if let pair = MedicationBrandIndex.resolve(cleaned) {
+    ///
+    /// The release words are set aside with the form, so the one the text
+    /// states comes in separately: "Tacrolimus ER" in Health is not Prograf,
+    /// and keeps its ER when the table's brand is withheld for that reason.
+    static func resolvedIdentity(
+        _ cleaned: String,
+        bracketedBrand: String?,
+        release: ReleaseForm.Evidence = .init()
+    ) -> (name: String, brand: String) {
+        let identity = tableIdentity(cleaned, bracketedBrand: bracketedBrand, release: release)
+        // A release the entry states stays with it for any drug, not only one
+        // the table would lend another release's brand: without its letters
+        // "Nifedipine ER" reads as the immediate-release nifedipine on file.
+        guard let stated = release.modified,
+              MedicationBrandIndex.release(ofName: identity.name, brand: identity.brand) != stated else { return identity }
+        return (ReleaseForm.name(identity.name, keeping: release.printedLetters(for: stated)), identity.brand)
+    }
+
+    private static func tableIdentity(
+        _ cleaned: String,
+        bracketedBrand: String?,
+        release: ReleaseForm.Evidence
+    ) -> (name: String, brand: String) {
+        let letters = release.modified.map(release.printedLetters(for:))
+        if let pair = MedicationBrandIndex.resolve(letters.map { ReleaseForm.name(cleaned, keeping: $0) } ?? cleaned, release: release.modified) {
             return (MedicationBrandIndex.displayName(forGeneric: pair.generic), pair.brand)
+        }
+        if let letters, bracketedBrand == nil, let pair = MedicationBrandIndex.resolve(cleaned) {
+            return (ReleaseForm.name(MedicationBrandIndex.displayName(forGeneric: pair.generic), keeping: letters), "")
         }
         if let match = MedicationVocabulary.exactMatch(for: cleaned) {
             let generic = MedicationBrandIndex.displayName(forGeneric: match)
-            return (generic, bracketedBrand ?? MedicationBrandIndex.brandName(forGeneric: match) ?? "")
+            return (generic, bracketedBrand ?? MedicationBrandIndex.brandName(forGeneric: match, release: release.modified) ?? "")
         }
         if let bracketedBrand, let pair = MedicationBrandIndex.resolve(bracketedBrand) {
             return (MedicationBrandIndex.displayName(forGeneric: pair.generic), pair.brand)
@@ -131,8 +185,17 @@ enum HealthMedicationMapper {
         }
         let keys = Set([draft.name, draft.brandName].map(key).filter { $0.count >= 4 })
         guard !keys.isEmpty else { return nil }
+        // Astagraf XL and Prograf share the name tacrolimus, and are not one
+        // medication: a name only matches within one release, with a name that
+        // states none read as the table's reference product.
+        let release = MedicationBrandIndex.release(ofName: draft.name, brand: draft.brandName) ?? .immediate
         return active.first { medication in
-            !keys.isDisjoint(with: [key(medication.name), key(medication.brandName), key(medication.nickname)])
+            // Codes on both sides that name different clinical drugs are two
+            // medications, whatever their names say; the codes that agree were
+            // matched above.
+            guard draftCodes.isEmpty || medication.healthMatchingCodes.isEmpty else { return false }
+            return !keys.isDisjoint(with: [key(medication.name), key(medication.brandName), key(medication.nickname)])
+                && (MedicationBrandIndex.release(ofName: medication.name, brand: medication.brandName) ?? .immediate) == release
         }
     }
 
@@ -176,6 +239,7 @@ enum HealthMedicationImporter {
         for (index, medication) in medications.enumerated() {
             var summary = summary(index: index, medication)
             summary.recentTakenDoses = (try? await recentTakenDoses(for: medication.medication, in: store)) ?? []
+            summary.codedRelease = summary.rxNormCode.flatMap { HealthMedicationMapper.release(ofRxNormCode: $0) }
             summaries.append(summary)
         }
         return summaries
