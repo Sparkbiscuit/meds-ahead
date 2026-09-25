@@ -54,7 +54,7 @@ For version 1.1.1, build 7. A draft: read it against the build before pasting in
 ```
 Fixes to the counts, dates and warnings:
 
-- If a refill you marked as requested or ready runs two days late, or is due after your supply runs out, the low-supply warning comes back, and Meds Ahead asks whether the refill has arrived.
+- If a refill you marked as requested or ready runs two days late, is due after your supply runs out, or your supply is nearly gone, the low-supply warning comes back, and Meds Ahead asks whether the refill has arrived.
 - Refill and expiration alerts stay in Notification Center while they are still true, instead of disappearing the next time the app opens.
 - The run-out date no longer drifts later when doses go unlogged. Meds Ahead counts unlogged scheduled doses as taken, says so, and asks for a count when it can't tell what is left.
 - A scanned label's count is offered with a Use button instead of filled in, because it is what the bottle held when full.
@@ -84,16 +84,16 @@ Also new: the pharmacy, phone and Rx number read off the label with a Call butto
 
 Paste the block below into App Store Connect > App Review Information > Notes.
 It answers the eight questions Apple sends new-app submissions, opens with what
-1.1 changed, and says plainly that the Health integration is read-only, so a
+1.1.1 changed, and says plainly that the Health integration is read-only, so a
 reviewer never has to open a Guideline 2.1 or 5.1.3 request to learn either.
 
 App Store Connect caps this field at 4,000 characters, and caps the Resolution
-Center reply field at 4,000 separately. This block is 3945; re-count after any
-edit. Paragraphs are deliberately unwrapped so pasting does not produce ragged
+Center reply field at 4,000 separately. This block is 3,948 characters, 3,966 with each line break counted twice;
+re-count after any edit. Paragraphs are deliberately unwrapped so pasting does not produce ragged
 line breaks mid-sentence.
 
 Before pasting, make item 2 true: it describes the hands-on pass on the iPhone
-16 Pro that the 1.1 gates in the release checklist require (live scanning, the
+16 Pro that the 1.1 and 1.1.1 gates in the release checklist require (live scanning, the
 torch, the Health import and dose sync, the widgets, locked-device reminder
 actions, a sandbox tip), and it must not be submitted ahead of that pass.
 
@@ -102,9 +102,9 @@ screen-recording shot list; add the Health picker to the shot list if a
 recording is requested again.
 
 ```
-Answers to the questions App Review asks, updated for 1.1.
+Answers to the questions App Review asks, updated for 1.1.1.
 
-NEW IN 1.1: exact identification from a label's NDC or package barcode against a bundled, public-domain FDA National Drug Code Directory snapshot (name, brand, strength, form only), used only when the rest of the label agrees, always editable, with the code typeable off the bottle; a read-only Apple Health import on iOS 26 and later through Health's own per-medication picker, plus later Health doses for such a medication; Home and Lock Screen widgets (next dose with a Taken button; what runs out next); a pharmacy card with a Call button, refill-in-progress status, a trip check, a person per medication, expiration reminders, and a dose calendar. Nothing is written to Health.
+NEW IN 1.1.1: a maintenance update; no new permissions, data types, or frameworks. Supply warnings are more careful: a paused warning returns when a refill runs late, delivered alerts stay while still true, and unlogged scheduled doses count as taken, with the app asking for a count when unsure. A scanned label's quantity is offered, not filled in. NDC matching also checks the label's brand and release form (ER vs immediate release) and reads small print better on iOS 27. Unchanged from 1.1: NDC identification from a bundled FDA snapshot, a read-only Apple Health import (iOS 26+) through Health's per-medication picker, and widgets. Nothing is written to Health.
 
 1. DEMONSTRATION. A screen recording from a physical iPhone, from launch, is available on request: onboarding, both permission prompts, scanning, review, the Health picker, saving, logging a dose, the forecast, a widget, the tip purchase. No accounts, so no registration, login, or deletion; no content between users, so no reporting or blocking.
 
@@ -118,7 +118,7 @@ NEW IN 1.1: exact identification from a label's NDC or package barcode against a
 
 6. REGIONS. Identical in all regions. English (U.S.) only, nothing region-gated.
 
-7. REGULATED INDUSTRY. Not a regulated medical device; no authorization required. Four bundled files hold names and packaging facts only: about 12,900 medication names derived from RxNorm (NLM, public domain); about 270 hand-verified generic-to-brand pairs; an FDA NDC Directory snapshot (public domain): name, brand, strength, dosage form; and an RxNorm concept-code table (NLM, public domain) for those NDCs. None carries indications, dosing, warnings, or interactions; no licensed material is included.
+7. REGULATED INDUSTRY. Not a regulated medical device; no authorization required. Four bundled files hold names and packaging facts only: about 12,900 medication names derived from RxNorm (NLM, public domain); about 270 hand-verified generic-to-brand pairs; an FDA NDC Directory snapshot (public domain): name, brand, strength, dosage form, release form; and an RxNorm concept-code table (NLM, public domain) for those NDCs. None carries indications, dosing, warnings, or interactions; no licensed material is included.
 
 8. IN-APP PURCHASE. Three optional, non-recurring consumable tips that unlock nothing; every feature is free. Gear icon > Support Meds Ahead > Leave an Optional Tip: Small Tip $1.99, Medium Tip $4.99, Large Tip $9.99. The row is always visible, with an explicit unavailable state and a Try Again button.
 ```
