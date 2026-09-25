@@ -29,7 +29,7 @@ Current supply is derived from inventory events minus taken dose events. This pr
 
 A dose event carries `countsTowardSupply`. It is true for everything the app logs itself. History imported from Apple Health is stored with it false: those doses were taken before Meds Ahead was keeping the count the person just entered, so they feed the as-needed rate and appear in history but never charge the supply. It was added with an inline default and taken through the same lightweight migration `brandName` was.
 
-Medication identity keeps `brandName` as a stored field alongside the generic `name`. The empty default lets existing SwiftData records take the new field through a lightweight migration, and the reviewed value remains available to subtitles and exports without recomputation. `MedicationBrandIndex` uses a bundled curated table and exact, letters-only keys, with only a trailing salt or release-form suffix fallback. It resolves a generic or brand to its counterpart without a network lookup; fuzzy matching is deliberately excluded because a plausible but wrong brand on a clinician-facing list is worse than leaving the field blank.
+Medication identity keeps `brandName` as a stored field alongside the generic `name`. The empty default lets existing SwiftData records take the new field through a lightweight migration, and the reviewed value remains available to subtitles and exports without recomputation. `MedicationBrandIndex` uses a bundled curated table and exact, letters-only keys, with only a trailing salt or release-form suffix fallback. It resolves a generic or brand to its counterpart without a network lookup; fuzzy matching is deliberately excluded because a plausible but wrong brand on a clinician-facing list is worse than leaving the field blank. A release suffix set aside to find the generic brings back only a brand of that same release (1.1.1). The table's brand for tacrolimus is Prograf, the immediate-release product, and until then "Tacrolimus XL" was recorded as Prograf, "Metformin ER" as Glucophage and "Diltiazem CD" as Cardizem, though the extended-release products are dosed differently and are not interchangeable with them. Now those keep the release in the name and leave the brand blank; "Metoprolol succinate ER" still gets Toprol XL, because that salt is only ever extended-release (a short table lists such generics, checked against the FDA directory), and a reference brand followed by release letters, "Glucophage XR", is that release's own brand and kept as written.
 
 A logged dose is matched to the slot it belongs to by schedule identifier and scheduled time, and every surface asks `ScheduleEngine` that one question rather than answering it locally. Take Now on a medication claims the same dose Today is offering, so one dose cannot be logged from both places and charged to the supply twice. Doses that were never logged remain answerable for two days on Today, because the forecast can only assume what became of an unlogged dose (see "Unlogged doses and the run-out date"), and a logged one needs no assumption.
 
@@ -133,7 +133,11 @@ one found on the line that also carries the strength, which is where a drug name
 actually sits. A merely name-shaped line is dropped, because "Open 9 to 6" or a
 patient's own name in the medication field is worse than a blank one. `ScanParser`
 reports this as `MedicationNameProvenance` so the distinction is explicit rather
-than re-derived.
+than re-derived. On the strength's own line a trailing "DR" is the
+delayed-release form and is set aside before the address and person tests,
+which read it as "Drive" and used to leave every delayed-release label ("X DR
+240 MG CAPSULE") with a blank name (1.1.1); a street or a prescriber line with
+DR is still refused.
 
 A label's count is the other exception: it is offered, never filled. The number a
 label prints, a pharmacy's QTY or CONTENTS or a stock bottle's "120 TABLETS", is
@@ -168,7 +172,7 @@ resolution (`minimumTextHeight` of zero), and the rendered-label tests read a
 code printed at one percent of the frame height. `NDCDirectory` is a
 snapshot of the FDA National Drug Code Directory — public domain, refreshed daily
 by the FDA, trimmed by `Tools/build_ndc_directory.py` to generic name, brand name,
-strength and dosage form for human prescription and OTC listings — sorted by
+strength, dosage form and release for human prescription and OTC listings — sorted by
 nine-digit product key and binary-searched in place, so a hundred thousand
 products cost one buffer rather than a dictionary. No network is involved at any
 point. The FDA's delisted-products file was examined and contributes nothing:
@@ -179,16 +183,17 @@ snapshot falls back to the printed name like any other.
 The line is also the hardest to read. Vision works a whole frame at a bounded
 resolution, so on a twelve-megapixel capture a two-millimetre line of print
 reaches the recognizer a few pixels tall whatever `minimumTextHeight` says. The
-still pipeline therefore takes a second look when its first pass yields no code:
+still pipeline therefore takes a second look whether or not its first pass read
+a code, because a blurred line is misread more often than it is missed:
 every line that looks like it might be the code's — the caption, which small
 print turns into "N0C", or digits with hyphens — is cut out of the
 full-resolution image with room around it, scaled up to a height Vision reads
 comfortably, and read again with language correction off, because correction is
-built for words and a code is not a word; when nothing even looked like the code
-the frame is read in overlapping full-resolution tiles instead. Only code-bearing
-lines come back from the second look, and they take the place of the first
-pass's misreading of the same print. After the caption every digit confusable is
-repaired — O, D and Q for 0, I and l for 1, Z for 2, S for 5, G for 6, T for 7,
+built for words and a code is not a word; when nothing read so far names a
+listed product the frame is also searched in overlapping full-resolution tiles.
+Only code-bearing lines come back from the second look, and they take the place
+of the first pass's misreading of the same print. After the caption every digit
+confusable is repaired — O, D and Q for 0, I and l for 1, Z for 2, S for 5, G for 6, T for 7,
 B for 8 — and the hyphens of a small code, which come through as spaces at least
 as often as its digits come through as letters, are accepted as spaces when the
 segments fit a layout, after the caption only. A code broken across two
@@ -197,6 +202,65 @@ rather than one at a time. The Review capture is merged ahead of the live items
 rather than behind them, so the evidence cap cuts live extras and never the
 capture, and a better live reading of a captured line keeps that line's place
 in the capture's order so the adjacency wrapped text depends on survives.
+
+iOS 27 changed what the second look has to do (1.1.1). Vision offers the same
+text-recognition revision 3 on iOS 26 and 27, so there is no revision to pin,
+but the model under it reads small print differently: over some 140 crops,
+scales and filters of a shaken Tecfidera line, iOS 27 never put the right code
+first and listed it among its top ten guesses in about one look in seven, where
+iOS 26.5 read it first in about one in three. The still pipeline now runs four
+passes, in order:
+
+1. The first pass over the whole frame, with language correction on.
+2. The zoomed second look at each code-shaped line, with correction off.
+3. When nothing read so far names a listed product, tiles, which now only find
+   the code line: the zoom reads each line a tile finds. A tile hands Vision
+   small print at its own few pixels, and iOS 27 read a 12-point "-02" as
+   "-07" there where the zoom read it right, so the zoom's reading leads. The
+   zoom misreads a shaken line too, so the tile's reading goes forward beside
+   it whenever it carries a code the zoom did not read.
+4. A search of Vision's lower-ranked guesses, only when nothing read, in print
+   or in a barcode, is a listed code the label accepts, the label shows a
+   confirmed name and a strength, and a code-shaped line exists. It reads at
+   most two such lines at seven text heights, 40 to 150 pixels, because where a
+   shaken line reads right is close to chance, a matter of how its blurred
+   edges land on the pixel grid; it leaves language correction on, the only
+   mode that ranks guesses, and looks at the top ten of each. It costs a few
+   seconds in the simulator when it runs, off the main actor like the rest of
+   the still pipeline, and a code the label accepts, a barcode included, spares
+   it.
+
+Wherever two passes read different codes, both go forward and the
+identification gate asks the label. The evidence merge judges two lines to be
+one line read twice by their letters, and two readings of one code line differ
+only in their digits, so it used to keep whichever Vision scored higher and
+choose a product by OCR confidence; it now never merges two text readings that
+carry different codes, in the capture, in a photo merged into a scan, or in the
+live tracker's retained lines.
+
+A guess below the top reading is a guess among guesses, and the likeliest
+wrong one is a neighbour from the same labeler, which numbers its line in
+sequence: the same drug at another strength, or at the same strength in another
+release. On the shaken Tecfidera 240 mg line the 120 mg code turned up among
+the guesses more often than the right one, and Prograf and Astagraf XL are one
+digit apart at every strength. So a guess must clear a stricter bar than a top
+reading, `NDCIdentification.labelNamesExactly`, before it joins the evidence:
+the label's confirmed name and an equivalent printed strength are the
+product's; a form the label prints is the product's form; a brand it prints is
+the product's whole brand, release letters included, so WELLBUTRIN XL is not
+Wellbutrin SR and WELLBUTRIN alone names neither; nothing on the label
+contradicts the product, release included; and none of the labeler's other
+products fits the label as well. A label that says only "TACROLIMUS 1 MG
+CAPSULE" fits both Prograf and Astagraf XL and takes a guess at neither; one
+that prints PROGRAF can take only the Prograf code, and one that prints
+ASTAGRAF XL only the Astagraf XL code. An admitted guess enters the evidence as
+"NDC" and its code alone and displaces no line, so a quantity or a date beside
+the code keeps the passes' reading rather than the guess's, and it then faces
+the ordinary gate beside every other reading, where two surviving products
+still fill nothing. Rivals are looked for only under the guess's own labeler: a
+directory-wide rule would refuse every drug that has generics, the Tecfidera
+guess iOS 27 needs among them, so a guess misread onto another labeler that
+lists the same name, strength and form is caught only by a printed brand.
 
 `NDCIdentification` is the gate between a resolved code and the review screen.
 It runs after the ordinary label reading, not instead of it, because that reading
@@ -207,7 +271,8 @@ because one misread digit is a different product and the directory would state i
 with confidence. A code from either source is refused when the label plainly
 contradicts it: a confirmed name of another drug, a strength that disagrees, a salt
 that makes a different product (metoprolol succinate is not metoprolol tartrate),
-a vitamin number that differs, or a printed form that differs. Ten bare digits
+a vitamin number that differs, a printed form that differs, a release that
+differs, or a brand of another product of the drug (below). Ten bare digits
 that fit two listed products, or two codes naming two products, resolve to
 nothing. A refused or uncorroborated code is still kept as the product code, as
 read, so the person can see it; it just fills nothing. An accepted one fills name,
@@ -229,6 +294,91 @@ directory and the listing is shown — "Tacrolimus 1 mg (Prograf), capsule" — 
 a button that fills name, brand, strength and form from it. The corroboration
 rule holds: the code fills nothing on its own word, and the person's reading it
 off the bottle and choosing the product it names is the word that fills it.
+
+The directory is keyed by labeler and product, and the label vouches for the
+drug, strength and form, so nothing checks the two package digits. When printed
+readings of the accepted product disagree there ("-02" from the zoom, "-07"
+from a tile on iOS 27), the first one read used to be stored and printed on the
+shared list, a package no pharmacy dispensed. Such a code is now kept as the
+FDA's two-segment product NDC, "64406-0006" (1.1.1;
+`NDCIdentification.Match.recordedCode`): it names the drug exactly and claims
+no package it does not know. A barcode's check digit settles the package,
+readings that agree keep the full code, and the review screen's note says why
+the code is shorter than the bottle's, so nobody "corrects" it; typing the code
+from the bottle and choosing Use This Product still records the full one. A
+stored NDC can therefore be either form, and anything that parses one must
+accept both. RxNorm is looked up by product and does not care.
+
+Release is part of a product's identity (1.1.1). Prograf (0469-0617) and
+Astagraf XL (0469-0677) are both tacrolimus 1 mg capsules from labeler 0469,
+one digit apart, and small print swaps 1 and 7. Prograf is immediate-release
+and taken twice a day, Astagraf XL extended-release and taken once, and they
+are not interchangeable. Name, strength and form cannot tell them apart, so a
+misread code on a Prograf bottle, even one that printed PROGRAF, was accepted as
+Astagraf XL. Only release and brand tell them apart, so an immediate- against
+an extended-release disagreement is a contradiction like a salt's, and a
+brand is checked both ways.
+
+The directory's sixth column is the listing's release: "er", "dr", or empty
+when the listing claims neither. `Tools/build_ndc_directory.py` takes it from
+the FDA's dosage form ("CAPSULE, EXTENDED RELEASE"); where that is silent, from
+a release phrase in the proprietary name, its suffix or the nonproprietary name
+("potassium chloride extended-release", "Enteric coated"); and, for oral
+tablets and capsules only, from release letters after the first word of the
+brand or of the generic name (XL, XR, ER, SR, CR, LA, CD and XT for extended,
+DR and EC for delayed). The letters count only there because "Dr. Sheffield"
+and "La Roche-Posay" lead with them on creams and sunscreens; the generic name
+counts because a repackager lists extended-release metformin as a plain TABLET
+named "Metformin ER 500 mg".
+`NDCDirectory` reads the column into `NDCProduct.release` and still loads
+five-column rows. Release is compared only for tablets, capsules and oral
+liquids (`NDCProduct.comparableRelease`): a patch is extended-release by
+nature, and a label for a patch or an injection seldom says so.
+
+`ReleaseForm` reads the label's release only on the lines that name the drug,
+because read across the whole label a prescriber's "DR JONES" is delayed
+release and a Louisiana address is long-acting. Extended-release letters also count on the
+next line when it is the rest of the description, as a narrow label wraps
+"TACROLIMUS" / "XL 1 MG CAPSULE"; DR, EC and LA stay on the drug's own line,
+since a prescriber, a manufacturer and a state are what usually follow it. A
+dosing interval is never release evidence: "every 12 hours" is how Prograf is
+taken. A product's "24 HR" only suggests extended release, since Nexium 24HR
+is not, so it can back a code up and never refuses one. From there:
+
+- A label that states a release the product is not refuses the code, and a
+  reference brand it prints states the release for it: PROGRAF is
+  immediate-release, TOPROL XL extended. The one asymmetry is that a DR label
+  does not refuse a listing that claims no release, because the FDA files some
+  delayed-release products, Tecfidera among them, as plain capsules; extended
+  release is the one that changes how often a dose is taken.
+- A printed code for an extended- or delayed-release product fills nothing
+  until the label backs the release up: its letters or phrase, the product's
+  "24 HR", the product's own brand when that brand is more than the drug's
+  name and strength ("Aspirin 81 mg" is not), or a drug name the table knows
+  in only that release, as metoprolol succinate is only ever extended-release.
+  A barcode needs no backing, as it needs no corroboration, but a label that
+  contradicts it still refuses it.
+- The other brands a label can print are the table's reference brand and the
+  brands of the code's labeler's other products of the drug
+  (`NDCDirectory.products(withLabeler:genericName:)`), where a one-digit
+  misread lands first. One of those printed refuses a branded code whose own
+  brand is not on the label, PROGRAF with an Astagraf XL code or ASTAGRAF XL
+  with a Prograf one, and its release counts as the label's, so ASTAGRAF XL on
+  a line of its own refuses the labeler's generic immediate-release code too. A
+  variant of the product's own brand (Bactrim DS, Adderall XR) and a store's
+  brand that prints "compare to Advil" are left to the strength and release
+  checks.
+- The brand the table lends a label's name, Prograf for "TACROLIMUS", is held
+  back whenever a code read on the label names the drug in another release or
+  the label prints another brand of it (`NDCIdentification.doubts`), whatever
+  the code's verdict and in the language model's pass as well. Generic
+  extended-release tacrolimus is named "Tacrolimus ER" with no brand, and the
+  review screen's listing says the release when the brand does not. A brand
+  the label prints is never held back.
+
+Extended releases share one value, so a printed brand tells a labeler's
+branded variants apart but generic letters do not: "BUPROPION SR" against a
+bupropion XL code, or diltiazem CD against LA, is not refused on release.
 
 Strengths are compared as amounts, not strings, because the directory and the
 label write one fact several ways: `800-160 mg` against `800 mg/160 mg`,
@@ -261,6 +411,21 @@ where the person enters what is on hand and the schedule Meds Ahead should keep
 count of. Saving returns to the Health list rather than closing the flow, so a
 regimen of a dozen medications is a dozen reviews, not a dozen trips through Add,
 and a medication already on file is marked as such in the list.
+
+That mark, "Already in Meds Ahead", matches names only within one release
+(1.1.1), since Prograf and Astagraf XL share the name tacrolimus and an
+Astagraf XL entry used to read as the Prograf bottle already here. A release
+the entry states stays in its name for any drug, "Nifedipine ER", where it used
+to be set aside with the form words. An entry whose text states none takes the
+release the FDA directory gives every product the bundled RxNorm table lists
+under its code, so "Tacrolimus 1 mg" coded as Astagraf XL reads as "Tacrolimus ER" with no
+brand; finding a code's products reads the whole table, so the importer does it
+once, off the main actor, as the entry is read
+(`HealthMedicationSummary.codedRelease`). A name that states no release is
+read as the table's reference product. When both sides carry codes that name
+different clinical drugs, a matching name never joins them. RxNorm's names
+lead with a duration, "24 HR tacrolimus", which is not taken as part of the
+name.
 
 Dose logs come with the medication. The per-object grant that shares a
 medication is the grant for the doses logged against it — HealthKit refuses a
@@ -319,7 +484,10 @@ concept into `Medication.rxNormCode`, which is what lets the dose sync recognise
 a scanned bottle in Health, and both sides of that match are widened to the
 clinical drug so a generic bottle scanned here and the brand chosen in Health
 read as one medication. The Health import's duplicate check uses the same
-widening. The shared list prints the code beside the NDC, since a clinic's
+widening. It never joins two releases: RxNorm gives each its own clinical drug
+(Prograf 1 mg, 108513, widens to 198377; Astagraf XL 1 mg, 1431982, to
+1431980), which a test pins against the shipped files for both the duplicate
+check and the dose sync. The shared list prints the code beside the NDC, since a clinic's
 system speaks RxNorm where a pharmacy's speaks NDC.
 
 ## The pharmacy card, refills under way, trips, people, expirations, and days
