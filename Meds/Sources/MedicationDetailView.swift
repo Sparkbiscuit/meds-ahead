@@ -403,7 +403,10 @@ struct MedicationDetailView: View {
             Label("Details", systemImage: "list.bullet.rectangle")
                 .font(.headline)
             DetailLine(label: "Refills", value: medication.refillsRemaining.map(String.init) ?? "Not entered")
-            DetailLine(label: "Low-supply alert", value: "\(medication.refillLeadDays.dayCountText) before")
+            DetailLine(
+                label: "Low-supply alert",
+                value: SupplyAttention.leadTimeText(refillLeadDays: medication.refillLeadDays, refillsRemaining: medication.refillsRemaining)
+            )
             if let expirationDate = medication.expirationDate {
                 let calendar = Calendar.autoupdatingCurrent
                 let isExpired = calendar.startOfDay(for: expirationDate) < calendar.startOfDay(for: .now)
@@ -682,17 +685,25 @@ private struct RefillStatusSheet: View {
 }
 
 private struct DetailLine: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let label: String
     let value: String
     var isWarning = false
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline) {
+        // Side by side at the largest sizes, a long value such as the low-supply
+        // alert's reason squeezed into a column a word wide and broke words
+        // mid-word; stacked, as Today's refill rows are, it keeps the card's width.
+        let stacked = dynamicTypeSize.isAccessibilitySize
+        let layout = stacked
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+            : AnyLayout(HStackLayout(alignment: .firstTextBaseline))
+        layout {
             Text(label).foregroundStyle(.secondary)
-            Spacer(minLength: 18)
+            if !stacked { Spacer(minLength: 18) }
             Text(value)
                 .foregroundStyle(isWarning ? AnyShapeStyle(.orange) : AnyShapeStyle(.primary))
-                .multilineTextAlignment(.trailing)
+                .multilineTextAlignment(stacked ? .leading : .trailing)
                 .textSelection(.enabled)
         }
         .font(.subheadline)

@@ -14,6 +14,18 @@ enum NDCIdentification {
         let code: NationalDrugCode
         let product: NDCProduct
         let source: NDCReadingSource
+        /// False when printed readings of this product disagree on the package
+        /// digits. The directory and the label vouch for the product, never the
+        /// package, so a reading that differs only there has nothing to settle it.
+        var packageIsSettled = true
+
+        /// The code a medication keeps and the shared list prints. A package
+        /// read two ways is left off rather than guessed: the product NDC names
+        /// the drug exactly, and a wrong package code handed to a pharmacist
+        /// names a bottle that was never dispensed.
+        var recordedCode: String {
+            packageIsSettled ? code.hyphenated : code.productHyphenated
+        }
     }
 
     enum Verdict: Hashable, Sendable {
@@ -66,6 +78,7 @@ enum NDCIdentification {
     ) -> (match: Match, verdict: Verdict)? {
         guard !directory.isEmpty else { return nil }
         var byProduct: [String: Match] = [:]
+        var printedPackages: [String: Set<String>] = [:]
         var order: [String] = []
         for reading in readings(in: evidence) {
             let hits = reading.candidates.compactMap { code in
@@ -74,10 +87,16 @@ enum NDCIdentification {
             guard Set(hits.map(\.product.productKey)).count == 1, let hit = hits.first else { continue }
             let key = hit.product.productKey
             if byProduct[key] == nil { order.append(key) }
+            if hit.source == .printedText { printedPackages[key, default: []].insert(String(hit.code.digits.suffix(2))) }
             // A barcode reading of the same product outranks a printed one.
             if byProduct[key] == nil || (hit.source == .barcode && byProduct[key]?.source != .barcode) {
                 byProduct[key] = hit
             }
+        }
+        // A barcode's check digit covers the package; printed digits are settled
+        // only when every reading of the product agrees on them.
+        for (key, match) in byProduct where match.source == .printedText && (printedPackages[key]?.count ?? 0) > 1 {
+            byProduct[key]?.packageIsSettled = false
         }
         let judged = order.compactMap { key in byProduct[key].map { ($0, verdict(for: $0, against: draft, labelText: labelText)) } }
         guard !judged.isEmpty else { return nil }
@@ -155,6 +174,69 @@ enum NDCIdentification {
         return corroborated ? .accepted : .uncorroborated
     }
 
+    /// The stricter bar for a code that was not the recognizer's first guess:
+    /// the label names this product, and no other product of its labeler.
+    ///
+    /// A guess one digit off is most often a neighbouring code of the same
+    /// labeler, which numbers its line in sequence: the same drug at another
+    /// strength, or at the same strength in another release. Prograf and
+    /// Astagraf XL, immediate- and extended-release tacrolimus, sit one digit
+    /// apart at every strength, and the directory records no release, so a
+    /// label reading "tacrolimus 1 mg capsule" names both and must choose
+    /// neither. So the label's confirmed name and printed strength must be the
+    /// product's, a form or brand it prints must be the product's, nothing on
+    /// it may contradict the product, and none of the labeler's other products
+    /// may fit it as well. A label that prints "Prograf" sets Astagraf XL apart;
+    /// one that prints a brand the product does not carry refuses the guess.
+    static func labelNamesExactly(
+        _ match: Match,
+        draft: MedicationDraft,
+        labelText: String,
+        directory: NDCDirectory = .shared
+    ) -> Bool {
+        let product = match.product
+        guard draft.nameProvenance == .vocabulary || draft.nameProvenance == .strengthAnchored,
+              !draft.name.isEmpty,
+              StrengthComparison.compare(label: draft.strength, product: product.strength) == .equivalent,
+              verdict(for: match, against: draft, labelText: labelText) == .accepted else {
+            return false
+        }
+        let siblings = directory.products(withLabeler: String(product.productKey.prefix(5)))
+            .filter { $0.productKey != product.productKey && namesAgree(labelText: draft.name + " " + draft.brandName, product: $0) }
+        let labelWords = Set(words(labelText))
+        let knownBrands = [product.brandName, MedicationBrandIndex.brandName(forGeneric: product.genericName) ?? ""]
+            + siblings.map(\.brandName)
+        let printedBrands = Set(knownBrands.compactMap(brandKey).filter { $0.isSubset(of: labelWords) })
+
+        func labelFits(_ candidate: NDCProduct) -> Bool {
+            guard namesAgree(labelText: draft.name + " " + draft.brandName, product: candidate),
+                  StrengthComparison.compare(label: draft.strength, product: candidate.strength) != .different else {
+                return false
+            }
+            if let printedForm = explicitForm(in: labelText), printedForm != candidate.form { return false }
+            // The brand's name printed without the rest of it names another
+            // release of the brand: "WELLBUTRIN XL" is not Wellbutrin SR.
+            if let brand = brandKey(candidate.brandName), !brand.isSubset(of: labelWords),
+               brand.contains(where: { $0.count >= 4 && labelWords.contains($0) }) {
+                return false
+            }
+            if !printedBrands.isEmpty {
+                guard let brand = brandKey(candidate.brandName), printedBrands.contains(brand) else { return false }
+            }
+            return true
+        }
+        return labelFits(product) && !siblings.contains(where: labelFits)
+    }
+
+    /// The words that pick a brand out on a label, release letters included:
+    /// "Wellbutrin SR" and "Wellbutrin XL" are different medicines, so a label
+    /// printing "WELLBUTRIN" alone prints neither. Nil when a listing carries
+    /// no brand, or none worth matching.
+    private static func brandKey(_ brand: String) -> Set<String>? {
+        let key = Set(words(brand).filter { $0.count >= 2 && !uninformativeTokens.contains($0) })
+        return key.isEmpty ? nil : key
+    }
+
     /// Fills the identity fields from the directory when the label agrees. When it
     /// does not, the draft is returned as the parser left it, printed code and all.
     /// An accepted code also carries the RxNorm concept the bundled table gives
@@ -175,7 +257,7 @@ enum NDCIdentification {
         result.strength = displayStrength(for: product, labelStrength: draft.strength)
         result.form = product.form
         result.nameProvenance = .ndc
-        result.productIdentifier = match.code.hyphenated
+        result.productIdentifier = match.recordedCode
         result.productIdentifierType = "NDC"
         result.rxNormCode = rxNormTable.product(for: match.code)?.rxcui ?? ""
         return result

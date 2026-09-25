@@ -1,4 +1,5 @@
 import StoreKit
+import SwiftData
 import SwiftUI
 import UIKit
 import UserNotifications

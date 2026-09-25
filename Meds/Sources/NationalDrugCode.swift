@@ -34,6 +34,12 @@ struct NationalDrugCode: Hashable, Sendable {
         "\(digits.prefix(5))-\(digits.dropFirst(5).prefix(4))-\(digits.suffix(2))"
     }
 
+    /// `00093-1039`: labeler and product without the package, the FDA's own
+    /// "product NDC", for when the package digits were not read reliably.
+    var productHyphenated: String {
+        "\(digits.prefix(5))-\(digits.dropFirst(5).prefix(4))"
+    }
+
     private static func padded(_ segment: Substring, to width: Int) -> String {
         String(repeating: "0", count: width - segment.count) + segment
     }

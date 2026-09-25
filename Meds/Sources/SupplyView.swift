@@ -232,6 +232,17 @@ private struct SupplyRow: View {
     }
 }
 
+extension TripCheck {
+    /// How a "Can't say" row is marked. A count needed is something to do
+    /// before leaving and wears the attention mark every other screen gives
+    /// it; only a medication with no forecast at all is a plain unknown.
+    static func uncertainMark(for forecast: SupplyForecast) -> (symbol: String, tint: Color) {
+        forecast.needsCount
+            ? ("exclamationmark.circle.fill", .orange)
+            : ("questionmark.circle", .secondary)
+    }
+}
+
 /// Pick the day you are back; see what runs out before then.
 private struct TripCheckSheet: View {
     let forecasts: [(medication: Medication, forecast: SupplyForecast)]
@@ -263,7 +274,8 @@ private struct TripCheckSheet: View {
                 if !result.uncertain.isEmpty {
                     Section {
                         ForEach(result.uncertain, id: \.medicationID) { item in
-                            row(item, detail: SupplyAttention.countNeededReason(for: item.forecast).map { "Count needed · \($0)" } ?? item.forecast.explanation, symbol: "questionmark.circle", tint: .secondary)
+                            let mark = TripCheck.uncertainMark(for: item.forecast)
+                            row(item, detail: SupplyAttention.countNeededReason(for: item.forecast).map { "Count needed · \($0)" } ?? item.forecast.explanation, symbol: mark.symbol, tint: mark.tint)
                         }
                     } header: {
                         Text("Can't say")

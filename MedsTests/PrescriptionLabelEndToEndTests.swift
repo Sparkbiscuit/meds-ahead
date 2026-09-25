@@ -60,6 +60,29 @@ final class PrescriptionLabelEndToEndTests: XCTestCase {
         XCTAssertEqual(ScanParser.tidiedNameResidue("Solifenacin"), "Solifenacin")
     }
 
+    /// "DR" on the product line is the delayed-release form. The address test
+    /// read it as "Drive", and the name of every delayed-release label came out
+    /// blank, a transplant patient's mycophenolic acid among them.
+    func testADelayedReleaseProductLineKeepsItsName() {
+        let draft = MedicationLabelInterpreter.offlineDraft(evidence([
+            "RIVERSIDE PHARMACY", "RX# 5521093", "PEMBERTON, ELLIS",
+            "MYCOPHENOLIC ACID DR 360 MG TABLET",
+            "TAKE 2 TABLETS BY MOUTH TWICE DAILY",
+            "QTY: 120"
+        ]))
+
+        XCTAssertEqual(draft.name, "Mycophenolic acid")
+        XCTAssertEqual(draft.nameProvenance, .vocabulary)
+        XCTAssertEqual(draft.strength, "360 mg")
+
+        // Only the strength's own line is read that way: a street or a
+        // prescriber beside the strength is still not a name.
+        for line in ["450 OAK DR", "DR. A. GREENE"] {
+            let beside = MedicationLabelInterpreter.offlineDraft(evidence([line, "360 MG TABLET", "QTY: 120"]))
+            XCTAssertEqual(beside.name, "", line)
+        }
+    }
+
     func testSertralineLabelJunkCandidateCannotBecomeRisedronate() {
         let draft = MedicationLabelInterpreter.offlineDraft(evidence([
             "WALGREENS PHARMACY", "1200 MAIN ST", "SPRINGFIELD MA 01103",

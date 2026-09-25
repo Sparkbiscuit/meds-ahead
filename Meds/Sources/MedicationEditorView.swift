@@ -323,7 +323,7 @@ struct MedicationEditorView: View {
                 Text(isAsNeeded ? "As-needed forecasts require at least three recent logged doses." : "This schedule drives reminders and the supply forecast. Confirm it against the current label or clinician instructions. Half doses are fine — enter 2.5 for two and a half tablets.")
             }
 
-            Section("Reminders") {
+            Section {
                 Toggle("Dose reminders", isOn: $remindersEnabled)
                     .disabled(isAsNeeded)
                 Toggle("Refill reminders", isOn: $refillRemindersEnabled)
@@ -331,6 +331,15 @@ struct MedicationEditorView: View {
                     .disabled((!remindersEnabled || isAsNeeded) && !refillRemindersEnabled)
                 Stepper("Low supply: \(refillLeadDays.dayCountText) before", value: $refillLeadDays, in: 1...30)
                     .disabled(!refillRemindersEnabled)
+            } header: {
+                Text("Reminders")
+            } footer: {
+                if let note = SupplyAttention.lengthenedLeadNote(
+                    refillLeadDays: refillLeadDays,
+                    refillsRemaining: Int(refillsText.trimmingCharacters(in: .whitespacesAndNewlines))
+                ) {
+                    Text(note)
+                }
             }
 
             Section {
@@ -527,11 +536,15 @@ struct MedicationEditorView: View {
     @ViewBuilder
     private var identificationNote: some View {
         if nameProvenance == .ndc {
+            // A code kept without its package segment looks misread next to the
+            // bottle's; saying why stops someone from "correcting" it.
+            let packageWithheld = productIdentifierType == "NDC" && productIdentifier.split(separator: "-").count == 2
             summaryNote(
                 title: "Identified by its NDC",
                 symbol: "checkmark.seal.fill",
                 tint: AppTheme.accent,
                 message: "The name, strength and form come from the FDA directory entry for the code on this label. Check that they match the bottle."
+                    + (packageWithheld ? " The code’s last digits were read more than one way, so only the product part is kept." : "")
             )
         } else {
             switch draftIdentification {
