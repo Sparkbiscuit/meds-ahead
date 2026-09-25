@@ -26,7 +26,6 @@ struct ScannerScreen: View {
     @State private var scannerFrame: CGRect = .zero
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private static let scanAreaSpace = "scanArea"
 
@@ -349,20 +348,21 @@ struct ScannerScreen: View {
 
     /// Down here with the buttons rather than over the camera: anything drawn
     /// across the frame sits between the label and the person lining it up.
+    /// Its text stops growing at the first accessibility size, because every
+    /// line it gains is taken from the camera's frame; VoiceOver reads it
+    /// whole, and a long press shows it large.
     @ViewBuilder
     private var sessionTally: some View {
         if let summary = tally.summary() {
-            let layout = dynamicTypeSize.isAccessibilitySize
-                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10))
-                : AnyLayout(HStackLayout(spacing: 12))
-            layout {
+            HStack(spacing: 12) {
                 Label(summary, systemImage: "checkmark.circle.fill")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white)
-                    .lineLimit(3)
+                    .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(summary)
+                    .accessibilityShowsLargeContentViewer()
                     .accessibilityIdentifier("setup-tally")
                 if let onDone {
                     Button("Done", action: onDone)
@@ -374,6 +374,7 @@ struct ScannerScreen: View {
                         .accessibilityIdentifier("setup-done")
                 }
             }
+            .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         }
     }
 
