@@ -768,4 +768,45 @@ final class MedsUITests: XCTestCase {
         XCTAssertTrue(banner.waitForExistence(timeout: 5), "a generic Prograf bottle was not offered to the Prograf tracked")
         XCTAssertEqual(banner.label, "Already in Meds Ahead: Tacrolimus 1 mg (Prograf)")
     }
+
+    /// With no refills left the low-supply alert comes earlier, and the detail
+    /// screen says why. At the largest text size that sentence sat in a column
+    /// beside its label and broke mid-word; it now sits under the label with
+    /// the card's width.
+    func testTheLowSupplyAlertsReasonHasRoomAtTheLargestText() {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-ui-testing",
+            "-skip-onboarding",
+            "-seed-demo-data",
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryAccessibilityXXXL"
+        ]
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["Supply"].tap()
+        let row = app.staticTexts["Furosemide"]
+        XCTAssertTrue(row.waitForExistence(timeout: 3))
+        row.tap()
+        XCTAssertTrue(app.buttons["Medication actions"].waitForExistence(timeout: 3))
+        app.buttons["Medication actions"].tap()
+        XCTAssertTrue(app.buttons["Edit Medication"].waitForExistence(timeout: 3))
+        app.buttons["Edit Medication"].tap()
+
+        let refills = app.textFields["Refills remaining (optional)"]
+        for _ in 0..<12 where !(refills.exists && refills.isHittable) { app.swipeUp() }
+        XCTAssertTrue(refills.isHittable, "the refills field cannot be reached")
+        refills.tap()
+        refills.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 3) + "0")
+        app.navigationBars["Edit Medication"].buttons["Save"].tap()
+
+        let label = app.staticTexts["Low-supply alert"]
+        let value = app.staticTexts["10 days before, because no refills are left"]
+        XCTAssertTrue(label.waitForExistence(timeout: 5))
+        for _ in 0..<8 where !(value.exists && value.isHittable) { app.swipeUp() }
+        XCTAssertTrue(value.isHittable, "the lead time does not give its reason")
+        XCTAssertGreaterThanOrEqual(value.frame.minY, label.frame.maxY - 1, "the reason sits beside its label, not under it")
+        XCTAssertGreaterThan(value.frame.width, app.windows.firstMatch.frame.width * 0.6, "the reason is squeezed into a narrow column")
+    }
 }

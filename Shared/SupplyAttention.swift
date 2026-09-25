@@ -115,6 +115,24 @@ struct SupplyAttention: Equatable, Sendable {
         refillsRemaining == 0 ? max(refillLeadDays, prescriberLeadDays) : refillLeadDays
     }
 
+    /// The lead time as the warning uses it: "7 days before", or the longer
+    /// lead no refills left imposes, with the reason. Showing only the chosen
+    /// seven days beside a warning that came on the tenth read as a fault.
+    static func leadTimeText(refillLeadDays: Int, refillsRemaining: Int?) -> String {
+        let lead = leadDays(refillLeadDays: refillLeadDays, refillsRemaining: refillsRemaining)
+        return lead == refillLeadDays
+            ? "\(lead.dayCountText) before"
+            : "\(lead.dayCountText) before, because no refills are left"
+    }
+
+    /// Under the lead-time stepper, which shows the person's own choice: why
+    /// the warning will come earlier than that, or nil when it will not.
+    static func lengthenedLeadNote(refillLeadDays: Int, refillsRemaining: Int?) -> String? {
+        let lead = leadDays(refillLeadDays: refillLeadDays, refillsRemaining: refillsRemaining)
+        guard lead != refillLeadDays else { return nil }
+        return "No refills are left, so the warning comes \(lead.dayCountText) before, to allow time for a new prescription."
+    }
+
     /// Whole calendar days from the day of one moment to the day of another;
     /// negative when the second is earlier.
     static func days(from start: Date, to end: Date, calendar: Calendar) -> Int {

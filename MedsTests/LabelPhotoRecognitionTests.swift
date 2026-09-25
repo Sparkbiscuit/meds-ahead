@@ -142,8 +142,10 @@ final class LabelPhotoRecognitionTests: XCTestCase {
 
     /// A code line the camera shook over: the first pass reads a well-formed
     /// code with the wrong digits, which names nothing (or another product),
-    /// and that must not count as "the code was read". The second look, on
-    /// the full-resolution line with language correction off, reads it right.
+    /// and that must not count as "the code was read". On iOS 26 the second
+    /// look, on the full-resolution line with language correction off, reads
+    /// it right; on iOS 27 every top reading is wrong and the code comes from
+    /// a lower-ranked guess the label names exactly. The report says which.
     func testAMotionBlurredCodeLineIsReadOnTheSecondLook() async throws {
         let sharp = renderedLabel(canvas: CGSize(width: 3024, height: 4032), pixelScale: 1, lines: [
             Line("SPRINGFIELD PHARMACY #2214", size: 112, bold: true),
@@ -157,6 +159,7 @@ final class LabelPhotoRecognitionTests: XCTestCase {
         let result = try await StillImageRecognizer.recognizeWithReport(image: image, origin: .cameraCapture)
         let draft = MedicationLabelInterpreter.offlineDraft(result.evidence)
         print("Motion-blurred code line: \(result.report)")
+        add(XCTAttachment(string: result.report))
 
         XCTAssertEqual(draft.nameProvenance, .ndc, "\(result.report); evidence: \(draft.evidence.map(\.value))")
         XCTAssertEqual(draft.productIdentifier, "64406-0006-02")
@@ -166,9 +169,11 @@ final class LabelPhotoRecognitionTests: XCTestCase {
         XCTAssertGreaterThan(codes.count, 1, "the first pass's misreading goes forward too; the gate chose between them: \(codes)")
     }
 
-    /// Soft focus on faint print: the first pass does not see the line at all,
-    /// and the full-resolution tiles find it.
-    func testASoftFocusedFaintCodeLineIsFoundByTheTiledPass() async throws {
+    /// Soft focus on faint print. On iOS 26 the first pass does not see the line
+    /// at all and the full-resolution tiles find it; iOS 27's first pass reads
+    /// it outright. Which pass read it is the runtime's business and the report
+    /// records it; the product coming out exact is the test.
+    func testASoftFocusedFaintCodeLineResolvesWhicheverPassReadsIt() async throws {
         let soft = renderedLabel(canvas: CGSize(width: 3024, height: 4032), pixelScale: 1, lines: [
             Line("SPRINGFIELD PHARMACY #2214", size: 112, bold: true),
             Line("RX# 4402917", size: 100, bold: true),
@@ -181,10 +186,12 @@ final class LabelPhotoRecognitionTests: XCTestCase {
         let result = try await StillImageRecognizer.recognizeWithReport(image: image, origin: .cameraCapture)
         let draft = MedicationLabelInterpreter.offlineDraft(result.evidence)
         print("Soft-focused code line: \(result.report)")
+        add(XCTAttachment(string: result.report))
 
-        XCTAssertTrue(result.report.contains("tiling found"), result.report)
         XCTAssertEqual(draft.nameProvenance, .ndc, "\(result.report); evidence: \(draft.evidence.map(\.value))")
         XCTAssertEqual(draft.productIdentifier, "64406-0006-02")
+        XCTAssertEqual(draft.brandName, "Tecfidera")
+        XCTAssertEqual(draft.strength, "240 mg")
     }
 
     private func blurred(_ image: UIImage, motionRadius: Double = 0, gaussianRadius: Double = 0) -> UIImage? {
@@ -239,7 +246,11 @@ final class LabelPhotoRecognitionTests: XCTestCase {
     }
 
     /// The tiled fallback on its own: the same small line somewhere in a
-    /// camera-sized frame, found by reading the frame in full-resolution tiles.
+    /// camera-sized frame, found by reading the frame in full-resolution tiles
+    /// and read again by the zoomed look, whose reading leads. Where the tile
+    /// read the line another way (iOS 27 reads its last digit as "-07"), that
+    /// reading goes forward too, for the gate to weigh; it names no other
+    /// product here.
     func testTheTiledFallbackFindsTheSmallestPrintAnywhereInTheFrame() throws {
         let canvas = CGSize(width: 2400, height: 3200)
         let font = UIFont.systemFont(ofSize: 12)
@@ -248,11 +259,120 @@ final class LabelPhotoRecognitionTests: XCTestCase {
         let cgImage = try XCTUnwrap(image.cgImage)
 
         let readings = StillImageRecognizer.tiledCodeReadings(in: cgImage)
+        add(XCTAttachment(string: readings.map(\.text).joined(separator: "\n")))
 
         let reading = try XCTUnwrap(readings.first, "the tiled pass read nothing")
         XCTAssertEqual(NationalDrugCode.readings(inLabelText: reading.text).first?.candidates.map(\.hyphenated), ["64406-0006-02"], reading.text)
         XCTAssertEqual(reading.box.midY, 1 - (origin.y + 7) / canvas.height, accuracy: 0.01)
         XCTAssertGreaterThan(reading.box.midX, 0.6, "printed in the right-hand half")
+        let products = readings.flatMap { NationalDrugCode.readings(inLabelText: $0.text) }.flatMap(\.candidates).map(\.productKey)
+        XCTAssertEqual(Set(products), ["644060006"], "\(readings.map(\.text))")
+    }
+
+    /// Vision's lower-ranked guesses on their own, on a crisp line so the
+    /// guesses are predictable: one goes forward only when the label names
+    /// that very product, by its name and its strength both.
+    func testALowerRankedGuessNeedsTheLabelsNameAndStrength() throws {
+        let guess = try guesses(atCodeLine: "MFR: BIOGEN   NDC 64406-006-02")
+        func codes(vouchedForBy label: [String]) -> [String] { guess(label) }
+
+        let named = codes(vouchedForBy: ["DIMETHYL FUMARATE 240 MG DR CAPSULE", "QTY: 60"])
+        XCTAssertTrue(named.contains("64406-0006-02"), "\(named)")
+        XCTAssertTrue(named.allSatisfy { $0.hasPrefix("64406-0006-") }, "only the product the label names: \(named)")
+
+        XCTAssertFalse(codes(vouchedForBy: ["DIMETHYL FUMARATE 120 MG DR CAPSULE"]).contains { $0.hasPrefix("64406-0006-") },
+                       "the label's strength is the 120 mg sibling's")
+        XCTAssertEqual(codes(vouchedForBy: ["DIMETHYL FUMARATE", "QTY: 60"]), [], "a name alone cannot tell the strengths apart")
+        XCTAssertEqual(codes(vouchedForBy: ["TACROLIMUS 1 MG CAPSULE"]), [], "another drug")
+    }
+
+    /// On the bundled directory Prograf and Astagraf XL, immediate- and
+    /// extended-release tacrolimus, sit one digit apart at every strength. A
+    /// label that does not say which gets no guess at either, however clearly
+    /// the line reads; one that prints the brand gets that product's code.
+    func testAGuessAtTacrolimusNeedsTheLabelToSayWhichRelease() throws {
+        let guess = try guesses(atCodeLine: "MFR: ASTELLAS   NDC 0469-0677-73")
+        func codes(vouchedForBy label: [String]) -> [String] { guess(label) }
+
+        XCTAssertEqual(codes(vouchedForBy: ["TACROLIMUS 1 MG CAPSULE", "QTY: 60"]), [], "Prograf 1 mg fits the label as well")
+        XCTAssertEqual(codes(vouchedForBy: ["PROGRAF 1 MG CAPSULE", "QTY: 60"]), [], "the label prints another brand")
+        let astagraf = codes(vouchedForBy: ["ASTAGRAF XL 1 MG CAPSULE", "QTY: 30"])
+        XCTAssertTrue(astagraf.contains("00469-0677-73"), "\(astagraf)")
+        XCTAssertTrue(astagraf.allSatisfy { $0.hasPrefix("00469-0677-") }, "only the product the label names: \(astagraf)")
+    }
+
+    /// A guess brings forward the code the label vouched for and nothing else.
+    /// The rest of a lower-ranked reading is the recognizer's second thoughts
+    /// about print the first pass already read, and a quantity among it must
+    /// not reach the draft.
+    func testAGuessBringsOnlyItsCode() throws {
+        let guess = try guessedLines(atCodeLine: "NDC 64406-006-02   QTY: 90   REFILLS: 3")
+        let lines = guess(["DIMETHYL FUMARATE 240 MG DR CAPSULE", "QTY: 60"])
+
+        XCTAssertTrue(lines.contains { $0.text == "NDC 64406-006-02" }, "\(lines.map(\.text))")
+        for line in lines {
+            XCTAssertEqual(NationalDrugCode.readings(inLabelText: line.text).count, 1, line.text)
+            XCTAssertFalse(line.text.localizedCaseInsensitiveContains("QTY"), line.text)
+            XCTAssertFalse(line.text.localizedCaseInsensitiveContains("REFILL"), line.text)
+        }
+    }
+
+    /// A label whose code is missing from the snapshot runs the search of
+    /// guesses, and the search must come back empty-handed: a guess that
+    /// resolves to a listed product is, for this label, a misreading. The
+    /// name still comes from the label's own print.
+    func testACodeMissingFromTheDirectoryFillsNothingFromAGuess() async throws {
+        let image = renderedLabel(canvas: CGSize(width: 3024, height: 4032), pixelScale: 1, lines: [
+            Line("SPRINGFIELD PHARMACY #2214", size: 112, bold: true),
+            Line("RX# 4402917", size: 100, bold: true),
+            Line("DIMETHYL FUMARATE 240 MG DR CAPSULE", size: 120, bold: true),
+            Line("MFR: BIOGEN   NDC 99999-006-02", size: 40),
+            Line("TAKE 1 CAPSULE BY MOUTH TWICE DAILY", size: 106),
+            Line("QTY: 60", size: 112, bold: true)
+        ])
+        let result = try await StillImageRecognizer.recognizeWithReport(image: image, origin: .cameraCapture)
+        let draft = MedicationLabelInterpreter.offlineDraft(result.evidence)
+        add(XCTAttachment(string: result.report))
+
+        XCTAssertTrue(result.report.contains("the label vouched for 0 alternate readings"), result.report)
+        XCTAssertNotEqual(draft.nameProvenance, .ndc)
+        XCTAssertEqual(draft.identification, .unlisted(code: "99999-006-02"))
+        XCTAssertEqual(draft.productIdentifier, "99999-006-02")
+        XCTAssertEqual(draft.name, "Dimethyl fumarate")
+        XCTAssertEqual(draft.strength, "240 mg")
+    }
+
+    /// Vision's lower-ranked guesses at a crisp code line, rendered alone in a
+    /// camera-sized frame, as the codes that go forward for a given label.
+    private func guesses(atCodeLine text: String) throws -> ([String]) -> [String] {
+        let guess = try guessedLines(atCodeLine: text)
+        return { label in
+            guess(label)
+                .flatMap { NationalDrugCode.readings(inLabelText: $0.text) }
+                .flatMap(\.candidates)
+                .map(\.hyphenated)
+        }
+    }
+
+    private func guessedLines(atCodeLine text: String) throws -> ([String]) -> [StillImageRecognizer.CodeLine] {
+        let canvas = CGSize(width: 2400, height: 3200)
+        let font = UIFont.systemFont(ofSize: 24)
+        let origin = CGPoint(x: 300, y: 2100)
+        let cgImage = try XCTUnwrap(renderedText(text, font: font, at: origin, canvas: canvas).cgImage)
+        let textSize = NSString(string: text).size(withAttributes: [.font: font])
+        let box = CGRect(
+            x: origin.x / canvas.width,
+            y: 1 - (origin.y + textSize.height) / canvas.height,
+            width: textSize.width / canvas.width,
+            height: textSize.height / canvas.height
+        )
+        return { label in
+            let capture = UUID()
+            let evidence = label.enumerated().map { index, value in
+                ScanEvidence(kind: .text, value: value, origin: .cameraCapture, captureID: capture, lineIndex: index)
+            }
+            return StillImageRecognizer.alternateCodeReadings(around: [box], in: cgImage, label: evidence)
+        }
     }
 
     /// The same frame with the code split around its hyphen onto a second line,

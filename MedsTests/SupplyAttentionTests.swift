@@ -138,6 +138,20 @@ final class SupplyAttentionTests: XCTestCase {
         XCTAssertTrue(outcome.retainedPrefixes.contains("meds.\(medication.id.uuidString).refill."), "and the alert it gave is still true")
     }
 
+    /// The detail screen and the editor used to show the chosen seven days
+    /// while the warning came on the tenth, which read as the app misbehaving.
+    func testTheLeadTimeSaysWhenNoRefillsLengthenIt() {
+        XCTAssertEqual(SupplyAttention.leadTimeText(refillLeadDays: 7, refillsRemaining: 0), "10 days before, because no refills are left")
+        XCTAssertEqual(SupplyAttention.lengthenedLeadNote(refillLeadDays: 7, refillsRemaining: 0),
+                       "No refills are left, so the warning comes 10 days before, to allow time for a new prescription.")
+
+        for (lead, refills) in [(7, 2), (7, nil), (14, 0), (10, 0)] as [(Int, Int?)] {
+            XCTAssertEqual(SupplyAttention.leadTimeText(refillLeadDays: lead, refillsRemaining: refills), "\(lead) days before")
+            XCTAssertNil(SupplyAttention.lengthenedLeadNote(refillLeadDays: lead, refillsRemaining: refills), "the chosen lead is the one used")
+        }
+        XCTAssertEqual(SupplyAttention.leadTimeText(refillLeadDays: 1, refillsRemaining: 1), "1 day before")
+    }
+
     func testARequestedRefillPastItsDateSaysSo() {
         let medication = Medication(name: "Furosemide", refillStatus: .requested, refillStatusDate: day(20))
         XCTAssertEqual(RefillStatusText.line(for: medication, now: day(23), calendar: calendar), "Refill requested · was expected Aug 20")

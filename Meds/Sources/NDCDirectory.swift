@@ -115,6 +115,28 @@ struct NDCDirectory: Sendable {
         return nil
     }
 
+    /// Every product listed under one five-digit labeler code, in key order. A
+    /// labeler numbers its line in sequence, so these are the codes a misread
+    /// product segment lands on.
+    func products(withLabeler labeler: String) -> [NDCProduct] {
+        guard labeler.count == 5, let numeric = UInt32(labeler) else { return [] }
+        let first = numeric * 10_000
+        var low = 0
+        var high = keys.count
+        while low < high {
+            let middle = (low + high) / 2
+            if keys[middle] < first { low = middle + 1 } else { high = middle }
+        }
+        var products: [NDCProduct] = []
+        var index = low
+        while index < keys.count, keys[index] < first + 10_000 {
+            let key = String(format: "%09u", keys[index])
+            if let product = parseRow(at: offsets[index], key: key) { products.append(product) }
+            index += 1
+        }
+        return products
+    }
+
     private func parseRow(at offset: Int, key: String) -> NDCProduct? {
         var lineEnd = offset
         while lineEnd < bytes.count, bytes[lineEnd] != 0x0A { lineEnd += 1 }
