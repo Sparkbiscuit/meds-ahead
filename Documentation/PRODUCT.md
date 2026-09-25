@@ -46,12 +46,20 @@ Meds Ahead V1 is an iPhone-only, offline-first application with:
 - Ongoing Apple Health dose sync for medications with an exact identity: doses logged in Health arrive on launch and on returning to the foreground, count toward supply, never double a dose logged here, and follow an undo in Health; still read-only (1.1)
 - A bundled RxNorm slice that links a scanned bottle's NDC to its RxNorm concept and clinical drug, printed on the shared list (1.1)
 - The pharmacy card: pharmacy, phone and Rx number read off the label, a Call button, and the pharmacy named in a detailed low-supply reminder (1.1)
-- A refill marked requested or ready for pickup, which pauses the low-supply reminder and tells Today what to pick up (1.1)
+- A refill marked requested or ready for pickup, which tells Today what to pick up and quiets the low-supply warning only while it can still answer for the supply (1.1; bounded in 1.1.1)
 - Trip check in Supply: pick the day you are back and see what runs out first (1.1)
 - A person per medication, grouping Today, Supply and the shared list when a household names more than one (1.1)
 - A package-expiration reminder a week ahead, under the refill-reminders toggle (1.1)
 - A month calendar of taken, skipped and unlogged days on every medication, and a thirty-day count on the shared list (1.1)
 - Home and Lock Screen widgets: the next dose with a Taken button when one medication is due, and which medication runs out next (1.1)
+- A run-out date that assumes unlogged scheduled doses were taken, so it holds still when logging stops, and asks for a count ("Count needed") when those doses would use up what is on record (1.1.1)
+- One supply-attention rule for Supply, Today, the detail screen, the runs-out widget and refill reminders: a refill in progress quiets the warning only until the second day after its date, never with two days or less left, never when it is due on or after the run-out day, and a refill check asks on the morning it stops (1.1.1)
+- Delivered refill and expiration alerts that stay in Notification Center while they are still true (1.1.1)
+- A scanned label's count offered as "Label says N when full" with a Use N button, never filled in as the current amount (1.1.1)
+- No dose offered, charged or asked about from before a schedule was saved (1.1.1)
+- Add Refill and Correct Count that record the number as typed, and refuse a number written with a thousands separator rather than guess at it (1.1.1)
+- A dose the widget or a reminder already logged is never logged again from Today or Take Now, which say so instead (1.1.1)
+- Plurals written out for every form: "30 patches", "150 mL", "1 day" (1.1.1)
 
 ## Safety boundary
 
@@ -65,7 +73,7 @@ Meds Ahead organizes information entered or confirmed by the user. It does not:
 
 ## Forecast semantics
 
-For scheduled medications, the forecast subtracts confirmed future scheduled doses from current on-hand supply. For as-needed medications, it uses recent logged consumption only when enough history exists and labels the result as an estimate. Missing or contradictory data produces an unknown forecast rather than false precision.
+For scheduled medications, the run-out date starts from the on-hand ledger balance and subtracts every scheduled dose since the anchor that went unlogged and is more than 30 minutes past; those doses are assumed taken (1.1.1). The anchor is the last count (the starting count or a correction), or a refill onto a supply the ledger showed as empty, whichever came later; a refill onto remaining stock does not move it. The forecast then subtracts the doses still to come. A logged dose, taken or skipped, is never assumed or charged twice, and a dose logged outside any slot stands for the nearest unlogged dose within two hours that day. When anything is assumed, the forecast is labelled an estimate, says how many doses it assumed and whether since the last count or the last refill, and calls the ledger's number "on record" rather than "on hand". When the assumed doses would use up everything on record, the app asks for a count ("Count needed") rather than saying the supply is gone. A count is always recorded, even one that matches the number on record ("Count confirmed"), and it ends every assumption before it; while doses are assumed the count sheet opens empty, so a single tap cannot record a count nobody made. Restoring an archived medication, or changing a schedule's amount or days while doses are assumed, asks for a count. The forecast never writes to the ledger. For as-needed medications, it uses recent logged consumption only when enough history exists and labels the result as an estimate. Missing or contradictory data produces an unknown forecast rather than false precision.
 
 ## Deferred beyond V1
 

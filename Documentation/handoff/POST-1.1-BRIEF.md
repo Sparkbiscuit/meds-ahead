@@ -1,5 +1,28 @@
 # Post-1.1 brief
 
+> Status, September 24–25, 2026: 1.1.1 is version 1.1.1, build 7, still on
+> the local branch `fix/1.1.1-supply-accuracy` (unpushed), and covers all of
+> section 1. 1a, 1c–1g, 1i and 1j are fixed with tests (September 21). 1b:
+> Add Refill and Correct Count now read the number from the text as typed, a
+> defensive fix, since the simulator never reproduced the bug; the phone
+> repro still says whether it ever failed. 1h: the write half is guarded
+> (Today and Take Now ask the store first, and a stale tap writes nothing and
+> says "Already Logged"); whether Today shows the widget's log is still the
+> device check. Sections 4 and 6 are done, except that
+> `LogNextDoseIntent.perform` still has no test of its own (its new slot
+> check is tested through `ScheduleEngine.hasSlot`). Beyond this brief, a
+> supply-accuracy review on September 24 added one attention rule with a
+> bounded refill pause and a refill check, delivered alerts kept while still
+> true, a run-out date that assumes unlogged doses were taken and asks for a
+> count when it cannot tell, the first-day rule, scanned label counts offered
+> rather than filled, and written-out plurals; see `VERIFICATION.md` and
+> `ARCHITECTURE.md`. Left: the device script under "1.1.1 gates" in
+> `RELEASE_CHECKLIST.md` (it also closes section 2's open 1.1 gates), the
+> accessibility declaration (section 2), the archive and submission, a
+> decision on three OCR tests that read blurred NDC print differently on the
+> iOS 27 simulator (nothing wrong is filled; see `VERIFICATION.md`), and
+> sections 3, 5 and 7.
+>
 > Status, September 21, 2026: 1a, 1c, 1d, 1e, 1f, 1g, 1i and 1j are fixed
 > with tests on the local branch `fix/1.1.1-supply-accuracy` (unpushed); see
 > `VERIFICATION.md`. 1b's UI test passes in the simulator, so it still needs

@@ -1,5 +1,202 @@
 # Verification record
 
+## September 24–25, 2026 — 1.1.1: the count, the date and the warning
+
+1.1.1 is version 1.1.1, build 7, on the local branch
+`fix/1.1.1-supply-accuracy`; nothing is pushed or submitted. It carries the
+September 21 fixes below and, from the evening of September 24, a pass over
+the three things a supply manager promises: what is on hand, when it runs out,
+and a warning in time. In 1.1 each could go wrong quietly. A refill marked
+requested silenced every low-supply warning for good, even at zero. A
+delivered warning was swept out of Notification Center by the next launch or
+the next Lock Screen Taken. Each day nobody logged pushed the run-out date a
+day later, so the refill alert keyed to it could move forever. A scanned
+label's full-bottle count went in as the amount on hand. A medication added in
+the afternoon showed that morning's dose as overdue and let Mark All charge
+it. A dose the widget had logged might be logged again from a Today that had
+not caught up. The designs are in `ARCHITECTURE.md` under "Supply attention",
+"Unlogged doses and the run-out date", the first-day paragraph, the widgets
+and "Words and numbers kept exact"; `PRODUCT.md` has the forecast semantics.
+
+### What changed
+
+- **One attention rule** (`ecabd37`, `5ceecd6`, `eed620e`). `SupplyAttention`
+  decides for Supply, Today, the detail card, the runs-out widget and the
+  planner. A refill in progress pauses the warning only while fewer than two
+  days have passed since its date, more than two days are left, something is
+  on hand, and it is due before the run-out day; a refill check asks "Is the
+  refill in hand?" at 9:00 on the morning the pause ends. A changed refill
+  status starts from today, because the old status's date started a pause
+  that had already ended.
+- **Delivered alerts stay while true** (`c769df1`, `27ef244`). Refill alerts
+  are kept by medication while the supply needs attention, refill checks while
+  the refill is in progress, expiration alerts while the same date is on file.
+- **Unlogged doses are assumed taken** (`b5f79e1`, `9d130dc`, `f6750cc`,
+  `9b1c0b9`), from the last count or a refill onto an empty ledger, with no
+  look-back limit and every dose counted once. When the assumptions use up
+  the ledger the forecast reads "Count needed" (`53273ed`), and every surface
+  that shows or acts on a forecast says so rather than "Out of supply". The
+  number beside an assumed forecast reads "on record" (`588ad49`). A count is
+  always recorded, and the count sheet opens empty while doses are assumed
+  (`9672665`, `cb294de`); a restore, and a schedule edit that rewrites the
+  amounts behind assumed doses (`e1829a6`), ask for one.
+- **The first-day rule** (`72a3758`, `ff31f36`): no slot before a schedule's
+  save time less the thirty-minute due window, which is now one constant.
+- **Logging** (`f2da6ed`, `f125b99`, `58e2a1c`, `3b7caae`, `d1804d9`,
+  `8f1b677`). The supply sheets read the number as typed and refuse a grouped
+  one; the editor's Current amount opens ungrouped. Today, Mark All and Take
+  Now ask the store before writing a scheduled dose and say "Already Logged"
+  when a tap writes nothing; the widget's Taken refuses a slot the engine no
+  longer offers.
+- **Scanned counts** (`54e7313`, `5fdd72c`, `7c6019e`, `3ab5904`): Current
+  amount starts blank on a scanned label, with "Label says N when full" and a
+  Use N button.
+- **Words** (`dedfb5e`, `47a5315`, `a9c052a`, `4a9bbf9`): the stored dose notes
+  pinned by a test; plurals written out in `Shared/QuantityText.swift`; Today's
+  refill rows stacked at the accessibility sizes, where "Count needed" broke
+  mid-word; a Supply row says "Count needed" to VoiceOver once, not three
+  times.
+- **Housekeeping** (`18af21b`, `760eb66`, `aef511f`, `c448870`, `a564dd6`). The
+  unit-test host no longer starts a Health sync at launch, which made
+  `testAFailedQueryLeavesTheLedgerUntouched` fail now and then; Health's slot
+  tolerance comes from the engine; two tests that passed without checking
+  their claims now check them; the version is 1.1.1 (7) for the app and the
+  widget; and the editor's accessibility audit lowers the keyboard first
+  (iOS 27, below).
+
+No `@Model` changed: `Shared/Models.swift` is as 1.1 shipped it, so there is no
+migration to verify. The ledger stays append-only: the forecast writes
+nothing, and a confirmed count is a new zero correction, not an edit.
+
+### How it was built and reviewed
+
+- **Four lanes.** Attention, engine, logging and scan guard were built in
+  separate worktrees from `43d9668`, each against its own simulator clone and
+  each with tests for its own behaviour, then merged (`b07b57e`, `da432e6`,
+  `889e88b`, `ba433c3`). Interfaces one lane needed from another were written
+  down rather than guessed: the engine lane's `needsCount` had no consumer when
+  it merged, its notes said the widget would call it "Out of supply", and the
+  attention lane's said Supply would read "Act soon · around" today;
+  `53273ed` is that consumer.
+- **Adversarial review, per lane and again on the merge.** A separate
+  reviewer tried to break each lane, and the merged branch was reviewed again
+  by area: alerts, the engine, supply, the UI and the tests themselves.
+  Findings were reproduced with probes (throwaway tests, a benchmark,
+  screenshots) before they were fixed, and every one that stood was fixed,
+  with a test wherever a test can see it; the layout fix was checked on
+  screenshots. Among them: retention by exact identifier still lost a
+  delivered warning when a skip moved the run-out day; a refill due after
+  the run-out day still quieted the warning; the Use button stayed "Use
+  473.18" after writing 473.18; a stale Take Now wrote nothing while a second
+  dose was due; one tap on a prefilled count cleared every assumed dose; a
+  taper over ten unlogged days moved the run-out date from 4 days to 19 when 9
+  was right; and Today's refill rows broke words at the largest text size.
+- **Refutation.** Findings that did not stand were written down with the
+  reason rather than dropped. The engine review proposed moving a schedule's
+  start date when a time is edited on its first day; its own scenario edits on
+  the second day, where the change does nothing, and elsewhere it would hide a
+  real unlogged dose, so the case is recorded as the first-day rule's one
+  trade-off instead. Probes that modelled the engine without the new count
+  event, or expected 1.1's day-late alert, "fail" by design.
+- **Mutation checks.** With the old exact-identifier retention and the
+  three-condition pause put back, 12 of the attention lane's new assertions
+  failed; the scanned-count tests failed against the old code; the restore
+  UI test failed with the restore prompt removed; and `aef511f` rewrote two
+  tests that passed without checking what they claimed.
+
+### Verified only in the simulator
+
+- Everything in the results below. The attention rule, the refill check and
+  retention were checked through `NotificationPlanner` and
+  `NotificationService.deliveredIdentifiersToRemove` as values; no alert was
+  delivered to a real Notification Center and none was acted on from a Lock
+  Screen.
+- `DoseLogGuard` was proved with two SwiftData containers on one store file in
+  one process, not with the widget extension writing from its own.
+- The widget's slot check is tested through `ScheduleEngine.hasSlot`;
+  `LogNextDoseIntent.perform` still has no test of its own.
+- On the demo store, a refill request dated three days back showed "Act soon"
+  above the "was expected" line on Supply and "A refill needs checking" on
+  Today. Today's refill card was checked on screenshots at the largest
+  accessibility size and at the default; the scanned label's count row at
+  the largest size by UI test.
+- 1b never reproduced in the simulator, before or after the sheets were made
+  text-backed; the change is defensive.
+
+### Still open, for a phone
+
+The numbered device script under "1.1.1 gates" in `RELEASE_CHECKLIST.md`,
+about 75 minutes: 1b (a typed number with the keyboard up, then Add Refill
+and Save Count); 1h (Today open, a widget Taken, back to Today, and whether
+the dose is offered again); Taken and Skip from a locked phone; a delivered
+refill alert surviving a Lock Screen Taken; the store's move on the update
+from 1.0, with history intact; real retail and hospital-pharmacy vials and a
+box barcode, with the "Use N" note; the Health import and dose sync on a fresh
+install; a medication added after 08:30 offering no 08:00 dose; a refill dated
+three days back on Supply, Today and the widget; "Count needed" after days of
+not logging; and a VoiceOver pass on the changed screens.
+
+### iOS 27
+
+The iOS 27.0 simulator (24A434, iPhone 17 Pro) ran the same suites with Xcode
+27.0 (27A266a); iOS 26.5 passes everything.
+
+- **`testMedicationEditorAccessibilityAudit` failed every run** with
+  "Potentially inaccessible text", naming no element. The keyboard was still
+  up when the audit ran, on both runtimes, since tapping the title after the
+  last field never lowered it; dragged away first, the audit passes on iOS 27
+  with nothing reported. The audit was reading the keyboard, not the editor.
+  Fixed in the test (`a564dd6`), which now lowers the keyboard, checks that it
+  is gone, and audits with the same four checks; it passes on both runtimes.
+- **Three rendered-label OCR tests fail, the same way on every run.** They
+  came with the NDC second look on September 21 and had only run on iOS 26.5;
+  the lanes changed only a report string in that code, so the difference is
+  the runtime's text recognition. Nothing wrong is filled in any of them:
+  - `testAMotionBlurredCodeLineIsReadOnTheSecondLook`: iOS 27 reads the
+    shaken line as `54405-005-02` and `54405-005-22` in every pass, the first,
+    the zoomed and the tiled, and never as `64406-006-02`. Neither code is
+    listed, so the outcome is "unlisted", the code is kept as the product
+    code and fills nothing. The name field is blank too, but that is the
+    parser's answer to the same text on any runtime; on iOS 26.5 the code
+    resolves and the name comes from it. Four assertions.
+  - `testASoftFocusedFaintCodeLineIsFoundByTheTiledPass`: iOS 27's first pass
+    already reads the faint line and resolves Tecfidera 240 mg, so the tiled
+    pass the test is about never runs. The identification assertions pass;
+    only the test's premise, that the first pass misses the line, fails.
+  - `testTheTiledFallbackFindsTheSmallestPrintAnywhereInTheFrame`: the tiled
+    pass on its own reads 12-point `64406-006-02` as `64406-006-07`. The
+    directory is keyed by product, so the pipeline would still identify
+    Tecfidera 240 mg capsules with the label's corroboration, but would store
+    the package digits as read, `64406-0006-07`.
+
+  Not changed. Whether an iPhone on iOS 27 reads these frames the same way
+  is untested, and tuning the second look for another recognizer is a scanner
+  change to make with a device in hand, not in a release whose subject is the
+  count. The tests stay as written, so the difference stays visible.
+- **Two compiler warnings** in the Release build, on lines older than 1.1.1:
+  `GenerationOptions(sampling:temperature:maximumResponseTokens:)` is
+  deprecated (`MedicationLabelInterpreter.swift:148`, August 24), and
+  `SettingsView.swift:17` holds a `ModelContext` in a file that does not import
+  SwiftData (September 12). Not changed here.
+
+### Results
+
+All on the code at `a564dd6`, iPhone 17 Pro simulators, Xcode 27.0, the
+test command in `AGENTS.md`:
+
+- **iOS 26.5:** unit tests 416/416 (336 at the start of September 24, after
+  the test read below; the lanes and the review added 80), UI tests 14/14
+  (10 before; 4 added).
+- **iOS 27.0:** unit tests 413/416. The three failures are the OCR tests
+  above: `testAMotionBlurredCodeLineIsReadOnTheSecondLook`
+  (`LabelPhotoRecognitionTests.swift:161`, `:162`, `:163`, `:165`),
+  `testASoftFocusedFaintCodeLineIsFoundByTheTiledPass` (`:185`) and
+  `testTheTiledFallbackFindsTheSmallestPrintAnywhereInTheFrame` (`:253`), six
+  assertions in all, identical on three runs. UI tests 14/14; 13/14 at
+  `c448870`, before the audit test lowered the keyboard.
+- **Release builds:** the iOS Simulator and a generic iOS device (unsigned)
+  both succeed, and the built app and widget extension both carry 1.1.1 (7).
+
 ## September 24, 2026 — every unit test read, and the ones that add nothing removed
 
 Each of the 373 unit tests was read against one question: would the suite

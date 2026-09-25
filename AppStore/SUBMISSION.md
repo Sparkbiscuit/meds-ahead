@@ -47,6 +47,24 @@ Meds Ahead is an organization tool. It does not provide medical advice, recommen
 
 medication,medicine,refill,pill,reminder,schedule,tracker,inventory,dose,health,caregiver,ndc
 
+## 1.1.1 What's New (draft for Nick)
+
+For version 1.1.1, build 7. A draft: read it against the build before pasting into App Store Connect > Version > What's New in This Version. It describes what the app does, not what it does for anyone's health. The description, keywords and review notes below stand for 1.1.1.
+
+```
+Fixes to the counts, dates and warnings:
+
+- If a refill you marked as requested or ready runs two days late, or is due after your supply runs out, the low-supply warning comes back, and Meds Ahead asks whether the refill has arrived.
+- Refill and expiration alerts stay in Notification Center while they are still true, instead of disappearing the next time the app opens.
+- The run-out date no longer drifts later when doses go unlogged. Meds Ahead counts unlogged scheduled doses as taken, says so, and asks for a count when it can't tell what is left.
+- A scanned label's count is offered with a Use button instead of filled in, because it is what the bottle held when full.
+- A medication added in the afternoon no longer shows that morning's dose as overdue.
+- Add Refill and Correct Count record the number you typed.
+- A dose already logged from the widget or a reminder is not logged again.
+- Doses logged in Apple Health before you added a medication no longer count against its supply, and a logged dose stays logged after you change its time or travel.
+- Clearer text on colored buttons in dark mode, missed days marked on the calendar, and correct plurals: 30 patches, 150 mL, 1 day.
+```
+
 ## What's New in 1.1
 
 Paste into App Store Connect > Version > What's New in This Version. Everything built under the 1.1.1 name ships in 1.1.

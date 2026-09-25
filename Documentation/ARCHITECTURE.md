@@ -31,11 +31,25 @@ A dose event carries `countsTowardSupply`. It is true for everything the app log
 
 Medication identity keeps `brandName` as a stored field alongside the generic `name`. The empty default lets existing SwiftData records take the new field through a lightweight migration, and the reviewed value remains available to subtitles and exports without recomputation. `MedicationBrandIndex` uses a bundled curated table and exact, letters-only keys, with only a trailing salt or release-form suffix fallback. It resolves a generic or brand to its counterpart without a network lookup; fuzzy matching is deliberately excluded because a plausible but wrong brand on a clinician-facing list is worse than leaving the field blank.
 
-A logged dose is matched to the slot it belongs to by schedule identifier and scheduled time, and every surface asks `ScheduleEngine` that one question rather than answering it locally. Take Now on a medication claims the same dose Today is offering, so one dose cannot be logged from both places and charged to the supply twice. Doses that were never logged remain answerable for two days on Today, because an unlogged dose reads as an unspent one and quietly stretches the forecast.
+A logged dose is matched to the slot it belongs to by schedule identifier and scheduled time, and every surface asks `ScheduleEngine` that one question rather than answering it locally. Take Now on a medication claims the same dose Today is offering, so one dose cannot be logged from both places and charged to the supply twice. Doses that were never logged remain answerable for two days on Today, because the forecast can only assume what became of an unlogged dose (see "Unlogged doses and the run-out date"), and a logged one needs no assumption.
+
+A schedule has no slot earlier than the moment it was saved, less the due window. `ScheduleEngine.dueWindow`, thirty minutes either side of a dose's time, is the one constant behind Today's due and overdue states, the widget's change times, this first-day rule and the forecast's line between assumed and upcoming doses. In 1.1 a medication added at 15:00 showed that morning's 08:00 dose as overdue, Mark All charged it to the count just entered, and the next morning's missed-dose card asked whether it had been missed. New schedules are stamped with their save time and `ScheduleEngine.scheduledDate` declines any start-day slot before it, so Today, the widget, Mark All, Take Now, the reminders, the missed-dose card, the adherence calendar and the forecast agree that the dose never existed. A slot still inside its due window when the schedule is saved (08:00 saved at 08:10) is still offered; a first dose given later than that has no slot and is logged with Take Now. An edited time keeps its schedule's start date, because `ScheduleReconciler` reuses the record, so the days after the start day keep their slots. The demo store starts its schedules at the start of the day, so the UI tests do not depend on the hour they run. The rule has one trade-off: the start day is judged against the time the schedule has now, not the time it had when saved, which is not stored and would take an `@Model` change to keep. Moving a time later after the start day can bring back a start-day slot that was never offered; the next day's missed-dose card may ask about it once, and the forecast assumes it was taken, which only brings the run-out date earlier. Moving a time earlier can leave a start-day log without a slot.
 
 An as-needed rate is measured over the history that exists — the days between the first logged dose in the window and now, capped at thirty — rather than a fixed thirty days. Three doses taken this week divided by thirty reported four times the runway that existed, and an over-long supply estimate is the failure that leaves someone without medication.
 
 Each scheduled time retains its own dose quantity and weekday mask. Editing schedules reconciles those definitions with existing `DoseSchedule` records instead of replacing them. Stable schedule identifiers keep earlier `DoseEvent` history associated with the correct intended dose. Count corrections compare the entered physical count with the raw ledger balance, including any negative discrepancy, before the displayed balance is clamped to zero.
+
+## Unlogged doses and the run-out date
+
+1.1 forecast a scheduled medication from the ledger's balance and the doses still to come. A dose nobody logged was never subtracted, so every unlogged day moved the run-out date a day later, and the refill alert keyed to that date moved with it and never fired: a household that stopped logging for a week would be told its supply lasted a week longer than it did. That is the over-long estimate the as-needed rule exists to prevent.
+
+The scheduled forecast therefore assumes that every scheduled dose since the anchor that nobody logged, and that is past its due window, was taken. The anchor is the last moment the ledger's number was known to be what was on hand: the latest opening count or correction, or a refill onto a ledger at or below zero, whichever is later, and failing both, the medication's creation. No dose could come out of an empty supply, so what is on hand after such a refill is the refill; a refill onto stock the ledger still showed confirms nothing about the doses before it and does not move the anchor. There is no look-back limit. The first version stopped at four hundred days, and dropping the oldest dose each day brought the slide back; a count years old still weighs every dose since.
+
+`ScheduleEngine.unloggedDoses` returns the unlogged doses between the anchor and thirty minutes ago, where a dose turns overdue, and owns the slot question. A log naming a schedule accounts for the dose `loggedEvent` says it does, taken or skipped. A log outside every slot (Take Now with nothing due, or a Health dose no slot was near) accounts for the nearest unlogged dose on its own day within `ScheduleEngine.nearbySlotTolerance`, two hours, and for one dose at most: within reach it is that dose taken early or late, but hours from any slot it is as likely an extra one, so the slot stays assumed and the error is toward an earlier date. The pairing is made over the whole day, so asking about a range in pieces gives the same answer as asking once. The forecast hands over only the outside-slot logs that were taken, count toward supply and were made since the anchor, since history imported with a medication never came out of the count. The doses still to come start at the same boundary and leave out logged ones, so every dose since the anchor is counted exactly once, a dose logged a little early is not charged twice, and the run-out date, and the refill alert keyed to it, hold still while a dose sits in its due window. `DoseLogIndex` files a medication's logs by schedule and day, so a dose with a log on its own day is never timed, and the future is laid out a stretch at a time, thirty-one days and then doubling, until the supply runs out. A test holds `unloggedDoses` to the answer `loggedEvent` gives dose by dose, across a daylight-saving day and logs shifted by hours.
+
+Nothing is written. `currentSupply`, `correctionDelta`, `AdherenceSummary` and the as-needed rate read only what was recorded. `SupplyForecast.assumedDoses` says how many doses were assumed: the forecast is then an estimate that says so and whether they are counted since the last count or the last refill, and every surface calls the ledger's number "on record" rather than "on hand", because the run-out date beside it has already taken those doses out. When the assumptions would use up everything on record, `needsCount` is set. The forecast then carries today as its date and zero days, but what is left is unknown, not zero, so it must read "Count needed", never "Out of supply": Supply, Today, the detail card, the runs-out widget, the printed list and Trip Check say so, and the notification planner writes no refill alert from that date.
+
+Only a count ends an assumption. Correct Count always records an event: a count that matches the ledger is a zero correction, shown in Recent Activity as "Count confirmed", and it is a new anchor. While the forecast assumes any dose, the count sheet opens empty and Save Count stays disabled until a number is typed, because a prefilled number saved with one tap would record a count nobody made, clear every assumed dose, and move the run-out date later. Restoring an archived medication opens the count sheet at once, since the engine cannot see what happened while it was archived; cancelling leaves "Count needed" showing until someone counts, which is the honest answer. An edit that changes a kept schedule's amount or weekdays, or drops a schedule, while doses are being assumed opens the count sheet too once the editor closes (`ScheduleReconciler.asksForCount`): the reconciler rewrites those records in place, so the forecast would otherwise weigh the unlogged past at the new schedule, and a taper from four tablets to two over ten unlogged days moved the run-out date from 4 days to 19 when 9 was right. A changed or added time leaves the past's amounts alone, and a logged dose keeps its own, so neither asks. Ending the old schedule and starting a new one would keep the past exact, but every surface would have to learn to skip ended schedules.
 
 ## Privacy
 
@@ -50,6 +64,16 @@ A prescription with no refills left needs a prescriber before a pharmacy can act
 Notification planning is global across the medication set. Doses that occur at the same local time on the same weekday are consolidated into one slot-level request such as `8:00 PM meds are ready`; an identical seven-day slot collapses to one repeating daily request. A grouped notification opens Meds Ahead for review and does not expose one-tap Taken or Skip actions, because one action cannot safely represent several medications. A single-dose slot retains the privacy-aware quick actions. This reduces notification spam and keeps common polypharmacy routines comfortably below iOS's pending-notification ceiling while retaining exact weekday behavior.
 
 Delivery can fail silently in two ways iOS reports quietly: a refused or withdrawn authorization, and an individual request the system declines to hold. Both outcomes are recorded by `NotificationHealth` on every scheduling pass and stated on Today, because an app that exists to remember a dose must not fail without saying so.
+
+## Supply attention
+
+`SupplyAttention` is the one rule for whether a medication's supply needs someone to act. It is decided once, over plain values, and Supply, Today, the detail screen's forecast card, the runs-out widget and the notification planner all read it. In 1.1 they did not agree: the screens and the alert counted different lead times, and a refill marked requested or ready silenced every one of them for good, even with nothing on hand. The lead is now the person's own everywhere, or the ten-day prescriber lead when no refills are left. A supply is low inside the lead, with nothing on hand, or when a count is needed.
+
+A refill in progress pauses the warning only while it can still answer for the supply: fewer than two whole days have passed since its expected or pickup date (`refillGraceDays`), more than two days of supply remain (`refillPauseMinimumDays`), something is on hand, no count is needed, and its date falls before the run-out day. A pharmacy a day behind is ordinary; one two days behind may not be coming, and the warning is then the only prompt. With two days left, a refill that does not arrive is a missed dose however recently it was asked for. A refill due on the run-out day or after it can leave doses with nothing to take even if it arrives as promised (on the run-out day itself, any dose after the one that empties the bottle), so it is a gap to close rather than a refill on its way. A refill with no date, or a supply with no forecast, does not end the pause: an unknown runway is not a short one. The pause ends at the start of the second day after the refill's date, the stricter of the two readings of "two days late". When it no longer holds, Supply puts the attention line first ("Act soon · around" a date, "No confirmed supply remains", or "Count needed") and the refill's status under it, "Refill requested · was expected" a date once that date has passed; Today says "A refill needs checking"; and the widget shows the day count in the attention colour instead of "Refill on its way", and "Out of supply" at zero whatever the refill's status. A changed refill status starts its date from today, because the stored date belonged to the previous status, and keeping it started a pause that had already ended the moment the person marked the refill ready.
+
+The morning the pause ends is announced. A refill check (`PlannedNotificationKind.refillCheck`, identifier `meds.<id>.refillcheck.<yyyyMMdd>` in the plan's calendar) asks "Is the refill in hand?" at 9:00 on the earlier of two days after the refill's date and two days before the run-out day (`SupplyAttention.refillCheckMoment`); the detailed version names the medication, the run-out date, and the pharmacy and Rx number. It is planned whenever a refill is in progress and that moment is still ahead, including for a medication with plenty left whose refill is running late, because a late refill nobody updated means the record is stale. It is sorted with the refill and expiration alerts, behind every dose reminder, under the sixty-request cap. The ordinary low-supply alert is skipped only when the pause will still hold at its own moment, or when a refill check falls on the same morning and says it instead. A count needed plans neither, since its date is where the assumptions ran out.
+
+A replan used to remove every delivered alert it had not planned. A refill or expiration alert is planned only until its moment, so once delivered it was never in the plan again, and the next launch, or the next Taken on the Lock Screen, took the only low-supply warning out of Notification Center. `NotificationPlanOutcome.retains` now says which delivered alerts still say something true, and `NotificationService.deliveredIdentifiersToRemove` leaves them: an expiration alert by its exact identifier while the same expiration date is on file; a refill alert by medication while `SupplyAttention` says the supply needs attention now; a refill check by medication while the refill is in progress, until it is added or cleared. Each needs the medication active and refill reminders on, and dose reminders are never kept. Refill alerts are kept by medication rather than by identifier because the run-out day in the identifier moves, with a skipped dose and every day once nothing is left, while the warning already given is just as true. The price is that a kept alert can quote a run-out date a day or so off today's forecast; Supply shows the current one. A delivered refill alert is still removed when the medication is archived, refill reminders are turned off, a refill lifts the supply out of the lead, or a refill in progress pauses the warning. Pending requests are still replaced by the plan outright, since one the plan no longer asks for must not fire. The refill and expiration identifiers keep 1.1's date code, the digits of the month, day and year, so alerts delivered before the update keep their identity across it.
 
 ## Scanner frame
 
@@ -102,6 +126,22 @@ actually sits. A merely name-shaped line is dropped, because "Open 9 to 6" or a
 patient's own name in the medication field is worse than a blank one. `ScanParser`
 reports this as `MedicationNameProvenance` so the distinction is explicit rather
 than re-derived.
+
+A label's count is the other exception: it is offered, never filled. The number a
+label prints, a pharmacy's QTY or CONTENTS or a stock bottle's "120 TABLETS", is
+what the bottle held when full, not what is on hand, and in 1.1 a scanned draft
+put it straight into Current amount. A bottle two weeks into a twice-daily fill
+then read 28 doses high, the direction that runs someone out. `ScanParser` still
+reads the count into `MedicationDraft.currentSupply`, but the scanned review
+screen starts Current amount blank and offers the count beneath it: "Label says N
+when full", a sentence saying that is the count before any were taken, and a Use N
+button, so the person's tap is what confirms it for an unopened bottle. The
+wording avoids "dispensed" because a stock bottle's count was never dispensed. N
+is the label's count rounded to the two places a quantity shows, so the note, the
+button's "Using N" state and the saved amount agree, and a count that shows as 0
+at two places is not offered. Manual and Apple Health drafts are unchanged. The
+rule lives in `MedicationDraft.labelDispensedQuantity`, `labelDispensedNote` and
+`initialCurrentAmountText`.
 
 ## Exact identification
 
@@ -289,10 +329,12 @@ model already had or gained in 1.1's one migration.
   with which number. A renewal reminder does not, because the call it asks
   for is to the prescriber.
 - **A refill under way.** `RefillStatus` — requested, or ready for pickup —
-  with a date. The forecast is unchanged, because the count is the count, but
-  the low-supply reminder stops while the status stands, Supply shows the
-  status instead of "Act soon", Today lists what to pick up and when, and
-  adding the refill clears it. Never inferred: the person sets it.
+  with a date. The forecast is unchanged, because the count is the count.
+  In 1.1 the low-supply reminder stopped for as long as the status stood;
+  since 1.1.1 the refill quiets the warning only while `SupplyAttention` says
+  it can still answer for the supply, and a refill check asks on the morning
+  it stops (see "Supply attention"). Today lists what to pick up and when,
+  and adding the refill clears it. Never inferred: the person sets it.
 - **Trip check.** `TripCheck` is pure arithmetic over the forecasts Supply
   already has: a supply that runs out on or before the return day needs a
   refill before leaving, one with no forecast cannot be vouched for, the rest
@@ -332,9 +374,33 @@ The Taken button on the next-dose widget is `LogNextDoseIntent`. It appears
 only when exactly one medication is due at that time, for the reason a grouped
 reminder offers no Taken action: one tap cannot safely stand for several doses.
 The intent matches the dose to its slot through `ScheduleEngine` and leaves a
-slot already logged alone, from Today, from a reminder, or from Health; the app
-replans notifications the next time it comes forward, as it does after a
-reminder action.
+slot already logged alone, from Today, from a reminder, or from Health. Since
+1.1.1 it also asks `ScheduleEngine.hasSlot` whether the schedule still has a
+dose at exactly the moment the widget drew, as the reminder actions do, and
+writes nothing when a time was edited, a schedule ended, or a first day began
+after that time since the widget last drew. The app replans notifications the
+next time it comes forward, as it does after a reminder action.
+
+The same question has to run the other way. The widget saves from its own
+process, and nothing guarantees that a running app's `@Query` arrays have
+merged that write when the person next taps Taken on Today or Take Now on a
+medication; the arrays alone would call the dose unlogged and spend the supply
+a second time. So every path in the app that writes a scheduled dose asks the
+store first, as the reminder actions and the widget already did:
+`DoseLogGuard.isLogged` for Today's Taken and Skip, the missed-dose card and
+Mark All, and `DoseLogGuard.actionableDose` for Take Now, which claims the next
+due dose the store has unlogged. The widget logs the earliest due dose, so a
+Take Now tap then belongs to the next one, as it would had the screen caught
+up, and not to nothing. The fetch is narrowed only by medication; slot
+identity is still `ScheduleEngine.loggedEvent` and `actionableDose`. A tap that
+finds its dose already logged writes nothing and says so in an "Already
+Logged" alert, and a failed fetch shows the existing couldn't-log alert and
+writes nothing. `DoseLogGuardTests` proves it with two containers on one store
+file. The guard does not refresh the screen. Whether Today shows the widget's
+log when the app comes back depends on SwiftData merging another process's
+write into a running app's queries, which nobody has yet watched on a phone;
+it is a device check in `RELEASE_CHECKLIST.md`. Until it is settled, Today may
+show a dose as due that the store already has, and a tap on it writes nothing.
 
 A widget runs in its own process and can only reach a store in an app group
 container, so the store now lives in `group.com.christoforakis.Meds`.
@@ -350,6 +416,45 @@ the legacy store, with the widgets saying to open the app. The widget itself
 never creates the store — opening a SwiftData container where none exists would
 create one, and an empty store at the shared location would tell the app the
 move had already happened — so it opens only a store that exists.
+
+## Words and numbers kept exact
+
+The notes a dose carries when it was logged away from Today are stored data,
+not display copy. `DoseEventNote.reminder` ("Logged from reminder") and
+`DoseEventNote.widget` ("Logged from widget") live in `Shared`, so the app and
+the widget write the same words, and `DoseEvent.appleHealthNote` ("Logged in
+Apple Health") lives with the model. `HealthDoseReconciler` tells a dose logged
+here from Health's copy of one by its note, and every event already saved keeps
+the words it was saved with, so rewording one would mean migrating stored
+history. `DoseEventNoteTests` pins all three.
+
+The words after a number are written out once. Every surface used to add "s"
+to the form's unit, which printed "30 patchs on hand", "150 mLs" and "1 days of
+supply remaining". `Shared/QuantityText.swift`, compiled into the app and the
+widgets, holds `MedicationForm.quantityText(_:)` and `unitText(for:)`, with each
+form's plural written out rather than derived ("patch" takes "es"; mL is a
+symbol and never takes one), and `Int.dayCountText` and `Int.counted(_:plural:)`
+for whole-number counts. The singular follows the number as printed, not as
+stored: 1.004 prints as "1" and reads "1 tablet", decided by the same two-place
+rounding `medicationQuantityText` uses, in a fixed locale so a region's digits
+cannot change the answer. Notification plans carry the medication's form rather
+than a unit name, so a reminder can choose the plural.
+
+Add Refill and Correct Count read the number from the text as typed. They were
+`TextField(value:format:)` fields on a keypad with no Return key, a pattern
+that on a phone committed the editor's dose field only when focus left (August
+30), and the sheet's button never took focus. The simulator never reproduced
+that for the sheets, so the change is defensive and the phone repro stays
+open. The sheets keep the text and parse it on every change through
+`SupplyChangeQuantity` and `Double.medicationQuantity(from:)`: a count may be
+0 and a refill may not, and empty, unparseable or negative text, or text with
+two decimal separators, leaves the button disabled. The sheets, the editor's
+Current amount and the scanned label's Use button write their numbers without
+grouping, and text containing the region's grouping separator disables the
+button rather than being guessed at, because a region that groups with "."
+read "1.497" as 1.497, and en_US read "1,000" as 1. Untouched prefilled text
+stands for the exact number it was made from, so the two-place rounding is
+never recorded as a difference.
 
 ## Rating request
 
