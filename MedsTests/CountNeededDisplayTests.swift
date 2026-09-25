@@ -30,6 +30,17 @@ final class CountNeededDisplayTests: XCTestCase {
         XCTAssertEqual(MedicationDetailView.forecastTitle(for: steady), "About 9 days left")
     }
 
+    /// Today's refill card heads itself with the reason: a refill on time
+    /// beside a count nobody has made is not "A refill needs checking".
+    func testTheRefillCardSaysWhetherACountOrARefillNeedsSomeone() {
+        XCTAssertEqual(TodayView.refillAttentionTitle(refillsToCheck: 0, countsNeeded: 1), "A count is needed")
+        XCTAssertEqual(TodayView.refillAttentionTitle(refillsToCheck: 0, countsNeeded: 2), "2 counts are needed")
+        XCTAssertEqual(TodayView.refillAttentionTitle(refillsToCheck: 1, countsNeeded: 0), "A refill needs checking")
+        XCTAssertEqual(TodayView.refillAttentionTitle(refillsToCheck: 3, countsNeeded: 0), "3 refills need checking")
+        XCTAssertEqual(TodayView.refillAttentionTitle(refillsToCheck: 1, countsNeeded: 1), "A refill needs checking and a count is needed")
+        XCTAssertEqual(TodayView.refillAttentionTitle(refillsToCheck: 2, countsNeeded: 1), "2 refills need checking and a count is needed")
+    }
+
     /// Prefilled with the ledger's number, one tap on Save Count confirmed a
     /// count nobody made and cleared the doses the forecast had assumed.
     func testCorrectCountOpensEmptyWhileACountIsNeeded() {

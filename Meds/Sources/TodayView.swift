@@ -194,13 +194,19 @@ struct TodayView: View {
             }
         // A refill that has run late, or supply that has run too low to wait
         // for it, is not "on its way" as far as anyone should be told.
-        let needingAttention = inProgress.filter { $0.2 }.count
+        let needingAttention = inProgress.filter { $0.2 }
         if !inProgress.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 Group {
-                    if needingAttention > 0 {
-                        Label(needingAttention == 1 ? "A refill needs checking" : "\(needingAttention) refills need checking", systemImage: "exclamationmark.circle.fill")
-                            .foregroundStyle(.orange)
+                    if !needingAttention.isEmpty {
+                        Label(
+                            Self.refillAttentionTitle(
+                                refillsToCheck: needingAttention.filter { !$0.1.needsCount }.count,
+                                countsNeeded: needingAttention.filter { $0.1.needsCount }.count
+                            ),
+                            systemImage: "exclamationmark.circle.fill"
+                        )
+                        .foregroundStyle(.orange)
                     } else {
                         Label(inProgress.count == 1 ? "A refill is on its way" : "\(inProgress.count) refills are on their way", systemImage: "bag.fill")
                     }
@@ -357,6 +363,23 @@ struct TodayView: View {
     /// The line under the missed doses the card has no room to list.
     static func moreMissedText(_ count: Int) -> String {
         "\(count.counted("more is", plural: "more are")) waiting in each medication's history."
+    }
+
+    /// The refill card's heading when something on it needs someone, in the
+    /// words of the reason. A count needed is not a refill gone wrong: the
+    /// refill may be right on time while nobody knows what is left to wait
+    /// with, and "A refill needs checking" points at the pharmacy when what
+    /// is needed is a count at home.
+    static func refillAttentionTitle(refillsToCheck: Int, countsNeeded: Int) -> String {
+        var parts: [String] = []
+        if refillsToCheck > 0 {
+            parts.append(refillsToCheck == 1 ? "a refill needs checking" : "\(refillsToCheck) refills need checking")
+        }
+        if countsNeeded > 0 {
+            parts.append(countsNeeded == 1 ? "a count is needed" : "\(countsNeeded) counts are needed")
+        }
+        let title = parts.joined(separator: " and ")
+        return title.prefix(1).uppercased() + title.dropFirst()
     }
 
     private func header(now: Date) -> some View {
