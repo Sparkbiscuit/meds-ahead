@@ -102,7 +102,11 @@ struct ForecastBreakdown: Equatable {
     /// `leadDays` before the run-out day.
     struct Alert: Equatable, Sendable {
         enum State: Equatable, Sendable {
-            /// Still ahead, and will be announced.
+            /// Still ahead, and will be announced by this medication's rule.
+            /// The planner's request cap, which only a regimen with dozens of
+            /// dose times reaches, drops the farthest refill alerts first,
+            /// and this cannot see that from one medication; Today and Supply
+            /// still carry the warning from its moment on.
             case planned
             /// Its moment has passed. It is never announced late; Today and
             /// Supply carry the warning instead.
@@ -322,7 +326,7 @@ extension ForecastEngine {
             assumed: ForecastBreakdown.Tally(count: forecast.assumedDoses, quantity: evaluation.assumedQuantity),
             use: medication.isAsNeeded
                 ? evaluation.asNeededRate.map(ForecastBreakdown.Use.asNeeded)
-                : scheduleUse(schedules: schedules, medicationID: medication.id),
+                : scheduleUse(schedules: schedules, medicationID: medication.id, now: now, calendar: calendar),
             courseEnd: forecast.courseEndDate,
             forecast: forecast,
             alert: lowSupplyAlert(medication: medication, forecast: forecast, now: now, calendar: calendar)
@@ -330,9 +334,15 @@ extension ForecastEngine {
     }
 
     /// What the schedule uses: one amount when every weekday holds the same,
-    /// or the week's total when they differ.
-    private static func scheduleUse(schedules: [DoseSchedule], medicationID: UUID) -> ForecastBreakdown.Use? {
-        let own = schedules.filter { $0.medicationID == medicationID }
+    /// or the week's total when they differ. A schedule whose last day has
+    /// passed uses nothing any more: counting it would overstate the use
+    /// beside a date the forecast worked out without it, and a finished
+    /// course would still read as using its old amount every day.
+    private static func scheduleUse(schedules: [DoseSchedule], medicationID: UUID, now: Date, calendar: Calendar) -> ForecastBreakdown.Use? {
+        let today = calendar.startOfDay(for: now)
+        let own = schedules.filter {
+            $0.medicationID == medicationID && ($0.endDate.map { calendar.startOfDay(for: $0) >= today } ?? true)
+        }
         guard !own.isEmpty else { return nil }
         let byWeekday = (0..<7).map { weekday in
             own.filter { $0.weekdayMask & (1 << weekday) != 0 }.reduce(0) { $0 + $1.doseQuantity }

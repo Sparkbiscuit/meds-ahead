@@ -267,6 +267,14 @@ final class ForecastBreakdownTests: XCTestCase {
         XCTAssertEqual(finished.conclusion, .courseFinished(end: end))
         XCTAssertEqual(finished.forecast, forecast(medication, [schedule], [opening], now: september(11, 9)))
         XCTAssertNil(finished.alert)
+        XCTAssertNil(finished.use, "a course that is over uses nothing a day")
+        XCTAssertFalse(finished.lines(calendar: calendar).contains { $0.hasPrefix("The schedule uses") })
+
+        // A morning dose that ended on the 10th beside an evening one that
+        // goes on: from the 11th, only the evening's use is left.
+        let evening = DoseSchedule(medicationID: medication.id, minutesAfterMidnight: 20 * 60, doseQuantity: 1, startDate: september(1, 7))
+        XCTAssertEqual(breakdown(medication, [schedule, evening], [opening], now: september(10, 9)).use, .daily(quantity: 3))
+        XCTAssertEqual(breakdown(medication, [schedule, evening], [opening], now: september(11, 9)).use, .daily(quantity: 1))
 
         let ten = InventoryEvent(medicationID: medication.id, date: september(1, 7), delta: 10, reason: .openingCount)
         let stale = breakdown(medication, [schedule], [ten], now: september(8, 7))
