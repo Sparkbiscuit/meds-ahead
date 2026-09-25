@@ -553,14 +553,14 @@ struct MedicationEditorView: View {
                     title: "Code read, not used yet",
                     symbol: "questionmark.circle.fill",
                     tint: .orange,
-                    message: "The label prints \(code), which the FDA directory lists as \(product). Nothing else on the label confirmed it, so no field was filled from it. If the bottle agrees, use it under Prescription & package."
+                    message: "The label prints \(code), which the FDA directory lists as \(product). The label did not confirm it, so no field was filled from it. If the bottle agrees, use it under Prescription & package."
                 )
             case let .contradicted(code, product):
                 summaryNote(
                     title: "Code read, but the label disagrees",
                     symbol: "exclamationmark.triangle.fill",
                     tint: .orange,
-                    message: "The label prints \(code), which the FDA directory lists as \(product), but the printed name, strength or form says otherwise. Nothing was filled from the code. Check the bottle before saving."
+                    message: "The label prints \(code), which the FDA directory lists as \(product), but the name, brand, strength, form or release (such as ER or XL) printed on the label says otherwise. Nothing was filled from the code. Check the bottle before saving."
                 )
             case let .unlisted(code):
                 summaryNote(
@@ -605,10 +605,7 @@ struct MedicationEditorView: View {
     /// theirs to change.
     private func applyDirectoryProduct(_ product: NDCProduct, code: NationalDrugCode) {
         withAnimation(.medsSpring) {
-            name = NDCIdentification.displayName(for: product)
-            brandName = product.brandName.isEmpty
-                ? (MedicationBrandIndex.brandName(forGeneric: name) ?? "")
-                : product.brandName
+            (name, brandName) = NDCIdentification.identity(of: product)
             if !brandName.isEmpty { isBrandNameVisible = true }
             if !product.strength.isEmpty { strength = product.strength }
             form = product.form
