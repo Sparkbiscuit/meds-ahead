@@ -134,6 +134,16 @@ final class HealthDoseReconcilerTests: XCTestCase {
         XCTAssertEqual(plan([record(date(10, 15, 31))], existing: [appLogged]).insertions.count, 1, "outside the window it is a second dose")
     }
 
+    /// A reminder's or the widget's note is the only mark such a dose carries;
+    /// were it ever read as Health's, Health's copy of the dose would be stored
+    /// beside it and taken from the count twice.
+    func testADoseLoggedFromAReminderOrTheWidgetIsNeverDoubledByHealth() {
+        for note in [DoseEventNote.reminder, DoseEventNote.widget] {
+            let logged = DoseEvent(medicationID: medicationID, recordedAt: date(10, 15), doseQuantity: 1, status: .taken, note: note)
+            XCTAssertTrue(plan([record(date(10, 15, 10))], existing: [logged]).isEmpty, note)
+        }
+    }
+
     func testADoseLoggedHereFromHealthDoesNotBlockANewHealthDoseNearIt() {
         let mirrored = DoseEvent(medicationID: medicationID, recordedAt: date(10, 15), doseQuantity: 1, status: .taken,
                                  note: DoseEvent.appleHealthNote, healthSampleID: UUID())

@@ -112,7 +112,7 @@ final class MedsUITests: XCTestCase {
             "-ui-testing",
             "-skip-onboarding",
             "-UIPreferredContentSizeCategoryName",
-            "UICTContentSizeCategoryAccessibilityExtraExtraExtraLarge"
+            "UICTContentSizeCategoryAccessibilityXXXL"
         ]
         app.launch()
 
@@ -161,7 +161,9 @@ final class MedsUITests: XCTestCase {
 
     /// A scanned draft must survive the hand-off into the review screen. The
     /// overlay saying it found a name, strength and quantity is worthless if the
-    /// editor then opens blank.
+    /// editor then opens blank. The quantity is the exception on purpose: a
+    /// label's count is what the bottle held when full, so it is offered, not
+    /// filled in.
     func testScannedDraftPopulatesTheReviewScreen() {
         let app = XCUIApplication()
         app.launchArguments = ["-ui-testing", "-skip-onboarding", "-simulate-scan-result"]
@@ -179,8 +181,67 @@ final class MedsUITests: XCTestCase {
         XCTAssertEqual(strength.value as? String, "20 mg", "strength did not carry over")
 
         let supply = app.textFields["current-supply"]
-        for _ in 0..<4 where !supply.exists { app.swipeUp() }
-        XCTAssertEqual(supply.value as? String, "60", "current amount did not carry over")
+        let useLabelQuantity = app.buttons["use-label-quantity"]
+        for _ in 0..<4 where !useLabelQuantity.isHittable { app.swipeUp() }
+        let startingAmount = supply.value as? String ?? ""
+        XCTAssertTrue(
+            startingAmount.isEmpty || startingAmount == supply.placeholderValue,
+            "the label's dispensed count was filled in as the current amount: \(startingAmount)"
+        )
+        let note = app.descendants(matching: .any)["label-quantity-note"]
+        XCTAssertTrue(note.exists)
+        XCTAssertTrue(note.label.hasPrefix("Label says 60 when full"), note.label)
+
+        // Blank is still not zero: Add asks for the amount, as it does for any draft.
+        app.buttons["save-medication"].tap()
+        XCTAssertTrue(app.alerts["A little more information is needed"].waitForExistence(timeout: 3))
+        app.alerts.buttons["OK"].tap()
+
+        XCTAssertEqual(useLabelQuantity.label, "Use 60 as the current amount")
+        useLabelQuantity.tap()
+        XCTAssertEqual(supply.value as? String, "60", "Use 60 did not fill the current amount")
+        XCTAssertEqual(useLabelQuantity.label, "Using 60 as the current amount")
+        XCTAssertFalse(useLabelQuantity.isEnabled)
+    }
+
+    /// At the largest text size Current amount has scrolled away by the time the
+    /// label's count is on screen, so the button, and its Using state, are the
+    /// only way to fill the field and see that it worked.
+    func testScannedLabelQuantityAtLargestAccessibilityText() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-ui-testing",
+            "-skip-onboarding",
+            "-simulate-scan-result",
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryAccessibilityXXXL"
+        ]
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["Today"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["Add"].tap()
+        // At this size the scan summary fills the first screen, so the name field
+        // has not been built yet; the navigation bar is what shows the review
+        // screen opened.
+        XCTAssertTrue(app.navigationBars["Review Medication"].waitForExistence(timeout: 5), "review screen never appeared")
+
+        let useLabelQuantity = app.buttons["use-label-quantity"]
+        for _ in 0..<10 where !useLabelQuantity.isHittable { app.swipeUp() }
+        XCTAssertTrue(useLabelQuantity.isHittable, "the label's count cannot be reached at the largest text size")
+        XCTAssertEqual(useLabelQuantity.label, "Use 60 as the current amount")
+        try app.performAccessibilityAudit(for: [
+            .elementDetection,
+            .hitRegion,
+            .sufficientElementDescription,
+            .trait
+        ])
+
+        useLabelQuantity.tap()
+        XCTAssertEqual(useLabelQuantity.label, "Using 60 as the current amount")
+        XCTAssertFalse(useLabelQuantity.isEnabled)
+        let supply = app.textFields["current-supply"]
+        for _ in 0..<4 where !supply.isHittable { app.swipeDown() }
+        XCTAssertEqual(supply.value as? String, "60", "Use 60 did not fill the current amount")
     }
 
     func testLogAllDueRecordsEveryDueDose() {

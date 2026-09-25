@@ -56,7 +56,7 @@ struct LogNextDoseIntent: AppIntent {
             recordedAt: .now,
             doseQuantity: schedule.doseQuantity,
             status: .taken,
-            note: "Logged from widget"
+            note: DoseEventNote.widget
         ))
         try context.save()
         return .result()

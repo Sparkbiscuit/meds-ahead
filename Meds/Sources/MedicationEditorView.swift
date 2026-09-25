@@ -20,6 +20,8 @@ struct MedicationEditorView: View {
     private let draftIdentification: NDCIdentificationOutcome?
     private let draftImportedDoses: [ImportedDose]
     private let draftCaptureNote: String
+    private let draftLabelQuantity: Double?
+    private let draftLabelQuantityNote: String?
     private let onSaved: (() -> Void)?
 
     @Query private var allMedications: [Medication]
@@ -70,6 +72,8 @@ struct MedicationEditorView: View {
         self.draftIdentification = draft.identification
         self.draftImportedDoses = draft.importedDoses
         self.draftCaptureNote = draft.captureNote
+        self.draftLabelQuantity = draft.labelDispensedQuantity
+        self.draftLabelQuantityNote = draft.labelDispensedNote
         self.onSaved = onSaved
         let resolvedForm = medication?.form ?? draft.form
         _name = State(initialValue: medication?.name ?? draft.name)
@@ -80,7 +84,7 @@ struct MedicationEditorView: View {
         _strength = State(initialValue: medication?.strength ?? draft.strength)
         _form = State(initialValue: resolvedForm)
         _directions = State(initialValue: medication?.directions ?? draft.directions)
-        _currentSupplyText = State(initialValue: draft.currentSupply?.medicationQuantityText ?? "")
+        _currentSupplyText = State(initialValue: draft.initialCurrentAmountText)
         _refillsText = State(initialValue: (medication?.refillsRemaining ?? draft.refillsRemaining).map(String.init) ?? "")
         _refillLeadDays = State(initialValue: medication?.refillLeadDays ?? 7)
         let expiration = medication?.expirationDate ?? draft.expirationDate
@@ -252,6 +256,9 @@ struct MedicationEditorView: View {
                         .padding(.vertical, 3)
                         Text(form.unitName + (Double.medicationQuantity(from: currentSupplyText) == 1 ? "" : "s"))
                             .foregroundStyle(.secondary)
+                    }
+                    if let draftLabelQuantity, let draftLabelQuantityNote {
+                        labelQuantityRow(quantity: draftLabelQuantity, note: draftLabelQuantityNote)
                     }
                 } header: {
                     Text("What you have now")
@@ -595,6 +602,42 @@ struct MedicationEditorView: View {
         UINotificationFeedbackGenerator().notificationOccurred(.success)
     }
 
+    /// The label's count, one tap from Current amount but never in it unasked.
+    private func labelQuantityRow(quantity: Double, note: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 3) {
+                Label(note, systemImage: "doc.text.viewfinder")
+                    .font(.subheadline.weight(.semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("That is the count before any were taken, not what is left. Use it for an unopened bottle; otherwise enter what you count now.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("label-quantity-note")
+            // Once used, the button stays and says so rather than vanishing: at
+            // the largest text sizes the field is scrolled away and this is the
+            // only sign the tap did anything, and a vanishing button would take
+            // VoiceOver's focus with it.
+            let quantityText = quantity.medicationQuantityText
+            let isInUse = Double.medicationQuantity(from: currentSupplyText) == quantity
+            Button {
+                currentSupplyText = quantityText
+            } label: {
+                // The checkmark sits inline in the text: as a Label's icon it
+                // broke "Using" mid-word at the largest text sizes.
+                Text(isInUse ? "\(Image(systemName: "checkmark")) Using \(quantityText)" : "Use \(quantityText)")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .disabled(isInUse)
+            .accessibilityLabel(isInUse ? "Using \(quantityText) as the current amount" : "Use \(quantityText) as the current amount")
+            .accessibilityIdentifier("use-label-quantity")
+        }
+        .padding(.vertical, 3)
+    }
+
     private var healthSummarySection: some View {
         Section {
             HStack(spacing: 12) {
@@ -774,6 +817,37 @@ struct MedicationEditorView: View {
 
     private static func date(minutes: Int) -> Date {
         Calendar.current.date(bySettingHour: minutes / 60, minute: minutes % 60, second: 0, of: .now) ?? .now
+    }
+}
+
+/// A label's quantity is what the bottle held when full, not the amount in it
+/// now. Filled in as the current amount, a bottle two weeks into a twice-daily
+/// fill read 28 doses high, and a count that is too high is the one that lets
+/// someone run out. So a scanned count is offered, never filled in. The words
+/// say "when full" rather than "dispensed" because the parser also reads a
+/// stock bottle's printed count ("120 TABLETS"), which no pharmacy filled.
+extension MedicationDraft {
+    /// The count a scanned label printed, when it printed one, as the number the
+    /// Use button writes into the field. A label can print more decimals than a
+    /// quantity shows ("QTY: 473.176"), and the note, the button's Using state
+    /// and the saved amount must all be the one number the person sees.
+    var labelDispensedQuantity: Double? {
+        guard source == .scanned, let currentSupply, currentSupply.isFinite,
+              let shown = Double.medicationQuantity(from: currentSupply.medicationQuantityText),
+              shown > 0 else { return nil }
+        return shown
+    }
+
+    /// The line under Current amount on a scanned label's review screen.
+    var labelDispensedNote: String? {
+        labelDispensedQuantity.map { "Label says \($0.medicationQuantityText) when full" }
+    }
+
+    /// What Current amount starts as. A scanned draft's number is the label's,
+    /// so that field starts blank.
+    var initialCurrentAmountText: String {
+        guard source != .scanned else { return "" }
+        return currentSupply?.medicationQuantityText ?? ""
     }
 }
 
