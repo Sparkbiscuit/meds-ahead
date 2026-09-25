@@ -319,6 +319,34 @@ final class DuplicateMedicationMatcherTests: XCTestCase {
                        [trackedPrograf.id])
     }
 
+    /// A finished course is still in the list until someone archives it.
+    /// A new course's bottle added to it would sit under a last day that
+    /// has passed, with no reminder planned, so it is not offered; saved as
+    /// its own medication, the new bottle starts its own course.
+    @MainActor
+    func testAFinishedCourseIsNotOfferedForANewCoursesBottle() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        func day(_ day: Int) throws -> Date {
+            try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 9, day: day, hour: 9)))
+        }
+        let amoxicillin = Medication(name: "Amoxicillin", strength: "500 mg", form: .capsule, createdAt: try day(10))
+        let start = try day(10)
+        let lastDay = ScheduleEngine.normalizedEndDate(forDay: try day(20), calendar: calendar)
+        let schedules = [8, 20].map {
+            DoseSchedule(medicationID: amoxicillin.id, minutesAfterMidnight: $0 * 60, startDate: start, endDate: lastDay)
+        }
+        let draft = MedicationDraft(name: "Amoxicillin", strength: "500 mg", source: .scanned)
+        func offered(on now: Date) -> [Medication] {
+            DuplicateMedicationMatcher.matches(for: .init(draft: draft), among: [amoxicillin], schedules: schedules, now: now, calendar: calendar)
+        }
+        XCTAssertEqual(offered(on: try day(15)).map(\.id), [amoxicillin.id], "a course still running takes a bottle")
+        XCTAssertEqual(offered(on: try day(20)).map(\.id), [amoxicillin.id], "on its last day it is still running")
+        XCTAssertTrue(offered(on: try day(24)).isEmpty, "finished on the 20th")
+        XCTAssertEqual(DuplicateMedicationMatcher.matches(for: .init(draft: draft), among: [amoxicillin], schedules: [], now: try day(24)).map(\.id),
+                       [amoxicillin.id], "without schedules nothing is known to have finished")
+    }
+
     /// The snapshots that ship keep the two tacrolimus products apart.
     func testTheShippedTablesTellImmediateAndExtendedReleaseTacrolimusApart() throws {
         let prograf = tracked(try accepted("0469-0617-73", directory: .shared, rxNormTable: .shared))

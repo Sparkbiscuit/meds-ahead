@@ -516,7 +516,7 @@ struct MedicationEditorView: View {
             rxNormCode: rxNormCode,
             nameProvenance: nameProvenance
         )
-        return DuplicateMedicationMatcher.matches(for: identity, among: allMedications)
+        return DuplicateMedicationMatcher.matches(for: identity, among: allMedications, schedules: allSchedules)
     }
 
     /// Above everything else on the screen, because it decides whether the rest

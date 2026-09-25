@@ -63,10 +63,16 @@ enum DuplicateMedicationMatcher {
     /// Every active medication the identity matches: the same NDC product in any
     /// package size, the same clinical drug by RxNorm, or the same name at the
     /// same strength when nothing says they are different products. Archived
-    /// medications are left out; restoring one is its own decision.
+    /// medications are left out; restoring one is its own decision. So are
+    /// courses that have finished, by `schedules`: a new course's bottle added
+    /// to one sits under a last day that has passed, with no reminder planned.
+    /// Saved as its own medication, it starts a course of its own.
     static func matches(
         for identity: Identity,
         among medications: [Medication],
+        schedules: [DoseSchedule] = [],
+        now: Date = .now,
+        calendar: Calendar = .autoupdatingCurrent,
         directory: @autoclosure () -> NDCDirectory = .shared,
         rxNormTable: @autoclosure () -> RxNormTable = .shared
     ) -> [Medication] {
@@ -82,7 +88,8 @@ enum DuplicateMedicationMatcher {
         let brand = nameKey(identity.brandName)
         return medications
             .filter { medication in
-                guard !medication.isArchived else { return false }
+                guard !medication.isArchived,
+                      !ScheduleEngine.isCourseFinished(schedules: schedules, medicationID: medication.id, now: now, calendar: calendar) else { return false }
                 // A different strength is a different medication whatever the
                 // codes say: a 40 mg bottle in a 20 mg count doubles every dose
                 // it forecasts. Written two ways for one amount is not different.
