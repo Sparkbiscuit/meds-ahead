@@ -105,6 +105,42 @@ enum FinishedCourseNotice {
         }
     }
 
+    /// `ranOutFirst` for a forecast that calls the course finished; false
+    /// for any other, which has not ended.
+    static func ranOutFirst(
+        medication: Medication,
+        forecast: SupplyForecast,
+        schedules: [DoseSchedule],
+        inventoryEvents: [InventoryEvent],
+        doseEvents: [DoseEvent],
+        now: Date,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> Bool {
+        guard forecast.courseFinished, let end = forecast.courseEndDate else { return false }
+        return ranOutFirst(
+            medication: medication,
+            schedules: schedules,
+            inventoryEvents: inventoryEvents,
+            doseEvents: doseEvents,
+            end: end,
+            now: now,
+            calendar: calendar
+        )
+    }
+
+    /// How a course that is over is named, with its last day as the screen
+    /// prints dates. "Finished" is kept for one its supply saw through: on a
+    /// printed list a clinician reads it as completed, and a course that ran
+    /// out first went without doses. Its last day is true either way.
+    static func endedText(day: String, ranOutFirst: Bool) -> String {
+        ranOutFirst ? "Last day was \(day)" : "Course finished \(day)"
+    }
+
+    /// Said beside `endedText` where there is room, for a course that ran
+    /// out first. "On record" because the ledger is all it knows: doses
+    /// nobody logged are counted as taken.
+    static let ranOutNote = "the supply on record ran out before it"
+
     /// The forecast as it stood just before `moment`, from the events on
     /// record by then. A count needed means the doses nobody logged used up
     /// everything on record, so it cannot vouch that none went short. An

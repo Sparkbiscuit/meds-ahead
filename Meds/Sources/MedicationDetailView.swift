@@ -60,15 +60,23 @@ struct MedicationDetailView: View {
     }
 
     private func content(forecast: SupplyForecast, now: Date) -> some View {
+        let ranOutFirst = FinishedCourseNotice.ranOutFirst(
+            medication: medication,
+            forecast: forecast,
+            schedules: allSchedules,
+            inventoryEvents: allInventoryEvents,
+            doseEvents: allDoseEvents,
+            now: now
+        )
         return ZStack {
             CanvasBackground()
             ScrollView {
                 VStack(spacing: 18) {
                     identityHeader
-                    forecastCard(forecast: forecast, now: now)
+                    forecastCard(forecast: forecast, ranOutFirst: ranOutFirst, now: now)
                     quickActions
                     pharmacyCard
-                    scheduleCard(now: now)
+                    scheduleCard(now: now, ranOutFirst: ranOutFirst)
                     AdherenceCalendarCard(medication: medication, schedules: allSchedules, doseEvents: allDoseEvents)
                     detailsCard
                     historyCard
@@ -209,7 +217,7 @@ struct MedicationDetailView: View {
         .padding(.top, 8)
     }
 
-    private func forecastCard(forecast: SupplyForecast, now: Date) -> some View {
+    private func forecastCard(forecast: SupplyForecast, ranOutFirst: Bool, now: Date) -> some View {
         let attention = SupplyAttention(medication: medication, forecast: forecast, now: now)
         return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top) {
@@ -218,15 +226,15 @@ struct MedicationDetailView: View {
                         .font(.caption2.weight(.bold))
                         .tracking(0.8)
                         .foregroundStyle(.secondary)
-                    Text(Self.forecastTitle(for: forecast))
+                    Text(Self.forecastTitle(for: forecast, ranOutFirst: ranOutFirst))
                         .font(.system(.title, design: .rounded, weight: .bold))
                         .contentTransition(.numericText())
                 }
                 Spacer()
                 SupplyGauge(daysRemaining: forecast.daysRemaining, leadDays: attention.leadDays, needsCount: forecast.needsCount,
-                            course: SupplyGauge.Course(forecast), size: 62)
+                            course: SupplyGauge.Course(forecast, ranOutFirst: ranOutFirst), size: 62)
             }
-            Text(Self.forecastDetail(for: forecast))
+            Text(Self.forecastDetail(for: forecast, ranOutFirst: ranOutFirst))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -272,9 +280,9 @@ struct MedicationDetailView: View {
     /// A course is asked about first: one finished, or one the supply sees
     /// through, has no run-out to name, and an empty bottle at its end is
     /// how a course dispensed to the tablet finishes, not "Out of supply".
-    static func forecastTitle(for forecast: SupplyForecast, calendar: Calendar = .autoupdatingCurrent) -> String {
+    static func forecastTitle(for forecast: SupplyForecast, ranOutFirst: Bool = false, calendar: Calendar = .autoupdatingCurrent) -> String {
         if forecast.courseFinished, let end = forecast.courseEndDate {
-            return "Course finished \(ForecastEngine.dayText(end, calendar: calendar))"
+            return FinishedCourseNotice.endedText(day: ForecastEngine.dayText(end, calendar: calendar), ranOutFirst: ranOutFirst)
         }
         if forecast.courseCovered { return "Enough to finish the course" }
         if forecast.needsCount { return "Count needed" }
@@ -286,9 +294,12 @@ struct MedicationDetailView: View {
     }
 
     /// The line under the title. A finished course's own explanation would
-    /// only repeat the title.
-    static func forecastDetail(for forecast: SupplyForecast) -> String {
-        forecast.courseFinished ? "No doses are scheduled after its last day." : forecast.explanation
+    /// only repeat the title; one that ran out first says so here, where the
+    /// title has no room for it.
+    static func forecastDetail(for forecast: SupplyForecast, ranOutFirst: Bool = false) -> String {
+        guard forecast.courseFinished else { return forecast.explanation }
+        guard ranOutFirst else { return "No doses are scheduled after its last day." }
+        return "The supply on record ran out before its last day. No doses are scheduled after it."
     }
 
     /// The course line under the schedule's times: its last day while it
@@ -298,11 +309,12 @@ struct MedicationDetailView: View {
         schedules: [DoseSchedule],
         medicationID: UUID,
         now: Date,
+        ranOutFirst: Bool = false,
         calendar: Calendar = .autoupdatingCurrent
     ) -> (text: String, isFinished: Bool)? {
         guard let end = ScheduleEngine.courseEnd(schedules: schedules, medicationID: medicationID) else { return nil }
         if ScheduleEngine.isCourseFinished(schedules: schedules, medicationID: medicationID, now: now, calendar: calendar) {
-            return ("Course finished \(ForecastEngine.dayText(end, calendar: calendar))", true)
+            return (FinishedCourseNotice.endedText(day: ForecastEngine.dayText(end, calendar: calendar), ranOutFirst: ranOutFirst), true)
         }
         let day = end.formatted(Date.FormatStyle(calendar: calendar, timeZone: calendar.timeZone).weekday(.wide).month(.abbreviated).day())
         return ("Until \(day)", false)
@@ -395,12 +407,12 @@ struct MedicationDetailView: View {
         return URL(string: "tel:\(digits)")
     }
 
-    private func scheduleCard(now: Date) -> some View {
+    private func scheduleCard(now: Date, ranOutFirst: Bool) -> some View {
         // A course taken up again keeps its ended schedules for the calendar;
         // they are not the times it is taken now.
         let schedules = ScheduleReconciler.currentSchedules(allSchedules, medicationID: medication.id, now: now)
             .sorted { $0.minutesAfterMidnight < $1.minutesAfterMidnight }
-        let course = Self.courseLine(schedules: schedules, medicationID: medication.id, now: now)
+        let course = Self.courseLine(schedules: schedules, medicationID: medication.id, now: now, ranOutFirst: ranOutFirst)
         let finished = course?.isFinished == true
         return VStack(alignment: .leading, spacing: 13) {
             Label("Schedule", systemImage: "calendar")
@@ -426,7 +438,8 @@ struct MedicationDetailView: View {
                     if schedule.id != schedules.last?.id { Divider() }
                 }
                 if let course {
-                    Label(course.text, systemImage: finished ? "checkmark.circle" : "calendar.badge.clock")
+                    // A tick only for a course its supply saw through.
+                    Label(course.text, systemImage: finished ? (ranOutFirst ? "calendar" : "checkmark.circle") : "calendar.badge.clock")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(finished ? AnyShapeStyle(.secondary) : AnyShapeStyle(AppTheme.accent))
                         .fixedSize(horizontal: false, vertical: true)

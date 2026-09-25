@@ -36,11 +36,15 @@ enum WhyThisDateLedger {
 
     /// `notificationsAllowed` is false while iOS will not deliver anything
     /// the app plans: permission refused, or never asked for.
+    /// `courseRanOutFirst`, from `FinishedCourseNotice.ranOutFirst`, keeps
+    /// a course whose supply ran short from being called finished here while
+    /// the screen it was opened from names it by its last day.
     static func lines(
         for breakdown: ForecastBreakdown,
         isAsNeeded: Bool,
         isArchived: Bool = false,
         notificationsAllowed: Bool = true,
+        courseRanOutFirst: Bool = false,
         calendar: Calendar = .autoupdatingCurrent
     ) -> [Line] {
         let phrasing = Phrasing(
@@ -48,6 +52,7 @@ enum WhyThisDateLedger {
             isAsNeeded: isAsNeeded,
             isArchived: isArchived,
             notificationsAllowed: notificationsAllowed,
+            courseRanOutFirst: courseRanOutFirst,
             calendar: calendar
         )
         return breakdown.steps.flatMap(phrasing.lines(for:))
@@ -64,6 +69,7 @@ enum WhyThisDateLedger {
         let isAsNeeded: Bool
         let isArchived: Bool
         let notificationsAllowed: Bool
+        let courseRanOutFirst: Bool
         let calendar: Calendar
 
         private var form: MedicationForm { breakdown.form }
@@ -263,8 +269,12 @@ enum WhyThisDateLedger {
                     : "Just enough to finish the course on \(day(end))"
                 return Line(kind: .conclusion, text: text, spoken: text + ".")
             case let .courseFinished(end):
-                let reason = "Nothing more is scheduled, so nothing needs a refill."
-                return Line(kind: .conclusion, text: "Course finished \(day(end))", detail: reason, spoken: "Course finished \(day(end)). \(reason)")
+                var reason = "Nothing more is scheduled, so nothing needs a refill."
+                if courseRanOutFirst {
+                    reason = "The supply on record ran out before it. \(reason)"
+                }
+                let text = FinishedCourseNotice.endedText(day: day(end), ranOutFirst: courseRanOutFirst)
+                return Line(kind: .conclusion, text: text, detail: reason, spoken: "\(text). \(reason)")
             case .countNeeded:
                 let reason = "The doses nobody logged use up what's on record, so only a count can say what's left."
                 return Line(kind: .conclusion, text: "Count needed", detail: reason, spoken: "Count needed. \(reason)", isWarning: true)

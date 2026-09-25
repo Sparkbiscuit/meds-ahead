@@ -47,6 +47,17 @@ struct SupplyView: View {
         }
     }
 
+    private func ranOutFirst(_ medication: Medication, _ forecast: SupplyForecast, now: Date) -> Bool {
+        FinishedCourseNotice.ranOutFirst(
+            medication: medication,
+            forecast: forecast,
+            schedules: schedules,
+            inventoryEvents: inventoryEvents,
+            doseEvents: doseEvents,
+            now: now
+        )
+    }
+
     private func attentionCount(in forecasts: [(Medication, SupplyForecast)], now: Date) -> Int {
         forecasts.filter { SupplyAttention(medication: $0.0, forecast: $0.1, now: now).needsAttention }.count
     }
@@ -100,7 +111,7 @@ struct SupplyView: View {
                                 NavigationLink {
                                     MedicationDetailView(medication: medication)
                                 } label: {
-                                    SupplyRow(medication: medication, forecast: forecast, now: now)
+                                    SupplyRow(medication: medication, forecast: forecast, ranOutFirst: ranOutFirst(medication, forecast, now: now), now: now)
                                 }
                                 .buttonStyle(.plain)
                                 // Beside the row's tap, not in place of it: the
@@ -152,6 +163,8 @@ struct SupplyView: View {
 private struct SupplyRow: View {
     let medication: Medication
     let forecast: SupplyForecast
+    /// A finished course whose supply ran out before its last day.
+    let ranOutFirst: Bool
     let now: Date
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -198,7 +211,7 @@ private struct SupplyRow: View {
     private var gauge: some View {
         // A course's ring says what the summary beside it already says.
         SupplyGauge(daysRemaining: forecast.daysRemaining, leadDays: attention.leadDays, needsCount: forecast.needsCount,
-                    course: SupplyGauge.Course(forecast), size: 54)
+                    course: SupplyGauge.Course(forecast, ranOutFirst: ranOutFirst), size: 54)
             .accessibilityHidden(forecast.needsCount || SupplyGauge.Course(forecast) != nil)
     }
 
@@ -245,7 +258,7 @@ private struct SupplyRow: View {
     }
 
     private var summary: String {
-        SupplyRowText.summary(for: forecast, isLow: isLow, refillStatus: RefillStatusText.line(for: medication, now: now))
+        SupplyRowText.summary(for: forecast, isLow: isLow, refillStatus: RefillStatusText.line(for: medication, now: now), ranOutFirst: ranOutFirst)
     }
 }
 
@@ -259,11 +272,13 @@ enum SupplyRowText {
         for forecast: SupplyForecast,
         isLow: Bool,
         refillStatus: String?,
+        ranOutFirst: Bool = false,
         calendar: Calendar = .autoupdatingCurrent
     ) -> String {
         if isLow { return SupplyAttention.line(for: forecast) }
         if forecast.courseFinished, let end = forecast.courseEndDate {
-            return "Course finished \(ForecastEngine.dayText(end, calendar: calendar))"
+            let ended = FinishedCourseNotice.endedText(day: ForecastEngine.dayText(end, calendar: calendar), ranOutFirst: ranOutFirst)
+            return ranOutFirst ? "\(ended) · \(FinishedCourseNotice.ranOutNote)" : ended
         }
         if forecast.courseCovered, let end = forecast.courseEndDate {
             return "Enough to finish the course on \(ForecastEngine.dayText(end, calendar: calendar))"

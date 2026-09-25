@@ -80,7 +80,17 @@ enum MedicationListDocument {
             scheduleLines = ["No schedule entered"]
         } else if let courseEnd, ScheduleEngine.isCourseFinished(schedules: current, medicationID: medication.id, now: now, calendar: calendar) {
             // Times printed for a course that is over read as doses still taken.
-            scheduleLines = ["Course finished \(dayText(courseEnd, calendar: calendar))"]
+            let ranOutFirst = FinishedCourseNotice.ranOutFirst(
+                medication: medication,
+                schedules: allSchedules,
+                inventoryEvents: inventoryEvents,
+                doseEvents: doseEvents,
+                end: courseEnd,
+                now: now,
+                calendar: calendar
+            )
+            let ended = FinishedCourseNotice.endedText(day: dayText(courseEnd, calendar: calendar), ranOutFirst: ranOutFirst)
+            scheduleLines = [ranOutFirst ? "\(ended) · \(FinishedCourseNotice.ranOutNote)" : ended]
         } else {
             let until = courseEnd.map { " · until \(dayText($0, calendar: calendar))" } ?? ""
             scheduleLines = current

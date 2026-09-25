@@ -461,6 +461,55 @@ final class CourseDisplayTests: XCTestCase {
         XCTAssertTrue(entry.scheduleLines.allSatisfy { $0.hasSuffix("until Sep 20, 2026") })
     }
 
+    // MARK: - A course that ran out first
+
+    /// A course whose supply ran out before its last day is never called
+    /// finished where a person or a clinician reads it: printed, "finished"
+    /// reads as completed. Each place says the last day, which is true
+    /// either way, and where there is room that the supply ran out before
+    /// it. A course its supply saw through is still finished.
+    func testACourseThatRanOutFirstIsNotCalledFinished() throws {
+        // 16 counted for 18 doses, logged until the 8th's morning dose.
+        let ranShort = course(count: 16, through: 9, loggedThrough: september(8, 9))
+        let short = forecast(ranShort)
+        XCTAssertTrue(short.courseFinished, "why: the forecast goes by the date alone")
+        func ranOutFirst(_ course: Course) -> Bool {
+            FinishedCourseNotice.ranOutFirst(medication: course.medication, forecast: forecast(course), schedules: course.schedules,
+                                             inventoryEvents: course.inventory, doseEvents: course.doses, now: now, calendar: calendar)
+        }
+        XCTAssertTrue(ranOutFirst(ranShort))
+        XCTAssertFalse(ranOutFirst(finished))
+        XCTAssertFalse(ranOutFirst(course(count: 16, through: 20, loggedThrough: september(12, 8))), "a course still running has not ended")
+
+        XCTAssertEqual(MedicationDetailView.forecastTitle(for: short, ranOutFirst: true, calendar: calendar), "Last day was Sep 9")
+        XCTAssertEqual(MedicationDetailView.forecastDetail(for: short, ranOutFirst: true),
+                       "The supply on record ran out before its last day. No doses are scheduled after it.")
+        let line = try XCTUnwrap(MedicationDetailView.courseLine(schedules: ranShort.schedules, medicationID: ranShort.medication.id,
+                                                                 now: now, ranOutFirst: true, calendar: calendar))
+        XCTAssertEqual(line.text, "Last day was Sep 9")
+        XCTAssertTrue(line.isFinished, "over all the same: its times are greyed")
+
+        XCTAssertEqual(SupplyGauge.Course(short, ranOutFirst: true), .ranOutFirst)
+        XCTAssertEqual(SupplyGauge.Course(forecast(covered), ranOutFirst: true), .covered, "only a course that is over")
+        let gauge = SupplyGauge(daysRemaining: nil, leadDays: 7, course: .ranOutFirst)
+        XCTAssertNil(gauge.shownDays)
+        XCTAssertEqual(gauge.color, .secondary)
+        XCTAssertEqual(gauge.accessibilityText, "Course over")
+
+        XCTAssertEqual(SupplyRowText.summary(for: short, isLow: false, refillStatus: nil, ranOutFirst: true, calendar: calendar),
+                       "Last day was Sep 9 · the supply on record ran out before it")
+
+        XCTAssertEqual(try listEntry(ranShort).scheduleLines, ["Last day was Sep 9, 2026 · the supply on record ran out before it"])
+        XCTAssertEqual(try listEntry(finished).scheduleLines, ["Course finished Sep 9, 2026"], "seen through, it finished")
+
+        let breakdown = ForecastEngine.breakdown(medication: ranShort.medication, schedules: ranShort.schedules, inventoryEvents: ranShort.inventory,
+                                                 doseEvents: ranShort.doses, now: now, calendar: calendar)
+        let conclusion = try XCTUnwrap(WhyThisDateLedger.lines(for: breakdown, isAsNeeded: false, courseRanOutFirst: true, calendar: calendar)
+            .first { $0.kind == .conclusion })
+        XCTAssertEqual(conclusion.text, "Last day was Sep 9")
+        XCTAssertEqual(conclusion.detail, "The supply on record ran out before it. Nothing more is scheduled, so nothing needs a refill.")
+    }
+
     // MARK: - Runs-out widget
 
     func testTheWidgetSaysACourseIsCoveredAndLeavesAFinishedOneOff() throws {

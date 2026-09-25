@@ -51,7 +51,15 @@ struct WhyThisDateView: View {
             for: breakdown,
             isAsNeeded: medication.isAsNeeded,
             isArchived: medication.isArchived,
-            notificationsAllowed: notifications != .blocked && notifications != .unasked
+            notificationsAllowed: notifications != .blocked && notifications != .unasked,
+            courseRanOutFirst: FinishedCourseNotice.ranOutFirst(
+                medication: medication,
+                forecast: breakdown.forecast,
+                schedules: schedules,
+                inventoryEvents: inventoryEvents,
+                doseEvents: doseEvents,
+                now: now
+            )
         )
         let ledger = lines.filter { [.start, .change, .total].contains($0.kind) }
         let outlook = lines.filter { ![.start, .change, .total].contains($0.kind) }

@@ -7,10 +7,13 @@ struct SupplyGauge: View {
     enum Course: Equatable {
         case covered
         case finished
+        /// Over, but its supply ran out before its last day. Over all the
+        /// same, so it reads complete, without the tick that says finished.
+        case ranOutFirst
 
-        init?(_ forecast: SupplyForecast) {
+        init?(_ forecast: SupplyForecast, ranOutFirst: Bool = false) {
             if forecast.courseFinished {
-                self = .finished
+                self = ranOutFirst ? .ranOutFirst : .finished
             } else if forecast.courseCovered {
                 self = .covered
             } else {
@@ -40,7 +43,7 @@ struct SupplyGauge: View {
         if needsCount { return .orange }
         switch course {
         case .covered: return AppTheme.accent
-        case .finished: return .secondary
+        case .finished, .ranOutFirst: return .secondary
         case nil: break
         }
         guard let daysRemaining else { return .secondary }
@@ -54,6 +57,7 @@ struct SupplyGauge: View {
         switch course {
         case .covered: return "Enough to finish the course"
         case .finished: return "Course finished"
+        case .ranOutFirst: return "Course over"
         case nil: break
         }
         return daysRemaining.map { "\($0.dayCountText) of supply remaining" } ?? "Supply forecast unavailable"
@@ -70,6 +74,10 @@ struct SupplyGauge: View {
                 Text("\(shownDays)")
                     .font(.caption.weight(.bold))
                     .contentTransition(.numericText())
+            } else if course == .ranOutFirst {
+                Image(systemName: "calendar")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(color)
             } else if course != nil {
                 Image(systemName: "checkmark")
                     .font(.caption.weight(.bold))
