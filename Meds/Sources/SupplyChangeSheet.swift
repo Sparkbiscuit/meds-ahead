@@ -148,9 +148,9 @@ struct SupplyChangeSheet: View {
     }
 }
 
-/// Correct Count asked for away from the detail screen, from Today's quick
-/// count and from "Why this date?", and recorded as the detail screen records
-/// it, so a count means the same thing wherever it was made.
+/// Correct Count, recorded one way from every screen that asks for it: the
+/// detail screen, Today's quick count and "Why this date?", so a count means
+/// the same thing wherever it was made.
 enum CountCorrection {
     /// What Count Now opens with. The prefill is decided when it is tapped, by
     /// the rules Correct Count always uses, and kept: a dose reaching its due

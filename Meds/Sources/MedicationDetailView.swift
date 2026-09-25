@@ -151,20 +151,15 @@ struct MedicationDetailView: View {
                 initialValue: askingCountAfterEdit ? nil : SupplyChangeQuantity.countPrefill(for: forecast),
                 actionTitle: "Save Count"
             ) { actualCount, note in
-                let difference = ForecastEngine.correctionDelta(
-                    medicationID: medication.id,
-                    actualCount: actualCount,
-                    inventoryEvents: allInventoryEvents,
-                    doseEvents: allDoseEvents
-                )
-                // A count that matches the ledger is still recorded: the forecast
-                // assumes unlogged doses were taken only until the last count, and
-                // a count with no event behind it could never end "Count needed".
-                let event = InventoryEvent(medicationID: medication.id, delta: abs(difference) > 0.000_001 ? difference : 0, reason: .correction, note: note)
-                modelContext.insert(event)
-                medication.updatedAt = .now
-                if saveChanges() {
-                    refreshNotifications(inventoryEvents: allInventoryEvents.filter { $0.id != event.id } + [event])
+                // As Today's quick count and "Why this date?" record it, from
+                // the store: the screen's arrays can trail a dose the widget or
+                // a reminder has just logged.
+                do {
+                    try CountCorrection.record(actualCount: actualCount, note: note, for: medication, in: modelContext)
+                    CountCorrection.replanNotifications(in: modelContext)
+                } catch {
+                    saveErrorMessage = "Your change wasn't saved. Try again."
+                    showingSaveError = true
                 }
             }
         }

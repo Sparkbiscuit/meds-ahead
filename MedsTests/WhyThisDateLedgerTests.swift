@@ -496,11 +496,13 @@ final class WhyThisDateLedgerTests: XCTestCase {
         XCTAssertEqual(lines(short).first { $0.kind == .use }?.text, "Uses 3 tablets a day")
     }
 
-    /// A count made from Today or "Why this date?" is the same correction
-    /// the detail screen records: the difference from the ledger, or a zero
-    /// correction when they agree, so a count always ends "Count needed".
+    /// A count, from the detail screen, Today or "Why this date?", is the
+    /// difference from the ledger in the store, or a zero correction when
+    /// they agree, so a count always ends "Count needed". Every screen
+    /// records it through `CountCorrection`, which reads the store rather
+    /// than a screen's arrays: a dose the widget has just logged is there.
     @MainActor
-    func testACountFromAnotherScreenIsRecordedAsTheDetailScreenRecordsIt() throws {
+    func testACountIsRecordedAgainstTheLedgerInTheStore() throws {
         let schema = Schema([Medication.self, DoseSchedule.self, DoseEvent.self, InventoryEvent.self])
         let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)])
         let context = container.mainContext
