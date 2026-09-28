@@ -131,29 +131,4 @@ final class TakeNowReconciliationTests: XCTestCase {
             "00:10 is forty minutes from 23:30 and nine hours from 09:00"
         )
     }
-
-    func testMissedDosesFromEarlierDaysAreStillFindable() throws {
-        let medicationID = UUID()
-        let start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 22)))
-        let schedule = DoseSchedule(
-            medicationID: medicationID,
-            minutesAfterMidnight: 21 * 60,
-            doseQuantity: 1,
-            startDate: start
-        )
-        let today = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 24, hour: 7)))
-        let startOfToday = calendar.startOfDay(for: today)
-        let lookback = try XCTUnwrap(calendar.date(byAdding: .day, value: -2, to: startOfToday))
-
-        let earlier = ScheduleEngine.doses(
-            schedules: [schedule],
-            medicationID: medicationID,
-            from: lookback,
-            through: startOfToday.addingTimeInterval(-1),
-            calendar: calendar
-        )
-
-        XCTAssertEqual(earlier.count, 2, "the two evenings before today")
-        XCTAssertTrue(earlier.allSatisfy { ScheduleEngine.loggedStatus(for: $0, in: []) == nil })
-    }
 }

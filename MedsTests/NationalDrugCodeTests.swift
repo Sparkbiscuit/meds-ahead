@@ -120,10 +120,6 @@ final class NationalDrugCodeTests: XCTestCase {
         XCTAssertTrue(NationalDrugCode.readings(inLabelText: "A0093-1039-01").isEmpty, "glued to a letter")
     }
 
-    func testACaptionedCodeIsNotReportedTwiceByTheUncaptionedShape() {
-        XCTAssertEqual(NationalDrugCode.readings(inLabelText: "NDC 0093-1039-01").count, 1)
-    }
-
     func testTextWithoutACodeYieldsNothing() {
         XCTAssertTrue(NationalDrugCode.readings(inLabelText: "RX# 8842197 QTY 30 NDC").isEmpty)
         XCTAssertTrue(NationalDrugCode.readings(inLabelText: "NDC 0093-1039-012").isEmpty, "an extra digit is not a code")

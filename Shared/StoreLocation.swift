@@ -17,6 +17,12 @@ enum StoreLocation {
     static let sidecarSuffixes = ["", "-wal", "-shm"]
     /// What a moved store's originals are renamed to, beside their old name.
     static let retiredSuffix = ".before-app-group"
+    /// What a copy is called until the whole move is known to be good. The main
+    /// file appears under its real name last, so its existence means a finished
+    /// move: a launch cut short between two copies used to leave the main file
+    /// in place without its write-ahead log, and the next launch opened it and
+    /// lost whatever was still in the log.
+    static let inProgressSuffix = ".moving"
 
     /// The store the app and its widgets share.
     static var sharedURL: URL? {
@@ -47,9 +53,9 @@ enum StoreLocation {
         if fileManager.fileExists(atPath: shared.path) { return .alreadyShared }
         guard fileManager.fileExists(atPath: legacy.path) else { return .nothingToMove }
 
-        var copied: [URL] = []
+        var leftBehind: [URL] = []
         func abandon(_ reason: String) -> Outcome {
-            for url in copied { try? fileManager.removeItem(at: url) }
+            for url in leftBehind { try? fileManager.removeItem(at: url) }
             return .keptLegacy(reason)
         }
 
@@ -58,20 +64,44 @@ enum StoreLocation {
         } catch {
             return .keptLegacy("group container: \(error.localizedDescription)")
         }
+        // No main file means no earlier attempt finished; whatever one left
+        // behind is discarded rather than trusted.
+        for suffix in sidecarSuffixes {
+            try? fileManager.removeItem(at: URL(fileURLWithPath: shared.path + suffix + inProgressSuffix))
+            if !suffix.isEmpty { try? fileManager.removeItem(at: URL(fileURLWithPath: shared.path + suffix)) }
+        }
         for suffix in sidecarSuffixes {
             let source = URL(fileURLWithPath: legacy.path + suffix)
-            let destination = URL(fileURLWithPath: shared.path + suffix)
+            let destination = URL(fileURLWithPath: shared.path + suffix + inProgressSuffix)
             guard fileManager.fileExists(atPath: source.path) else { continue }
             do {
                 try fileManager.copyItem(at: source, to: destination)
-                copied.append(destination)
+                leftBehind.append(destination)
             } catch {
                 return abandon("copy of \(source.lastPathComponent): \(error.localizedDescription)")
             }
         }
-        guard let sourceSize = fileSize(legacy, fileManager), let copySize = fileSize(shared, fileManager),
-              sourceSize == copySize, copySize > 0 else {
-            return abandon("the copy is not the size of the original")
+        // The main file and the log are the history; the shared-memory file is
+        // rebuilt by SQLite and may legitimately differ.
+        for suffix in ["", "-wal"] where fileManager.fileExists(atPath: legacy.path + suffix) {
+            let source = URL(fileURLWithPath: legacy.path + suffix)
+            let copy = URL(fileURLWithPath: shared.path + suffix + inProgressSuffix)
+            guard let sourceSize = fileSize(source, fileManager), let copySize = fileSize(copy, fileManager),
+                  sourceSize == copySize, suffix.isEmpty ? copySize > 0 : true else {
+                return abandon("the copy of \(source.lastPathComponent) is not the size of the original")
+            }
+        }
+        // Sidecars into place first, the main file last.
+        for suffix in ["-shm", "-wal", ""] {
+            let copy = URL(fileURLWithPath: shared.path + suffix + inProgressSuffix)
+            let destination = URL(fileURLWithPath: shared.path + suffix)
+            guard fileManager.fileExists(atPath: copy.path) else { continue }
+            do {
+                try fileManager.moveItem(at: copy, to: destination)
+                leftBehind.append(destination)
+            } catch {
+                return abandon("placing \(destination.lastPathComponent): \(error.localizedDescription)")
+            }
         }
 
         // From here the shared store is the store. Retiring the originals is

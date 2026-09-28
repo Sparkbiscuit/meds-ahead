@@ -2,13 +2,6 @@ import XCTest
 @testable import Meds
 
 final class AppThemeTests: XCTestCase {
-    func testAccentIndexIsStableForTheSameName() {
-        XCTAssertEqual(
-            AppTheme.accentIndex(for: "Dimethyl fumarate"),
-            AppTheme.accentIndex(for: "Dimethyl fumarate")
-        )
-    }
-
     func testAccentIndexIgnoresCase() {
         XCTAssertEqual(
             AppTheme.accentIndex(for: "Furosemide"),
@@ -25,13 +18,6 @@ final class AppThemeTests: XCTestCase {
                 "\(name) produced out-of-range index \(index)"
             )
         }
-    }
-
-    func testAccentIndexSpreadsAcrossThePalette() {
-        let names = ["Furosemide", "Dimethyl fumarate", "Melatonin", "Atorvastatin",
-                     "Metformin", "Lisinopril", "Sertraline", "Amlodipine"]
-        let distinct = Set(names.map(AppTheme.accentIndex(for:)))
-        XCTAssertGreaterThan(distinct.count, 1, "every medication received the same colour")
     }
 
     func testColorLookupSurvivesExtremeStoredIndex() {

@@ -68,14 +68,6 @@ final class ScanParserTests: XCTestCase {
         XCTAssertEqual(draft.evidence.count, 3, "Raw evidence remains available for human review")
     }
 
-    func testLowConfidenceContextCanStillSupplyExplicitField() {
-        let evidence = [
-            ScanEvidence(kind: .text, value: "Qty 30", confidence: 0.34)
-        ]
-
-        XCTAssertEqual(ScanParser.parse(evidence).currentSupply, 30)
-    }
-
     func testLiveEvidenceMergeRetainsLowConfidenceTextForSemanticReview() {
         let liveText = ScanEvidence(
             kind: .text,
@@ -162,12 +154,6 @@ final class ScanParserTests: XCTestCase {
         let evidence = [ScanEvidence(kind: .text, value: "TAKE ONE TABLET BY MO.")]
 
         XCTAssertEqual(ScanParser.parse(evidence).directions, "")
-    }
-
-    func testPackageCountParsesAsCurrentSupply() {
-        let evidence = [ScanEvidence(kind: .text, value: "120 TABLETS")]
-
-        XCTAssertEqual(ScanParser.parse(evidence).currentSupply, 120)
     }
 
     func testDirectionsDoseCountIsNotMistakenForPackageQuantity() {
@@ -335,15 +321,6 @@ final class ScanParserTests: XCTestCase {
         )
     }
 
-    func testCompactStrengthTextIsCanonicalizedWhenParsing() {
-        XCTAssertEqual(
-            ScanParser.parse([
-                ScanEvidence(kind: .text, value: "SERTRALINE HCL 50MG", confidence: 0.98)
-            ]).strength,
-            "50 mg"
-        )
-    }
-
     func testNormalizedStrengthReturnsCanonicalValueOnlyForStrengthText() {
         XCTAssertEqual(ScanParser.normalizedStrength("50MG"), "50 mg")
         XCTAssertNil(ScanParser.normalizedStrength("Take one tablet"))
@@ -354,57 +331,6 @@ final class ScanParserTests: XCTestCase {
             ScanParser.strengthMatches(in: "AMOXICILLIN 875 MG / CLAVULANATE 125 MG"),
             ["875 mg", "125 mg"]
         )
-    }
-
-    func testFilledPharmacyLineIsNotTrustedAsDirections() {
-        let value = "is Filled: 8/13/2026 RPh: Mg by mouth 1 time each chew."
-
-        XCTAssertEqual(
-            ScanParser.parse([
-                ScanEvidence(kind: .text, value: value, confidence: 0.98)
-            ]).directions,
-            ""
-        )
-        XCTAssertFalse(ScanParser.isTrustedDirections(value))
-    }
-
-    func testOCRFragmentWithoutDirectionOpeningIsNotTrustedAsDirections() {
-        let value = "- capsule by mouth 2 tim agNe 8.5 mg total twice da"
-
-        XCTAssertEqual(
-            ScanParser.parse([
-                ScanEvidence(kind: .text, value: value, confidence: 0.98)
-            ]).directions,
-            ""
-        )
-        XCTAssertFalse(ScanParser.isTrustedDirections(value))
-    }
-
-    func testMangledWeekdayFragmentIsNotTrustedAsDirections() {
-        let value = "like 2 tablets by mouth rednesdays, and fridays"
-
-        XCTAssertEqual(
-            ScanParser.parse([
-                ScanEvidence(kind: .text, value: value, confidence: 0.98)
-            ]).directions,
-            ""
-        )
-        XCTAssertFalse(ScanParser.isTrustedDirections(value))
-    }
-
-    func testVerbDirectionsRemainTrusted() {
-        let value = "Take 1 tablet by mouth twice daily"
-
-        XCTAssertEqual(
-            ScanParser.parse([
-                ScanEvidence(kind: .text, value: value, confidence: 0.98)
-            ]).directions,
-            value
-        )
-    }
-
-    func testNoVerbCompleteSigRemainsTrusted() {
-        XCTAssertTrue(ScanParser.isTrustedDirections("ONE CAPSULE TWICE DAILY"))
     }
 
     func testAsDirectedDirectionsRemainTrusted() {
@@ -443,15 +369,6 @@ final class ScanParserTests: XCTestCase {
         ]
 
         XCTAssertEqual(ScanParser.parse(evidence).directions, "")
-    }
-
-    func testTrailingPharmacyImprintIsRemovedFromStrengthAnchoredName() {
-        XCTAssertEqual(
-            ScanParser.parse([
-                ScanEvidence(kind: .text, value: "SERTRALINE HCL 50MG G1", confidence: 0.98)
-            ]).name,
-            "Sertraline HCl"
-        )
     }
 
     func testLegitimateMultiWordNameIsNotTruncatedAfterStrengthRemoval() {

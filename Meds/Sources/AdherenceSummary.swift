@@ -52,10 +52,7 @@ enum AdherenceSummary {
             var skipped = 0
             var counted: Set<UUID> = []
             for dose in scheduledDoses {
-                guard let event = events.first(where: {
-                    $0.scheduleID == dose.scheduleID
-                        && $0.scheduledAt.map { abs($0.timeIntervalSince(dose.date)) < 60 } == true
-                }) else { continue }
+                guard let event = ScheduleEngine.loggedEvent(for: dose, in: events, now: now, calendar: calendar) else { continue }
                 counted.insert(event.id)
                 if event.status == .taken { taken += 1 } else { skipped += 1 }
             }

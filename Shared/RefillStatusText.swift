@@ -5,19 +5,29 @@ import Foundation
 enum RefillStatusText {
     static func line(for medication: Medication, now: Date = .now, calendar: Calendar = .autoupdatingCurrent) -> String? {
         let date = medication.refillStatusDate
+        // Days are read in the calendar passed in, from `now`, so the words
+        // agree with the attention rule that is counted the same way.
+        let style = Date.FormatStyle(calendar: calendar, timeZone: calendar.timeZone)
         func day(_ date: Date) -> String {
-            if calendar.isDateInToday(date) { return "today" }
-            if calendar.isDateInTomorrow(date) { return "tomorrow" }
-            if let week = calendar.date(byAdding: .day, value: 6, to: calendar.startOfDay(for: now)), date <= week, date > now {
-                return date.formatted(.dateTime.weekday(.wide))
+            if calendar.isDate(date, inSameDayAs: now) { return "today" }
+            if let tomorrow = calendar.date(byAdding: .day, value: 1, to: now), calendar.isDate(date, inSameDayAs: tomorrow) {
+                return "tomorrow"
             }
-            return date.formatted(.dateTime.month(.abbreviated).day())
+            if let week = calendar.date(byAdding: .day, value: 6, to: calendar.startOfDay(for: now)), date <= week, date > now {
+                return date.formatted(style.weekday(.wide))
+            }
+            return date.formatted(style.month(.abbreviated).day())
         }
         switch medication.refillStatus {
         case .none:
             return nil
         case .requested:
-            return date.map { "Refill requested · expected \(day($0))" } ?? "Refill requested"
+            guard let date else { return "Refill requested" }
+            // "Expected" on a day already gone reads as reassurance it no longer is.
+            if calendar.startOfDay(for: date) < calendar.startOfDay(for: now) {
+                return "Refill requested · was expected \(day(date))"
+            }
+            return "Refill requested · expected \(day(date))"
         case .ready:
             guard let date else { return "Ready for pickup" }
             return date <= now ? "Ready for pickup" : "Pick up \(day(date))"

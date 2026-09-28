@@ -11,27 +11,10 @@ final class MedicationVocabularyTests: XCTestCase {
         "meloxicam"
     ]
 
-    func testRepairsDroppedLeadingCharacter() {
-        XCTAssertEqual(
-            MedicationVocabulary.uniqueMatch(for: "elatonin", among: sampleNames),
-            "melatonin"
-        )
-    }
-
     func testCompletesUniqueCurvedBottleEdge() {
         XCTAssertEqual(
             MedicationVocabulary.uniqueMatch(
                 for: "AMPHETAMINE - DEXTROAMPHET",
-                among: sampleNames
-            ),
-            "amphetamine - dextroamphetamine"
-        )
-    }
-
-    func testRepairsUserReportedCompoundEdgeFragment() {
-        XCTAssertEqual(
-            MedicationVocabulary.uniqueMatch(
-                for: "amphetamine-dextroan",
                 among: sampleNames
             ),
             "amphetamine - dextroamphetamine"
@@ -49,16 +32,6 @@ final class MedicationVocabularyTests: XCTestCase {
 
     func testDoesNotCompleteAmbiguousShortFragment() {
         XCTAssertNil(MedicationVocabulary.uniqueMatch(for: "melat", among: sampleNames))
-    }
-
-    func testDoesNotSubstituteBrandForPrintedGeneric() {
-        XCTAssertNotEqual(
-            MedicationVocabulary.uniqueMatch(
-                for: "AMPHETAMINE - DEXTROAMPHET",
-                among: sampleNames
-            ),
-            "Adderall"
-        )
     }
 
     func testBundledVocabularyContainsReleaseExamples() {

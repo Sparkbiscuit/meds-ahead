@@ -1,5 +1,67 @@
 # Post-1.1 brief
 
+> Status, September 25, 2026, evening: two releases now stand on local
+> branches, neither pushed nor submitted.
+>
+> **1.1.1** (version 1.1.1, build 7, `fix/1.1.1-supply-accuracy`) covers all
+> of section 1 and, from September 25, the iOS 27 scanner and release form as
+> part of a product's identity. The three OCR tests that read blurred NDC print
+> differently on the iOS 27 simulator now pass there, so that decision is gone.
+> Sections 4 and 6 stand as below: done, except that
+> `LogNextDoseIntent.perform` has no test of its own (1.2 adds a follow-up
+> withdrawal to it, tested through `NotificationIdentifiers.followUpIsAnswered`).
+> Left for 1.1.1: the device script under "1.1.1 gates" in
+> `RELEASE_CHECKLIST.md`, steps 1 to 16, which also closes section 2's open 1.1
+> gates; the accessibility declarations (section 2); the archive and
+> submission.
+>
+> **1.2** is no longer the Spanish release of section 3. It is "First Days
+> Home" (version 1.2, build 8, `feature/first-days-home`), built on 1.1.1 and
+> carrying all of it: courses with a last day, reminders planned by date for a
+> course or a schedule that starts later, optional follow-ups, a weekly count
+> check with a quick count on Today, "Why this date?", Save and Scan Next, and
+> a bottle of something already tracked added as a refill. See
+> `VERIFICATION.md` (September 25, 1.2) and `ARCHITECTURE.md`. It closes none
+> of the numbered items below and reopens none of section 1's fixes. Section 3
+> has not started, and 1.2 adds English copy its catalog will have to cover
+> (`WhyThisDateLedger`, the count-check and follow-up reminders in
+> `NotificationPlanner`, `FinishedCourseNotice`, `QuickCountPrompt`). Left for
+> 1.2: the device script under "1.2 gates" in `RELEASE_CHECKLIST.md`, then the
+> archive and submission after 1.1.1's. Sections 5 and 7 are untouched.
+>
+> Status, September 24–25, 2026: 1.1.1 is version 1.1.1, build 7, still on
+> the local branch `fix/1.1.1-supply-accuracy` (unpushed), and covers all of
+> section 1. 1a, 1c–1g, 1i and 1j are fixed with tests (September 21). 1b:
+> Add Refill and Correct Count now read the number from the text as typed, a
+> defensive fix, since the simulator never reproduced the bug; the phone
+> repro still says whether it ever failed. 1h: the write half is guarded
+> (Today and Take Now ask the store first, and a stale tap writes nothing and
+> says "Already Logged"); whether Today shows the widget's log is still the
+> device check. Sections 4 and 6 are done, except that
+> `LogNextDoseIntent.perform` still has no test of its own (its new slot
+> check is tested through `ScheduleEngine.hasSlot`). Beyond this brief, a
+> supply-accuracy review on September 24 added one attention rule with a
+> bounded refill pause and a refill check, delivered alerts kept while still
+> true, a run-out date that assumes unlogged doses were taken and asks for a
+> count when it cannot tell, the first-day rule, scanned label counts offered
+> rather than filled, and written-out plurals; see `VERIFICATION.md` and
+> `ARCHITECTURE.md`. Left: the device script under "1.1.1 gates" in
+> `RELEASE_CHECKLIST.md` (it also closes section 2's open 1.1 gates), the
+> accessibility declaration (section 2), the archive and submission, a
+> decision on three OCR tests that read blurred NDC print differently on the
+> iOS 27 simulator (nothing wrong is filled; see `VERIFICATION.md`), and
+> sections 3, 5 and 7.
+>
+> Status, September 21, 2026: 1a, 1c, 1d, 1e, 1f, 1g, 1i and 1j are fixed
+> with tests on the local branch `fix/1.1.1-supply-accuracy` (unpushed); see
+> `VERIFICATION.md`. 1b's UI test passes in the simulator, so it still needs
+> the device repro before any fix; 1h still needs its device check. Section 4's
+> contrast fixes are in too, measured from screenshots because the `.contrast`
+> audit proved unreliable (see `VERIFICATION.md`). The NDC reading was
+> measured under blur and the still pipeline's second look now runs on
+> misread codes too, with the label choosing between readings. Sections 2,
+> 3, 5 and 6 are untouched.
+>
 > Status, September 16, 2026: 1.1 is live (released September 14) and being
 > shared with caregivers. Everything below was found in a read-only review of
 > the code on September 16, 2026; nothing below is fixed yet.
