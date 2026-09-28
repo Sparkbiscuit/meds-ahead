@@ -22,6 +22,17 @@ final class HealthDoseSyncTests: XCTestCase {
     private var now: Date { date(12, 22) }
 
     private struct QueryFailed: Error {}
+    private struct ReadFailed: Error {}
+
+    /// The store, except that one model type cannot be read.
+    private struct Unreadable<Failing: PersistentModel>: ModelFetching {
+        let context: ModelContext
+
+        func fetch<T: PersistentModel>(_ descriptor: FetchDescriptor<T>) throws -> [T] {
+            if T.self == Failing.self { throw ReadFailed() }
+            return try context.fetch(descriptor)
+        }
+    }
 
     private struct Fixture {
         let container: ModelContainer
@@ -78,6 +89,48 @@ final class HealthDoseSyncTests: XCTestCase {
 
         XCTAssertEqual(outcome, .init(linkedMedications: 1))
         XCTAssertEqual(try events(in: fixture).map(\.id), [mirrored.id], "a failed query says nothing about what Health holds")
+    }
+
+    func testAFailedDoseReadStoresNoDoseAgain() async throws {
+        let fixture = try makeFixture(createdAt: date(1, 0))
+        let dose = record(date(10, 9))
+        let mirrored = DoseEvent(medicationID: fixture.medication.id, recordedAt: dose.date, doseQuantity: 1, status: .taken,
+                                 note: DoseEvent.appleHealthNote, healthSampleID: dose.sampleID)
+        fixture.context.insert(mirrored)
+        try fixture.context.save()
+
+        let outcome = await HealthDoseSync.run(
+            in: fixture.context,
+            now: now,
+            source: source(shared: [entry("zoloft")]) { _ in [dose] },
+            reading: Unreadable<DoseEvent>(context: fixture.context)
+        )
+
+        XCTAssertEqual(outcome?.inserted, 0)
+        XCTAssertEqual(try events(in: fixture).map(\.id), [mirrored.id], "a failed read is not an empty ledger")
+    }
+
+    /// Health's dose for a slot logged here two hours earlier is the same
+    /// dose only by its slot, so the schedules must be read to know it.
+    func testAFailedScheduleReadStoresNoSecondDose() async throws {
+        let fixture = try makeFixture(createdAt: date(1, 0))
+        let schedule = DoseSchedule(medicationID: fixture.medication.id, minutesAfterMidnight: 8 * 60, startDate: date(1, 0), createdAt: date(1, 0))
+        // The sync finds slots in the phone's calendar, so 08:00 is the phone's.
+        let slot = try XCTUnwrap(Calendar.autoupdatingCurrent.date(from: DateComponents(year: 2026, month: 9, day: 10, hour: 8)))
+        let logged = DoseEvent(medicationID: fixture.medication.id, scheduleID: schedule.id, scheduledAt: slot,
+                               recordedAt: slot, doseQuantity: 1, status: .taken)
+        fixture.context.insert(schedule)
+        fixture.context.insert(logged)
+        try fixture.context.save()
+        let late = HealthDoseRecord(sampleID: UUID(), date: slot.addingTimeInterval(2 * 60 * 60), scheduledDate: slot, quantity: 1, status: .taken)
+        let source = source(shared: [entry("zoloft")]) { _ in [late] }
+
+        let unread = await HealthDoseSync.run(in: fixture.context, now: now, source: source, reading: Unreadable<DoseSchedule>(context: fixture.context))
+        XCTAssertNil(unread)
+        XCTAssertEqual(try events(in: fixture).map(\.id), [logged.id], "a failed read is not a medication without schedules")
+
+        let read = await HealthDoseSync.run(in: fixture.context, now: now, source: source)
+        XCTAssertEqual(read?.inserted, 0, "read whole, the slot says it is the same dose")
     }
 
     func testDosesFromBeforeTheMedicationWasAddedDoNotChargeTheCount() async throws {

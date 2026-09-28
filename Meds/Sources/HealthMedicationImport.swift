@@ -418,12 +418,20 @@ enum HealthDoseSync {
     @MainActor
     private static var inFlight: Task<Outcome?, Never>?
 
+    /// The ledger is read through `store`, the context itself unless a test
+    /// hands in one whose read fails; what the pass stores goes to `context`.
     @MainActor
-    static func run(in context: ModelContext, now: Date = .now, source: Source? = nil) async -> Outcome? {
+    static func run(
+        in context: ModelContext,
+        now: Date = .now,
+        source: Source? = nil,
+        reading store: (any ModelFetching)? = nil
+    ) async -> Outcome? {
         if let inFlight { return await inFlight.value }
         let source = source ?? .health
+        let store = store ?? context
         let task = Task { @MainActor in
-            await pass(in: context, now: now, source: source)
+            await pass(in: context, reading: store, now: now, source: source)
         }
         inFlight = task
         defer { inFlight = nil }
@@ -431,9 +439,9 @@ enum HealthDoseSync {
     }
 
     @MainActor
-    private static func pass(in context: ModelContext, now: Date, source: Source) async -> Outcome? {
+    private static func pass(in context: ModelContext, reading store: any ModelFetching, now: Date, source: Source) async -> Outcome? {
         guard source.isAvailable() else { return nil }
-        let medications = (try? context.fetch(FetchDescriptor<Medication>())) ?? []
+        let medications = (try? store.fetch(FetchDescriptor<Medication>())) ?? []
         let linked = medications.filter { !$0.isArchived && !$0.healthMatchingCodes.isEmpty }
         guard !linked.isEmpty else { return nil }
         guard let shared = try? await source.sharedMedications(),
@@ -441,8 +449,12 @@ enum HealthDoseSync {
             return nil
         }
 
+        // A store read that fails is not an empty ledger. Planned against no
+        // schedules, a Health dose for a slot already logged here was stored as
+        // a second dose; planned against no doses, every dose in the window
+        // already brought over was stored again. Each charged the count.
+        guard let schedules = try? store.fetch(FetchDescriptor<DoseSchedule>()) else { return nil }
         var outcome = Outcome()
-        let schedules = (try? context.fetch(FetchDescriptor<DoseSchedule>())) ?? []
         for (medication, entries) in groups(of: shared, matching: linked, table: .shared) {
             outcome.linkedMedications += 1
             // A query that fails says nothing about what Health holds. Taken for
@@ -461,7 +473,7 @@ enum HealthDoseSync {
             if queryFailed { continue }
             // Read after the queries, not before them: what the ledger holds by
             // the time the plan is applied is what the plan must be made from.
-            let doseEvents = (try? context.fetch(FetchDescriptor<DoseEvent>())) ?? []
+            guard let doseEvents = try? store.fetch(FetchDescriptor<DoseEvent>()) else { continue }
             let plan = HealthDoseReconciler.plan(
                 records: records,
                 existing: doseEvents,
