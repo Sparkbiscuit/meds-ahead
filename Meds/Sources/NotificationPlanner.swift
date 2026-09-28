@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 
 struct MedicationNotificationPlan: Sendable {
     let medicationID: UUID
@@ -801,8 +802,36 @@ enum NotificationPlanner {
     }
 }
 
+/// What the store is read through: the app's model context, or in a test, a
+/// store whose read fails partway through.
+protocol ModelFetching {
+    func fetch<T: PersistentModel>(_ descriptor: FetchDescriptor<T>) throws -> [T]
+}
+
+extension ModelContext: ModelFetching {}
+
 @MainActor
 enum NotificationPlanBuilder {
+    /// Plans from everything the store holds, or an error when any of it
+    /// cannot be read. A read that fails is not an empty store: plans made
+    /// without the schedules are plans with no dose reminders, and replacing
+    /// the pending requests with them withdraws every reminder until the next
+    /// replan. A caller that cannot read the store leaves reminders alone.
+    static func makeAll(
+        from store: some ModelFetching,
+        now: Date = .now,
+        calendar: Calendar = .autoupdatingCurrent
+    ) throws -> [MedicationNotificationPlan] {
+        makeAll(
+            medications: try store.fetch(FetchDescriptor<Medication>()),
+            schedules: try store.fetch(FetchDescriptor<DoseSchedule>()),
+            inventoryEvents: try store.fetch(FetchDescriptor<InventoryEvent>()),
+            doseEvents: try store.fetch(FetchDescriptor<DoseEvent>()),
+            now: now,
+            calendar: calendar
+        )
+    }
+
     static func makeAll(
         medications: [Medication],
         schedules: [DoseSchedule],

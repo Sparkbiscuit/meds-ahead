@@ -124,17 +124,8 @@ struct RootView: View {
     }
 
     private func replanNotifications() async {
-        let plans = NotificationPlanBuilder.makeAll(
-            medications: fetch(Medication.self),
-            schedules: fetch(DoseSchedule.self),
-            inventoryEvents: fetch(InventoryEvent.self),
-            doseEvents: fetch(DoseEvent.self)
-        )
+        guard let plans = try? NotificationPlanBuilder.makeAll(from: modelContext) else { return }
         await NotificationService.shared.replaceAllNotifications(for: plans)
-    }
-
-    private func fetch<T: PersistentModel>(_ type: T.Type) -> [T] {
-        (try? modelContext.fetch(FetchDescriptor<T>())) ?? []
     }
 
     private func applyPendingNotificationRoute() {

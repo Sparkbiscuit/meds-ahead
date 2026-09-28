@@ -234,12 +234,7 @@ struct SettingsView: View {
 
     /// A reminder choice takes effect now, not at the next launch.
     private func replanNotifications() {
-        let plans = NotificationPlanBuilder.makeAll(
-            medications: (try? modelContext.fetch(FetchDescriptor<Medication>())) ?? [],
-            schedules: (try? modelContext.fetch(FetchDescriptor<DoseSchedule>())) ?? [],
-            inventoryEvents: (try? modelContext.fetch(FetchDescriptor<InventoryEvent>())) ?? [],
-            doseEvents: (try? modelContext.fetch(FetchDescriptor<DoseEvent>())) ?? []
-        )
+        guard let plans = try? NotificationPlanBuilder.makeAll(from: modelContext) else { return }
         Task { await NotificationService.shared.replaceAllNotifications(for: plans) }
     }
 
