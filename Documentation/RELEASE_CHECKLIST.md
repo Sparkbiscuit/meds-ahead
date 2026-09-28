@@ -149,8 +149,9 @@ Superseded by 1.2's release steps; kept as the record of what 1.1.1 would have n
 
 1.2, "First Days Home", is version 1.2, build 8, on the branch `feature/first-days-home` (pull request #2), which carries all of 1.1.1 and ships it. What it changes and why is in `VERIFICATION.md` under September 25, 2026 (1.2); the designs are in `ARCHITECTURE.md` under "Dated reminders, follow-ups and the weekly count check", "Courses", "Why this date?", "The quick count", "Scanning a dozen bottles" and "The same bottle twice". Verified in the simulator:
 
-- [x] Unit tests 643/643 and UI tests 29/29 on the iPhone 17 Pro simulator, iOS 26.5
-- [x] Unit tests 643/643 and UI tests 29/29 on the iPhone 17 Pro simulator, iOS 27.0
+- [x] A store read that fails no longer clears reminders or stores Health doses twice (September 28, the one high-severity finding from the September 25 review, plus the same fault in the Health sync); `VERIFICATION.md` under September 28, 2026
+- [x] Unit tests 646/646 and UI tests 29/29 on the iPhone 17 Pro simulator, iOS 26.5, at `14cbd94`
+- [x] Unit tests 646/646 and UI tests 29/29 on the iPhone 17 Pro simulator, iOS 27.0, at `14cbd94`
 - [x] Release build for the iOS Simulator and for a generic iOS device (unsigned), with no warnings; app and widget extension both 1.2 (8); no DEBUG launch argument, seed or hook is in either Release binary
 - [x] No `@Model` change since 1.1: `Shared/Models.swift` is untouched, so there is no migration to verify
 - [x] Today's new cards, the course's words on Supply, the detail screen and Why This Date, and the planned-through notice, in light and dark and at Accessibility XXXL, from screenshots and UI tests

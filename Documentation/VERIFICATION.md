@@ -1,5 +1,87 @@
 # Verification record
 
+## September 28, 2026 — 1.2: a store read that fails is not an empty store
+
+A September 25 review of 1.2 reported one high-severity path, written up
+again in the September 27 digest. The replans at launch and on every return
+to the foreground (`RootView`) and after a reminder setting changes
+(`SettingsView`) read the store with `(try? modelContext.fetch(...)) ?? []`.
+A read that failed became an empty list, so a store that returned the
+medications but not their schedules produced plans with no dose reminders,
+and `NotificationService.replaceAllNotifications` withdrew every pending dose
+reminder to match. Nothing scheduled them again until the next replan.
+`RootView`'s path is in 1.1 as released; Settings' is new in 1.2. The
+September 27 phone pass could not have shown it: a healthy store does not
+fail reads.
+
+Looking for the same pattern elsewhere found it in `HealthDoseSync`, in 1.1 as
+released since `83ac165`. Planned against a dose read that failed, every
+Health dose in the thirty-day window already brought over was stored again;
+planned against a schedule read that failed, a Health dose for a slot
+already logged here, more than half an hour from that log, was stored as a
+second dose. Both counted toward the supply. Nick chose to ship its fix in
+1.2 as well.
+
+### What changed
+
+- **Reminders** (`fd0a4a6`). `NotificationPlanBuilder.makeAll(from:)` reads
+  all four model types and throws when any read fails. Both replans use it
+  and return without replanning when it throws, which leaves the pending
+  reminders as they were, as `SupplyChangeSheet` and
+  `NotificationDoseRecorder.respond` already did. `ModelFetching`, a
+  one-method protocol `ModelContext` conforms to, lets a test hand in a store
+  that fails partway.
+- **The Health sync** (`14cbd94`). It reads the ledger through the same
+  protocol. A failed schedule read skips the pass; a failed dose read skips
+  that medication, as a failed Health query already did.
+- No `@Model` change; build 8 was not uploaded, so the build number stays.
+
+### The tests, and that they fail without the fixes
+
+- `NotificationStoreReadTests.testAStoreReadThatFailsPartwayYieldsNoPlans`:
+  an in-memory store with one daily 08:00 schedule plans
+  `meds.group.dose.daily.0800` when read whole, and the builder throws when
+  the schedules cannot be read.
+- `HealthDoseSyncTests.testAFailedDoseReadStoresNoDoseAgain`: a Health dose
+  already brought over is not stored again when the doses cannot be read.
+- `HealthDoseSyncTests.testAFailedScheduleReadStoresNoSecondDose`: a Health
+  dose two hours after its 08:00 slot, which was logged here, stores
+  nothing when the schedules cannot be read; read whole, the slot recognises
+  it as the same dose. Its 08:00 is built in the phone's calendar, since the
+  sync finds slots there; built in UTC, the slot was four hours off in
+  the simulator's zone and the test's own baseline failed.
+
+Each read's old `?? []` fallback was put back in turn, and each time its test
+failed (the builder "did not throw an error"; the dose read stored the
+mirrored dose a second time; the schedule read stored `inserted: 1`); with the
+fixes restored, all pass. No unit test reaches the two views' `guard` itself;
+the builder throwing is what makes an empty fallback something a caller has
+to write on purpose.
+
+### Not changed
+
+- `TodayView` replans from its `@Query` results, which report no read
+  failure; it replans after the person acts on the list Today is showing.
+- `MedicationEditorView` falls back to the schedules it has just saved, not
+  to an empty list.
+- The sync's medication read keeps its fallback: an empty list there ends the
+  pass before anything is read from Health or stored.
+
+### Results
+
+All on the code at `14cbd94` (this entry's documentation commit changes no
+code), iPhone 17 Pro simulators, Xcode 27.0 (27A266a), the test command in
+`AGENTS.md`:
+
+- **iOS 26.5 (23F77):** unit tests 646/646 (643 at `1134047`; these two
+  changes add 3), UI tests 29/29.
+- **iOS 27.0 (24A434):** unit tests 646/646, UI tests 29/29.
+- **The reminder fix alone,** before the Health sync's: unit tests 644/644
+  and UI tests 29/29 on both runtimes.
+- **Release builds:** Release for the generic iOS Simulator and for a generic
+  iOS device, unsigned, both succeed with no warnings; the app and the widget
+  extension both carry 1.2 (8). The test builds print no warnings.
+
 ## September 25, 2026 — 1.2 "First Days Home": courses, reminders by date, and a dozen bottles at once
 
 1.2 is version 1.2, build 8, on the local branch `feature/first-days-home`;
