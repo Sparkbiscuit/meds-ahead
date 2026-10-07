@@ -83,6 +83,32 @@ final class StoreLocationTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: legacy.path + StoreLocation.retiredSuffix))
     }
 
+    /// A launch cut short mid-move leaves copies under temporary names and,
+    /// at worst, a sidecar already in place; never a main file. The next launch
+    /// starts over from the intact legacy store rather than trusting any of it.
+    func testALaunchCutShortDuringTheMoveIsRetriedFromTheLegacyStore() throws {
+        try write(legacy, 4096)
+        try write(URL(fileURLWithPath: legacy.path + "-wal"), 512)
+        try FileManager.default.createDirectory(at: shared.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try write(URL(fileURLWithPath: shared.path + StoreLocation.inProgressSuffix), 100)
+        try write(URL(fileURLWithPath: shared.path + "-wal"), 7)
+
+        XCTAssertEqual(StoreLocation.migrate(from: legacy, to: shared), .moved)
+
+        XCTAssertEqual(try Data(contentsOf: shared).count, 4096)
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: shared.path + "-wal")).count, 512, "the stale log is replaced, not kept")
+        for suffix in StoreLocation.sidecarSuffixes {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: shared.path + suffix + StoreLocation.inProgressSuffix), "nothing left under a temporary name")
+        }
+    }
+
+    func testAnEmptyWriteAheadLogTravelsWithTheStore() throws {
+        try write(legacy, 4096)
+        try write(URL(fileURLWithPath: legacy.path + "-wal"), 0)
+        XCTAssertEqual(StoreLocation.migrate(from: legacy, to: shared), .moved, "a checkpointed log is empty and still the log")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: shared.path + "-wal"))
+    }
+
     func testTheSecondLaunchFindsTheMoveDone() throws {
         try write(legacy, 4096)
         XCTAssertEqual(StoreLocation.migrate(from: legacy, to: shared), .moved)

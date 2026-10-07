@@ -7,12 +7,13 @@ struct SupplyView: View {
     @Query private var inventoryEvents: [InventoryEvent]
     @Query private var doseEvents: [DoseEvent]
     @State private var showingTripCheck = false
+    @State private var explaining: Medication?
     let onAdd: () -> Void
 
     private var active: [Medication] { medications.filter { !$0.isArchived } }
 
     private func ranked(now: Date) -> [(Medication, SupplyForecast)] {
-        active.map { medication in
+        Self.ordered(active.map { medication in
             (
                 medication,
                 ForecastEngine.forecast(
@@ -23,22 +24,42 @@ struct SupplyView: View {
                     now: now
                 )
             )
+        })
+    }
+
+    /// Soonest run-out first; then courses, the ones still running before
+    /// the ones already over, by last day; then the ones nobody can
+    /// forecast. A course has no run-out date, but it is not an unknown
+    /// either: its last day says exactly how long it runs.
+    static func ordered(_ forecasts: [(Medication, SupplyForecast)]) -> [(Medication, SupplyForecast)] {
+        func rank(_ forecast: SupplyForecast) -> Int {
+            if forecast.daysRemaining != nil { return 0 }
+            if forecast.courseCovered { return 1 }
+            if forecast.courseFinished { return 2 }
+            return 3
         }
-        .sorted { lhs, rhs in
-            switch (lhs.1.daysRemaining, rhs.1.daysRemaining) {
-            case let (.some(a), .some(b)): a < b
-            case (.some, .none): true
-            case (.none, .some): false
-            case (.none, .none): lhs.0.displayName < rhs.0.displayName
-            }
+        return forecasts.sorted { lhs, rhs in
+            let (left, right) = (rank(lhs.1), rank(rhs.1))
+            if left != right { return left < right }
+            if let a = lhs.1.daysRemaining, let b = rhs.1.daysRemaining, a != b { return a < b }
+            if let a = lhs.1.courseEndDate, let b = rhs.1.courseEndDate, a != b { return a < b }
+            return lhs.0.displayName < rhs.0.displayName
         }
     }
 
-    private func attentionCount(in forecasts: [(Medication, SupplyForecast)]) -> Int {
-        forecasts.filter { item in
-            guard let days = item.1.daysRemaining, item.0.refillStatus == .none else { return false }
-            return days <= item.0.refillLeadDays
-        }.count
+    private func ranOutFirst(_ medication: Medication, _ forecast: SupplyForecast, now: Date) -> Bool {
+        FinishedCourseNotice.ranOutFirst(
+            medication: medication,
+            forecast: forecast,
+            schedules: schedules,
+            inventoryEvents: inventoryEvents,
+            doseEvents: doseEvents,
+            now: now
+        )
+    }
+
+    private func attentionCount(in forecasts: [(Medication, SupplyForecast)], now: Date) -> Int {
+        forecasts.filter { SupplyAttention(medication: $0.0, forecast: $0.1, now: now).needsAttention }.count
     }
 
     /// Ranked forecasts grouped under the person each medication is for, when
@@ -68,7 +89,7 @@ struct SupplyView: View {
             CanvasBackground()
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 16) {
-                    header(attentionCount: attentionCount(in: forecasts))
+                    header(attentionCount: attentionCount(in: forecasts, now: now))
                     if forecasts.isEmpty {
                         EmptyStateCard(
                             symbol: "chart.bar.doc.horizontal",
@@ -90,9 +111,15 @@ struct SupplyView: View {
                                 NavigationLink {
                                     MedicationDetailView(medication: medication)
                                 } label: {
-                                    SupplyRow(medication: medication, forecast: forecast)
+                                    SupplyRow(medication: medication, forecast: forecast, ranOutFirst: ranOutFirst(medication, forecast, now: now), now: now)
                                 }
                                 .buttonStyle(.plain)
+                                // Beside the row's tap, not in place of it: the
+                                // tap still opens the medication.
+                                .contextMenu {
+                                    Button("Why this date?", systemImage: "questionmark.circle") { explaining = medication }
+                                }
+                                .accessibilityAction(named: "Why this date?") { explaining = medication }
                             }
                         }
                     }
@@ -117,6 +144,7 @@ struct SupplyView: View {
         .sheet(isPresented: $showingTripCheck) {
             TripCheckSheet(forecasts: forecasts.map { (medication: $0.0, forecast: $0.1) })
         }
+        .sheet(item: $explaining) { WhyThisDateView(medication: $0) }
     }
 
     private func header(attentionCount: Int) -> some View {
@@ -135,20 +163,24 @@ struct SupplyView: View {
 private struct SupplyRow: View {
     let medication: Medication
     let forecast: SupplyForecast
+    /// A finished course whose supply ran out before its last day.
+    let ranOutFirst: Bool
+    let now: Date
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    /// Low, and nothing done about it yet: a refill under way turns the alarm off.
-    private var isLow: Bool {
-        guard medication.refillStatus == .none else { return false }
-        return forecast.daysRemaining.map { $0 <= medication.refillLeadDays } ?? false
+    private var attention: SupplyAttention {
+        SupplyAttention(medication: medication, forecast: forecast, now: now)
     }
+
+    /// Low, and no refill in progress that can still answer for it.
+    private var isLow: Bool { attention.needsAttention }
 
     var body: some View {
         Group {
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack(alignment: .top, spacing: 14) {
-                        SupplyGauge(daysRemaining: forecast.daysRemaining, leadDays: medication.refillLeadDays, size: 54)
+                        gauge
                         nameLine
                         Spacer(minLength: 0)
                     }
@@ -156,7 +188,7 @@ private struct SupplyRow: View {
                 }
             } else {
                 HStack(spacing: 14) {
-                    SupplyGauge(daysRemaining: forecast.daysRemaining, leadDays: medication.refillLeadDays, size: 54)
+                    gauge
                     VStack(alignment: .leading, spacing: 5) {
                         nameLine
                         supplyCopy
@@ -173,6 +205,16 @@ private struct SupplyRow: View {
         .contentShape(Rectangle())
     }
 
+    /// A count needed is the summary's own first words. The row reads as one
+    /// VoiceOver element, and the ring and the name's icon each said it too:
+    /// "Count needed" three times before the reason. They stay silent then.
+    private var gauge: some View {
+        // A course's ring says what the summary beside it already says.
+        SupplyGauge(daysRemaining: forecast.daysRemaining, leadDays: attention.leadDays, needsCount: forecast.needsCount,
+                    course: SupplyGauge.Course(forecast, ranOutFirst: ranOutFirst), size: 54)
+            .accessibilityHidden(forecast.needsCount || SupplyGauge.Course(forecast) != nil)
+    }
+
     private var nameLine: some View {
         HStack(spacing: 7) {
             Text(medication.displayName)
@@ -183,6 +225,7 @@ private struct SupplyRow: View {
                 Image(systemName: "exclamationmark.circle.fill")
                     .foregroundStyle(.orange)
                     .accessibilityLabel("Low supply")
+                    .accessibilityHidden(forecast.needsCount)
             }
         }
     }
@@ -193,7 +236,21 @@ private struct SupplyRow: View {
                 .font(.subheadline)
                 .foregroundStyle(isLow ? .orange : .secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Text("\(forecast.currentSupply.medicationQuantityText) \(medication.form.unitName)\(forecast.currentSupply == 1 ? "" : "s") on hand")
+            if let reason = SupplyAttention.assumedDosesReason(for: forecast) {
+                Text(reason)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            // A late refill is still worth naming, but under the warning, not
+            // in place of it.
+            if isLow, let status = RefillStatusText.line(for: medication, now: now) {
+                Text(status)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text(SupplyRowText.caption(for: forecast, form: medication.form))
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -201,11 +258,55 @@ private struct SupplyRow: View {
     }
 
     private var summary: String {
-        if let status = RefillStatusText.line(for: medication) { return status }
+        SupplyRowText.summary(for: forecast, isLow: isLow, refillStatus: RefillStatusText.line(for: medication, now: now), ranOutFirst: ranOutFirst)
+    }
+}
+
+/// What a Supply row says, over plain values.
+enum SupplyRowText {
+    /// The row's first line. A course that runs out before its last day
+    /// keeps the attention words; one the supply sees through, or one
+    /// already over, says so rather than the explanation's longer sentence,
+    /// and neither is a refill to chase.
+    static func summary(
+        for forecast: SupplyForecast,
+        isLow: Bool,
+        refillStatus: String?,
+        ranOutFirst: Bool = false,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> String {
+        if isLow { return SupplyAttention.line(for: forecast) }
+        if forecast.courseFinished, let end = forecast.courseEndDate {
+            let ended = FinishedCourseNotice.endedText(day: ForecastEngine.dayText(end, calendar: calendar), ranOutFirst: ranOutFirst)
+            return ranOutFirst ? "\(ended) · \(FinishedCourseNotice.ranOutNote)" : ended
+        }
+        if forecast.courseCovered, let end = forecast.courseEndDate {
+            return "Enough to finish the course on \(ForecastEngine.dayText(end, calendar: calendar))"
+        }
+        if let refillStatus { return refillStatus }
         if let date = forecast.depletionDate {
-            return isLow ? "Act soon · around \(date.formatted(.dateTime.month(.abbreviated).day()))" : "Runs out around \(date.formatted(.dateTime.month(.abbreviated).day()))"
+            return "Runs out around \(date.formatted(.dateTime.month(.abbreviated).day()))"
         }
         return forecast.explanation
+    }
+
+    /// The small line under it: what is on hand, and for a course the
+    /// supply sees through, what its last dose leaves.
+    static func caption(for forecast: SupplyForecast, form: MedicationForm) -> String {
+        let onHand = "\(form.quantityText(forecast.currentSupply)) \(SupplyAttention.quantityWords(for: forecast))"
+        guard forecast.courseCovered, let leftover = forecast.leftoverAtCourseEnd else { return onHand }
+        return "\(onHand) · \(form.quantityText(max(0, leftover))) left after the last dose"
+    }
+}
+
+extension TripCheck {
+    /// How a "Can't say" row is marked. A count needed is something to do
+    /// before leaving and wears the attention mark every other screen gives
+    /// it; only a medication with no forecast at all is a plain unknown.
+    static func uncertainMark(for forecast: SupplyForecast) -> (symbol: String, tint: Color) {
+        forecast.needsCount
+            ? ("exclamationmark.circle.fill", .orange)
+            : ("questionmark.circle", .secondary)
     }
 }
 
@@ -240,7 +341,8 @@ private struct TripCheckSheet: View {
                 if !result.uncertain.isEmpty {
                     Section {
                         ForEach(result.uncertain, id: \.medicationID) { item in
-                            row(item, detail: item.forecast.explanation, symbol: "questionmark.circle", tint: .secondary)
+                            let mark = TripCheck.uncertainMark(for: item.forecast)
+                            row(item, detail: SupplyAttention.countNeededReason(for: item.forecast).map { "Count needed · \($0)" } ?? item.forecast.explanation, symbol: mark.symbol, tint: mark.tint)
                         }
                     } header: {
                         Text("Can't say")

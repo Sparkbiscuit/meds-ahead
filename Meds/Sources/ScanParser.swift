@@ -46,7 +46,12 @@ enum ScanEvidenceQuality {
     ) -> [ScanEvidence] {
         var result = existing.compactMap(sanitized).filter(isUsefulForAutofill)
         for item in additions.compactMap(sanitized) where isUsefulForAutofill(item) {
-            if let index = result.firstIndex(where: { isEquivalentReading($0, item) }) {
+            // Two readings of one code line differ in their digits and hardly
+            // at all in their letters, so the letter test calls them one line
+            // read twice and keeps whichever scores higher. For a code that
+            // would be choosing a product by OCR confidence; both go forward
+            // and the identification gate asks the label.
+            if let index = result.firstIndex(where: { isEquivalentReading($0, item) && !carryDifferentCodes($0, item) }) {
                 result[index] = preferred(result[index], item)
             } else {
                 result.append(item)
@@ -79,6 +84,13 @@ enum ScanEvidenceQuality {
         return shorter.count >= 5
             && missing <= allowedDistance
             && editDistance(shorter, longer) <= allowedDistance
+    }
+
+    private static func carryDifferentCodes(_ lhs: ScanEvidence, _ rhs: ScanEvidence) -> Bool {
+        guard lhs.kind == .text, rhs.kind == .text else { return false }
+        let left = Set(NationalDrugCode.readings(inLabelText: lhs.value).map(\.raw))
+        let right = Set(NationalDrugCode.readings(inLabelText: rhs.value).map(\.raw))
+        return !(left.isEmpty && right.isEmpty) && left != right
     }
 
     /// The better of two readings of the same line. When the better one comes
@@ -358,7 +370,12 @@ enum ScanParser {
         for word in dosageWords {
             cleaned = cleaned.replacingOccurrences(of: word, with: "", options: [.caseInsensitive])
         }
-        return tidiedNameResidue(cleaned)
+        // On the line that carries the strength, a trailing "DR" is the
+        // delayed-release form. Left in, the address test read it as "Drive" and
+        // blanked the name of every delayed-release label: "MYCOPHENOLIC ACID DR".
+        var tokens = tidiedNameResidue(cleaned).split(separator: " ")
+        if tokens.count >= 2, tokens.last?.lowercased() == "dr" { tokens.removeLast() }
+        return tokens.joined(separator: " ")
     }
 
     /// Cutting the strength and dosage words out of a line leaves double spaces and a

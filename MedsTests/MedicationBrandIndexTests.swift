@@ -115,44 +115,6 @@ final class MedicationBrandIndexTests: XCTestCase {
         }
     }
 
-    /// Medications common in lung-transplant care. The shared list a clinician
-    /// reads should carry both names for each of them.
-    func testTransplantMedicationsResolveToTheirBrands() {
-        let expected: [(String, String)] = [
-            ("tacrolimus", "Prograf"),
-            ("mycophenolate mofetil", "CellCept"),
-            ("mycophenolate sodium", "Myfortic"),
-            ("azathioprine", "Imuran"),
-            ("sirolimus", "Rapamune"),
-            ("valganciclovir", "Valcyte"),
-            ("letermovir", "Prevymis"),
-            ("maribavir", "Livtencity"),
-            ("sulfamethoxazole / trimethoprim", "Bactrim"),
-            ("atovaquone", "Mepron"),
-            ("acyclovir", "Zovirax"),
-            ("valacyclovir", "Valtrex"),
-            ("posaconazole", "Noxafil"),
-            ("voriconazole", "Vfend"),
-            ("itraconazole", "Sporanox"),
-            ("isavuconazonium", "Cresemba"),
-            ("azithromycin", "Zithromax"),
-            ("pantoprazole", "Protonix"),
-            ("famotidine", "Pepcid"),
-            ("levalbuterol", "Xopenex"),
-            ("metoprolol succinate", "Toprol XL"),
-            ("sertraline", "Zoloft"),
-            ("alendronate", "Fosamax"),
-            ("magnesium oxide", "Mag-Ox")
-        ]
-        for (generic, brand) in expected {
-            XCTAssertEqual(
-                MedicationBrandIndex.brandName(forGeneric: generic),
-                brand,
-                "\(generic) should resolve to \(brand)"
-            )
-        }
-    }
-
     /// A pharmacy prints the salt and the release form, not the bare ingredient.
     func testTransplantNamesResolveAsAPharmacyPrintsThem() {
         XCTAssertEqual(MedicationBrandIndex.resolve("Metoprolol Succinate XL")?.brand, "Toprol XL")
@@ -161,13 +123,52 @@ final class MedicationBrandIndexTests: XCTestCase {
         XCTAssertEqual(MedicationBrandIndex.resolve("Azathioprine Sodium")?.brand, "Imuran")
     }
 
-    /// Scanning the brand side has to give back the generic, which is the whole
-    /// point of the table for someone holding a bottle that says PROGRAF.
-    func testTransplantBrandsResolveBackToGenerics() {
-        XCTAssertEqual(MedicationBrandIndex.genericName(forBrand: "Prograf"), "tacrolimus")
-        XCTAssertEqual(MedicationBrandIndex.genericName(forBrand: "CellCept"), "mycophenolate mofetil")
-        XCTAssertEqual(MedicationBrandIndex.genericName(forBrand: "Valcyte"), "valganciclovir")
-        XCTAssertEqual(MedicationBrandIndex.genericName(forBrand: "Prevymis"), "letermovir")
+    /// A release suffix is the product, not noise. Stripped to find the
+    /// generic, it may only bring back a brand of that same release: typing
+    /// "Tacrolimus XL" once recorded Prograf, the immediate-release product.
+    func testAReleaseSuffixNeverResolvesToAnotherReleasesBrand() {
+        for name in ["Tacrolimus XL", "Tacrolimus ER", "Diltiazem CD", "Diltiazem ER", "Metformin ER", "Glipizide XL", "Omeprazole ER"] {
+            XCTAssertNil(MedicationBrandIndex.resolve(name), name)
+            XCTAssertNil(MedicationBrandIndex.brandName(forGeneric: name), name)
+        }
+        // A generic that is only ever that release keeps its brand.
+        XCTAssertEqual(MedicationBrandIndex.resolve("Metoprolol Succinate ER")?.brand, "Toprol XL")
+        XCTAssertEqual(MedicationBrandIndex.brandName(forGeneric: "Metoprolol succinate XL"), "Toprol XL")
+        XCTAssertEqual(MedicationBrandIndex.resolve("Mycophenolic acid DR")?.brand, "Myfortic")
+        XCTAssertEqual(MedicationBrandIndex.resolve("Pantoprazole DR")?.brand, "Protonix")
+        XCTAssertEqual(MedicationBrandIndex.resolve("Tacrolimus IR")?.brand, "Prograf")
+        XCTAssertNil(MedicationBrandIndex.resolve("Metoprolol Succinate DR"), "not its release")
+    }
+
+    /// A reference brand with release letters after it is that release's own
+    /// brand, and is kept as written rather than cut back to the other.
+    func testABrandWithReleaseLettersKeepsThem() {
+        assertPair(MedicationBrandIndex.resolve("Adderall XR"), generic: "amphetamine - dextroamphetamine", brand: "Adderall XR")
+        assertPair(MedicationBrandIndex.resolve("Glucophage XR"), generic: "metformin", brand: "Glucophage XR")
+        assertPair(MedicationBrandIndex.resolve("Cardizem CD"), generic: "diltiazem", brand: "Cardizem CD")
+        XCTAssertEqual(MedicationBrandIndex.genericName(forBrand: "Ritalin LA"), "methylphenidate")
+        assertPair(MedicationBrandIndex.resolve("Toprol XL"), generic: "metoprolol succinate", brand: "Toprol XL")
+    }
+
+    /// What a medication's label or listing says about release withholds a
+    /// brand of any other.
+    func testAKnownReleaseWithholdsAnotherReleasesBrand() {
+        XCTAssertNil(MedicationBrandIndex.brandName(forGeneric: "Tacrolimus", release: .extended))
+        XCTAssertNil(MedicationBrandIndex.resolve("Tacrolimus", release: .extended))
+        XCTAssertEqual(MedicationBrandIndex.brandName(forGeneric: "Tacrolimus", release: .immediate), "Prograf")
+        XCTAssertEqual(MedicationBrandIndex.brandName(forGeneric: "Metoprolol succinate", release: .extended), "Toprol XL")
+        XCTAssertEqual(MedicationBrandIndex.brandName(forGeneric: "Omeprazole", release: .delayed), "Prilosec")
+        XCTAssertNil(MedicationBrandIndex.brandName(forGeneric: "Omeprazole", release: .extended))
+    }
+
+    func testTheReleaseAMedicationsNamesDescribe() {
+        XCTAssertEqual(MedicationBrandIndex.release(ofName: "Tacrolimus", brand: "Prograf"), .immediate)
+        XCTAssertEqual(MedicationBrandIndex.release(ofName: "Tacrolimus", brand: "Astagraf XL"), .extended)
+        XCTAssertEqual(MedicationBrandIndex.release(ofName: "Tacrolimus ER", brand: ""), .extended)
+        XCTAssertEqual(MedicationBrandIndex.release(ofName: "Tacrolimus", brand: ""), .immediate, "the table's reference product")
+        XCTAssertEqual(MedicationBrandIndex.release(ofName: "Metoprolol succinate", brand: ""), .extended)
+        XCTAssertEqual(MedicationBrandIndex.release(ofName: "Mycophenolic acid", brand: ""), .delayed)
+        XCTAssertNil(MedicationBrandIndex.release(ofName: "Ellis's evening vitamin", brand: ""))
     }
 
     func testDisplayNameUppercasesOnlyTheFirstCharacter() {

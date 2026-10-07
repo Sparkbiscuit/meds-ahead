@@ -13,14 +13,15 @@ struct MedicationDetailView: View {
     @State private var showingEditor = false
     @State private var showingRefill = false
     @State private var showingCountCorrection = false
+    /// The editor changed what past days were scheduled to hold while doses
+    /// were being assumed, so Correct Count opens once the editor has closed,
+    /// and opens empty whatever the forecast now assumes.
+    @State private var askingCountAfterEdit = false
     @State private var refillStatusToSet: RefillStatus?
     @State private var showingDeleteConfirmation = false
     @State private var showingSaveError = false
     @State private var saveErrorMessage = ""
-
-    private var schedules: [DoseSchedule] {
-        allSchedules.filter { $0.medicationID == medication.id }.sorted { $0.minutesAfterMidnight < $1.minutesAfterMidnight }
-    }
+    @State private var showingAlreadyLogged = false
 
     private var doseEvents: [DoseEvent] {
         allDoseEvents.filter { $0.medicationID == medication.id }.sorted { $0.recordedAt > $1.recordedAt }
@@ -54,20 +55,28 @@ struct MedicationDetailView: View {
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
-            content(forecast: forecast(now: context.date))
+            content(forecast: forecast(now: context.date), now: context.date)
         }
     }
 
-    private func content(forecast: SupplyForecast) -> some View {
+    private func content(forecast: SupplyForecast, now: Date) -> some View {
+        let ranOutFirst = FinishedCourseNotice.ranOutFirst(
+            medication: medication,
+            forecast: forecast,
+            schedules: allSchedules,
+            inventoryEvents: allInventoryEvents,
+            doseEvents: allDoseEvents,
+            now: now
+        )
         return ZStack {
             CanvasBackground()
             ScrollView {
                 VStack(spacing: 18) {
                     identityHeader
-                    forecastCard(forecast: forecast)
+                    forecastCard(forecast: forecast, ranOutFirst: ranOutFirst, now: now)
                     quickActions
                     pharmacyCard
-                    scheduleCard
+                    scheduleCard(now: now, ranOutFirst: ranOutFirst)
                     AdherenceCalendarCard(medication: medication, schedules: allSchedules, doseEvents: allDoseEvents)
                     detailsCard
                     historyCard
@@ -89,7 +98,10 @@ struct MedicationDetailView: View {
                         medication.updatedAt = .now
                         if saveChanges() {
                             refreshNotifications()
-                            if willArchive { dismiss() }
+                            // Nothing could be logged while it was archived, and the
+                            // forecast would assume every dose of that stretch was
+                            // taken, so a restore asks what is on hand now.
+                            if willArchive { dismiss() } else { showingCountCorrection = true }
                         }
                     }
                     Divider()
@@ -102,14 +114,16 @@ struct MedicationDetailView: View {
                 .accessibilityLabel("Medication actions")
             }
         }
-        .sheet(isPresented: $showingEditor) {
-            NavigationStack { MedicationEditorView(medication: medication) }
+        .sheet(isPresented: $showingEditor, onDismiss: {
+            if askingCountAfterEdit { showingCountCorrection = true }
+        }) {
+            NavigationStack { MedicationEditorView(medication: medication, onAskForCount: { askingCountAfterEdit = true }) }
         }
         .sheet(isPresented: $showingRefill) {
             SupplyChangeSheet(
                 title: "Add a Refill",
                 message: "Add the quantity you actually received.",
-                unit: medication.form.unitName,
+                form: medication.form,
                 initialValue: suggestedRefillQuantity,
                 actionTitle: "Add Refill"
             ) { quantity, note in
@@ -127,31 +141,30 @@ struct MedicationDetailView: View {
                 }
             }
         }
-        .sheet(isPresented: $showingCountCorrection) {
+        .sheet(isPresented: $showingCountCorrection, onDismiss: { askingCountAfterEdit = false }) {
             SupplyChangeSheet(
                 title: "Correct Current Count",
-                message: "Count everything on hand, including doses already placed in pill organizers.",
-                unit: medication.form.unitName,
-                initialValue: forecast.currentSupply,
+                message: askingCountAfterEdit
+                    ? "The schedule changed while some doses since the last count weren't logged, so what is left can't be worked out. Count everything on hand, including doses already placed in pill organizers."
+                    : "Count everything on hand, including doses already placed in pill organizers.",
+                form: medication.form,
+                initialValue: askingCountAfterEdit ? nil : SupplyChangeQuantity.countPrefill(for: forecast),
                 actionTitle: "Save Count"
             ) { actualCount, note in
-                let difference = ForecastEngine.correctionDelta(
-                    medicationID: medication.id,
-                    actualCount: actualCount,
-                    inventoryEvents: allInventoryEvents,
-                    doseEvents: allDoseEvents
-                )
-                guard abs(difference) > 0.000_001 else { return }
-                let event = InventoryEvent(medicationID: medication.id, delta: difference, reason: .correction, note: note)
-                modelContext.insert(event)
-                medication.updatedAt = .now
-                if saveChanges() {
-                    refreshNotifications(inventoryEvents: allInventoryEvents.filter { $0.id != event.id } + [event])
+                // As Today's quick count and "Why this date?" record it, from
+                // the store: the screen's arrays can trail a dose the widget or
+                // a reminder has just logged.
+                do {
+                    try CountCorrection.record(actualCount: actualCount, note: note, for: medication, in: modelContext)
+                    CountCorrection.replanNotifications(in: modelContext)
+                } catch {
+                    saveErrorMessage = "Your change wasn't saved. Try again."
+                    showingSaveError = true
                 }
             }
         }
         .sheet(item: $refillStatusToSet) { status in
-            RefillStatusSheet(status: status, initialDate: medication.refillStatusDate ?? .now) { date in
+            RefillStatusSheet(status: status, initialDate: Self.refillStatusInitialDate(for: status, medication: medication)) { date in
                 medication.refillStatus = status
                 medication.refillStatusDate = date
                 medication.updatedAt = .now
@@ -171,6 +184,11 @@ struct MedicationDetailView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(saveErrorMessage)
+        }
+        .alert("Already Logged", isPresented: $showingAlreadyLogged) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("The widget or a reminder has already logged this dose. Nothing more was recorded.")
         }
     }
 
@@ -194,53 +212,108 @@ struct MedicationDetailView: View {
         .padding(.top, 8)
     }
 
-    private func forecastCard(forecast: SupplyForecast) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
+    private func forecastCard(forecast: SupplyForecast, ranOutFirst: Bool, now: Date) -> some View {
+        let attention = SupplyAttention(medication: medication, forecast: forecast, now: now)
+        return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("SUPPLY RUNWAY")
                         .font(.caption2.weight(.bold))
                         .tracking(0.8)
                         .foregroundStyle(.secondary)
-                    Text(forecastTitle(forecast: forecast))
+                    Text(Self.forecastTitle(for: forecast, ranOutFirst: ranOutFirst))
                         .font(.system(.title, design: .rounded, weight: .bold))
                         .contentTransition(.numericText())
                 }
                 Spacer()
-                SupplyGauge(daysRemaining: forecast.daysRemaining, leadDays: medication.refillLeadDays, size: 62)
+                let gauge = SupplyGauge(daysRemaining: forecast.daysRemaining, leadDays: attention.leadDays, needsCount: forecast.needsCount,
+                                        course: SupplyGauge.Course(forecast, ranOutFirst: ranOutFirst), size: 62)
+                gauge.accessibilityHidden(gauge.repeatsItsSummary)
             }
-            Text(forecast.explanation)
+            Text(Self.forecastDetail(for: forecast, ranOutFirst: ranOutFirst))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            if let status = refillStatusText {
-                Label(status, systemImage: medication.refillStatus == .ready ? "bag.fill" : "phone.arrow.up.right")
+            // In the words Today and Supply use too, and in the accent only
+            // while the refill still answers for the supply: run late, due
+            // after the run-out, or waited on with too little left, it takes
+            // the attention colour they give it.
+            if let status = RefillStatusText.line(for: medication, now: now) {
+                Label(status, systemImage: attention.needsAttention
+                      ? "exclamationmark.circle.fill"
+                      : medication.refillStatus == .ready ? "bag.fill" : "phone.arrow.up.right")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(AppTheme.accent)
+                    .foregroundStyle(attention.needsAttention ? .orange : AppTheme.accent)
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack {
-                ConfidenceBadge(confidence: forecast.confidence)
+                // A finished course forecasts nothing, so there is nothing to
+                // be sure or unsure of.
+                if !forecast.courseFinished {
+                    ConfidenceBadge(confidence: forecast.confidence)
+                }
                 Spacer()
-                Text("\(forecast.currentSupply.medicationQuantityText) on hand")
+                Text("\(forecast.currentSupply.medicationQuantityText) \(SupplyAttention.quantityWords(for: forecast))")
                     .font(.subheadline.weight(.semibold))
             }
+            WhyThisDateButton(medication: medication)
         }
         .padding(19)
         .cardSurface()
     }
 
-    /// Where the refill stands, in the words Today and Supply use too.
-    private var refillStatusText: String? {
-        RefillStatusText.line(for: medication)
+    /// The date a refill status sheet opens on: the one stored for that same
+    /// status, or today. The date decides how long the refill quiets the
+    /// low-supply warning, so Ready for Pickup opened on the day the refill
+    /// was requested started a pause that had already run out, and the app
+    /// said the refill needed checking the moment it was marked ready.
+    static func refillStatusInitialDate(for status: RefillStatus, medication: Medication, now: Date = .now) -> Date {
+        medication.refillStatus == status ? (medication.refillStatusDate ?? now) : now
     }
 
-    private func forecastTitle(forecast: SupplyForecast) -> String {
+    /// A count needed is never "Out of supply" and never zero days: the ledger
+    /// still shows medication, and only a count can say whether it is there.
+    /// A course is asked about first: one finished, or one the supply sees
+    /// through, has no run-out to name, and an empty bottle at its end is
+    /// how a course dispensed to the tablet finishes, not "Out of supply".
+    static func forecastTitle(for forecast: SupplyForecast, ranOutFirst: Bool = false, calendar: Calendar = .autoupdatingCurrent) -> String {
+        if forecast.courseFinished, let end = forecast.courseEndDate {
+            return FinishedCourseNotice.endedText(day: ForecastEngine.dayText(end, calendar: calendar), ranOutFirst: ranOutFirst)
+        }
+        if forecast.courseCovered { return "Enough to finish the course" }
+        if forecast.needsCount { return "Count needed" }
         if forecast.currentSupply <= 0 { return "Out of supply" }
         if let days = forecast.daysRemaining {
-            return days == 1 ? "About 1 day left" : "About \(days) days left"
+            return "About \(days.dayCountText) left"
         }
         return "Timing unknown"
+    }
+
+    /// The line under the title. A finished course's own explanation would
+    /// only repeat the title; one that ran out first says so here, where the
+    /// title has no room for it.
+    static func forecastDetail(for forecast: SupplyForecast, ranOutFirst: Bool = false) -> String {
+        guard forecast.courseFinished else { return forecast.explanation }
+        guard ranOutFirst else { return "No doses are scheduled after its last day." }
+        return "The supply on record ran out before its last day. No doses are scheduled after it."
+    }
+
+    /// The course line under the schedule's times: its last day while it
+    /// runs, the day it finished once it has. Nil for a medication that is
+    /// not on a course.
+    static func courseLine(
+        schedules: [DoseSchedule],
+        medicationID: UUID,
+        now: Date,
+        ranOutFirst: Bool = false,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> (text: String, isFinished: Bool)? {
+        guard let end = ScheduleEngine.courseEnd(schedules: schedules, medicationID: medicationID) else { return nil }
+        if ScheduleEngine.isCourseFinished(schedules: schedules, medicationID: medicationID, now: now, calendar: calendar) {
+            return (FinishedCourseNotice.endedText(day: ForecastEngine.dayText(end, calendar: calendar), ranOutFirst: ranOutFirst), true)
+        }
+        let day = end.formatted(Date.FormatStyle(calendar: calendar, timeZone: calendar.timeZone).weekday(.wide).month(.abbreviated).day())
+        return ("Until \(day)", false)
     }
 
     private var quickActions: some View {
@@ -252,6 +325,7 @@ struct MedicationDetailView: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
+            .foregroundStyle(AppTheme.onAccent)
             .controlSize(.large)
 
             Menu {
@@ -274,6 +348,7 @@ struct MedicationDetailView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.large)
+            .accessibilityIdentifier("supply-actions")
         }
     }
 
@@ -328,8 +403,14 @@ struct MedicationDetailView: View {
         return URL(string: "tel:\(digits)")
     }
 
-    private var scheduleCard: some View {
-        VStack(alignment: .leading, spacing: 13) {
+    private func scheduleCard(now: Date, ranOutFirst: Bool) -> some View {
+        // A course taken up again keeps its ended schedules for the calendar;
+        // they are not the times it is taken now.
+        let schedules = ScheduleReconciler.currentSchedules(allSchedules, medicationID: medication.id, now: now)
+            .sorted { $0.minutesAfterMidnight < $1.minutesAfterMidnight }
+        let course = Self.courseLine(schedules: schedules, medicationID: medication.id, now: now, ranOutFirst: ranOutFirst)
+        let finished = course?.isFinished == true
+        return VStack(alignment: .leading, spacing: 13) {
             Label("Schedule", systemImage: "calendar")
                 .font(.headline)
             if medication.isAsNeeded {
@@ -345,11 +426,20 @@ struct MedicationDetailView: View {
                     HStack {
                         Text(timeText(minutes: schedule.minutesAfterMidnight))
                             .font(.body.weight(.semibold))
+                            .foregroundStyle(finished ? .secondary : .primary)
                         Spacer()
-                        Text("\(schedule.doseQuantity.medicationQuantityText) \(medication.form.unitName)\(schedule.doseQuantity == 1 ? "" : "s")")
-                            .foregroundStyle(.secondary)
+                        Text(medication.form.quantityText(schedule.doseQuantity))
+                            .foregroundStyle(finished ? .tertiary : .secondary)
                     }
                     if schedule.id != schedules.last?.id { Divider() }
+                }
+                if let course {
+                    // A tick only for a course its supply saw through.
+                    Label(course.text, systemImage: finished ? (ranOutFirst ? "calendar" : "checkmark.circle") : "calendar.badge.clock")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(finished ? AnyShapeStyle(.secondary) : AnyShapeStyle(AppTheme.accent))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("schedule-course-line")
                 }
             }
             if !medication.directions.isEmpty {
@@ -368,7 +458,10 @@ struct MedicationDetailView: View {
             Label("Details", systemImage: "list.bullet.rectangle")
                 .font(.headline)
             DetailLine(label: "Refills", value: medication.refillsRemaining.map(String.init) ?? "Not entered")
-            DetailLine(label: "Low-supply alert", value: "\(medication.refillLeadDays) days before")
+            DetailLine(
+                label: "Low-supply alert",
+                value: SupplyAttention.leadTimeText(refillLeadDays: medication.refillLeadDays, refillsRemaining: medication.refillsRemaining)
+            )
             if let expirationDate = medication.expirationDate {
                 let calendar = Calendar.autoupdatingCurrent
                 let isExpired = calendar.startOfDay(for: expirationDate) < calendar.startOfDay(for: .now)
@@ -419,8 +512,15 @@ struct MedicationDetailView: View {
                         Spacer()
                         if item.source == .dose {
                             Menu {
-                                Button("Delete Dose Log", systemImage: "trash", role: .destructive) {
-                                    deleteDoseActivity(item)
+                                if item.isHealthMirrored {
+                                    // A copy of Health's sample deleted here came back on
+                                    // the next sync as a new, supply-charging dose. Health
+                                    // owns it; an undo there is mirrored here.
+                                    Text("Logged in Apple Health. Undo it there and it will be removed here.")
+                                } else {
+                                    Button("Delete Dose Log", systemImage: "trash", role: .destructive) {
+                                        deleteDoseActivity(item)
+                                    }
                                 }
                             } label: {
                                 Image(systemName: "ellipsis")
@@ -455,17 +555,21 @@ struct MedicationDetailView: View {
                     + (event.note.isEmpty ? "" : " · \(event.note)"),
                 symbol: event.status == .taken ? "checkmark.circle.fill" : "forward.end.circle.fill",
                 color: event.status == .taken ? AppTheme.accent : .secondary,
-                source: .dose
+                source: .dose,
+                isHealthMirrored: event.healthSampleID != nil
             )
         }
         let inventory = inventoryEvents.map { event in
             ActivityItem(
                 id: event.id,
                 date: event.date,
-                title: "\(event.reason.displayName): \(event.delta >= 0 ? "+" : "")\(event.delta.medicationQuantityText)",
+                title: event.reason == .correction && event.delta == 0
+                    ? "Count confirmed"
+                    : "\(event.reason.displayName): \(event.delta >= 0 ? "+" : "")\(event.delta.medicationQuantityText)",
                 symbol: event.delta >= 0 ? "plus.circle.fill" : "minus.circle.fill",
                 color: event.delta >= 0 ? AppTheme.accent : .orange,
-                source: .inventory
+                source: .inventory,
+                isHealthMirrored: false
             )
         }
         return (doses + inventory).sorted { $0.date > $1.date }
@@ -478,12 +582,36 @@ struct MedicationDetailView: View {
     /// unscheduled one, at the amount belonging to the nearest time of day.
     private func recordNow() {
         let now = Date.now
-        let claimed = ScheduleEngine.actionableDose(
+        var claimed = ScheduleEngine.actionableDose(
             schedules: allSchedules,
             medicationID: medication.id,
             doseEvents: allDoseEvents,
             now: now
         )
+        if claimed != nil {
+            // The widget may have logged the dose these arrays offer where they
+            // cannot see it yet, so the store chooses the dose: the next one
+            // still due, as a screen that had caught up would offer. When the
+            // store has every due dose logged, a tap made while this screen still
+            // shows one as due is that same dose, not an extra one: nothing more
+            // is written, and the alert says why.
+            do {
+                claimed = try DoseLogGuard.actionableDose(
+                    schedules: allSchedules,
+                    medicationID: medication.id,
+                    in: modelContext,
+                    now: now
+                )
+            } catch {
+                saveErrorMessage = "Your change wasn't saved. Try again."
+                showingSaveError = true
+                return
+            }
+            guard claimed != nil else {
+                showingAlreadyLogged = true
+                return
+            }
+        }
         let quantity = claimed?.quantity
             ?? ScheduleEngine.nearestScheduledQuantity(
                 schedules: allSchedules,
@@ -529,7 +657,7 @@ struct MedicationDetailView: View {
     }
 
     private func deleteDoseActivity(_ item: ActivityItem) {
-        guard item.source == .dose,
+        guard item.source == .dose, !item.isHealthMirrored,
               let event = allDoseEvents.first(where: { $0.id == item.id }) else { return }
         modelContext.delete(event)
         medication.updatedAt = .now
@@ -591,8 +719,8 @@ private struct RefillStatusSheet: View {
                     DatePicker(status == .ready ? "Ready on" : "Expected", selection: $date, displayedComponents: .date)
                 } footer: {
                     Text(status == .ready
-                         ? "Today says to pick it up, and the low-supply reminder pauses until the refill is added."
-                         : "The low-supply reminder pauses while the refill is on its way. Add the refill when it arrives.")
+                         ? "Today says to pick it up. The low-supply reminder pauses until the refill is added, and comes back if it waits two days or supply gets very low."
+                         : "The low-supply reminder pauses while the refill is on its way, and comes back if it runs two days late or supply gets very low. Add the refill when it arrives.")
                 }
             }
             .navigationTitle(status.displayName)
@@ -612,17 +740,25 @@ private struct RefillStatusSheet: View {
 }
 
 private struct DetailLine: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let label: String
     let value: String
     var isWarning = false
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline) {
+        // Side by side at the largest sizes, a long value such as the low-supply
+        // alert's reason squeezed into a column a word wide and broke words
+        // mid-word; stacked, as Today's refill rows are, it keeps the card's width.
+        let stacked = dynamicTypeSize.isAccessibilitySize
+        let layout = stacked
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+            : AnyLayout(HStackLayout(alignment: .firstTextBaseline))
+        layout {
             Text(label).foregroundStyle(.secondary)
-            Spacer(minLength: 18)
+            if !stacked { Spacer(minLength: 18) }
             Text(value)
                 .foregroundStyle(isWarning ? AnyShapeStyle(.orange) : AnyShapeStyle(.primary))
-                .multilineTextAlignment(.trailing)
+                .multilineTextAlignment(stacked ? .leading : .trailing)
                 .textSelection(.enabled)
         }
         .font(.subheadline)
@@ -637,67 +773,6 @@ private struct ActivityItem: Identifiable {
     let symbol: String
     let color: Color
     let source: Source
-}
-
-private struct SupplyChangeSheet: View {
-    let title: String
-    let message: String
-    let unit: String
-    let actionTitle: String
-    let onSave: (Double, String) -> Void
-    @State private var quantity: Double
-    @State private var note = ""
-    @Environment(\.dismiss) private var dismiss
-
-    private var isValid: Bool {
-        quantity.isFinite && quantity >= 0 && (actionTitle != "Add Refill" || quantity > 0)
-    }
-
-    init(
-        title: String,
-        message: String,
-        unit: String,
-        initialValue: Double,
-        actionTitle: String,
-        onSave: @escaping (Double, String) -> Void
-    ) {
-        self.title = title
-        self.message = message
-        self.unit = unit
-        self.actionTitle = actionTitle
-        self.onSave = onSave
-        _quantity = State(initialValue: initialValue)
-    }
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    HStack {
-                        TextField("Quantity", value: $quantity, format: .number.precision(.fractionLength(0...2)))
-                            .keyboardType(.decimalPad)
-                            .font(.title2.weight(.semibold))
-                        Text(unit + (quantity == 1 ? "" : "s"))
-                            .foregroundStyle(.secondary)
-                    }
-                    TextField("Optional note", text: $note, axis: .vertical)
-                } footer: {
-                    Text(message)
-                }
-            }
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(actionTitle) {
-                        onSave(quantity, note.trimmingCharacters(in: .whitespacesAndNewlines))
-                        dismiss()
-                    }
-                    .disabled(!isValid)
-                }
-            }
-        }
-        .presentationDetents([.medium])
-    }
+    /// Health's copy, which Health takes back, not this app.
+    let isHealthMirrored: Bool
 }

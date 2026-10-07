@@ -2,6 +2,15 @@ import SwiftUI
 
 enum AppTheme {
     static let accent = Color.accentColor
+    /// Text and glyphs drawn on an accent fill. The dark-appearance accent is
+    /// light enough that white on it reads at under 2:1; near-black reads at
+    /// over 11:1, and white stays right on the deeper light-appearance accent.
+    static let onAccent = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark ? .black : .white
+    })
+    /// Text on the missed-day fill, which is orange in both appearances: white
+    /// on it is about 2:1, black over 9:1.
+    static let onWarning = Color.black
     static let canvas = Color(uiColor: .systemGroupedBackground)
 
     static let medicationColors: [Color] = [

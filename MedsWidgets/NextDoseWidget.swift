@@ -9,7 +9,7 @@ struct NextDoseEntry: TimelineEntry {
     let needsApp: Bool
 
     static func placeholder(at date: Date = .now) -> NextDoseEntry {
-        let item = NextDoseSnapshot.Item(medicationID: UUID(), scheduleID: UUID(), displayName: "Tacrolimus", quantityText: "1 capsule", accentIndex: 0)
+        let item = NextDoseSnapshot.Item(medicationID: UUID(), scheduleID: UUID(), displayName: "Furosemide", quantityText: "1 tablet", accentIndex: 0)
         let time = Calendar.autoupdatingCurrent.date(bySettingHour: 20, minute: 0, second: 0, of: date) ?? date
         return NextDoseEntry(date: date, snapshot: NextDoseSnapshot(state: .next(time: time, items: [item]), now: date), needsApp: false)
     }
@@ -244,7 +244,7 @@ struct NextDoseView: View {
                 Text("\(Image(systemName: "pills.fill")) \(time, style: .time) \(items.count == 1 ? items[0].displayName : "\(items.count) medications")")
                     .privacySensitive()
             } else if let snapshot = entry.snapshot, case let .allLogged(count) = snapshot.state {
-                Text("\(Image(systemName: "checkmark.circle")) All \(count) doses logged")
+                Text("\(Image(systemName: "checkmark.circle")) All \(count.counted("dose", plural: "doses")) logged")
             } else {
                 Text("\(Image(systemName: "pills.fill")) Meds Ahead")
             }

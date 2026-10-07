@@ -69,7 +69,7 @@ struct NextDoseSnapshot: Equatable, Sendable {
                     medicationID: medication.id,
                     scheduleID: dose.scheduleID,
                     displayName: medication.displayName,
-                    quantityText: "\(dose.quantity.medicationQuantityText) \(medication.form.unitName)\(dose.quantity == 1 ? "" : "s")",
+                    quantityText: medication.form.quantityText(dose.quantity),
                     accentIndex: medication.accentIndex
                 )
             }
@@ -85,7 +85,7 @@ struct NextDoseSnapshot: Equatable, Sendable {
         schedules: [DoseSchedule],
         doseEvents: [DoseEvent],
         now: Date,
-        dueWindow: TimeInterval = 30 * 60,
+        dueWindow: TimeInterval = ScheduleEngine.dueWindow,
         calendar: Calendar = .autoupdatingCurrent
     ) -> [Date] {
         var times: Set<Date> = []
@@ -106,7 +106,9 @@ struct NextDoseSnapshot: Equatable, Sendable {
 }
 
 /// What the runs-out-next widget shows: the medications in the order their
-/// supply runs out, soonest first, with the ones nobody can forecast last.
+/// supply runs out, soonest first, then courses the supply sees through,
+/// with the ones nobody can forecast last. A finished course runs out of
+/// nothing and is left off.
 struct RunsOutSnapshot: Equatable, Sendable {
     struct Item: Equatable, Sendable, Identifiable {
         let medicationID: UUID
@@ -114,15 +116,68 @@ struct RunsOutSnapshot: Equatable, Sendable {
         let daysRemaining: Int?
         let depletionDate: Date?
         let refillLeadDays: Int
+        let refillsRemaining: Int?
         let refillInProgress: Bool
+        /// Counted when the snapshot is made, as `daysRemaining` is.
+        let daysSinceRefillDate: Int?
+        let onHand: Bool
+        /// The forecast's assumptions used up the ledger; see `SupplyForecast`.
+        let needsCount: Bool
         let accentIndex: Int
+        /// The supply sees the course through its last day: nothing runs
+        /// out, and nothing needs a refill.
+        var courseCovered = false
 
         var id: UUID { medicationID }
 
-        /// Low, and nothing done about it yet.
-        var needsAttention: Bool {
-            guard !refillInProgress, let daysRemaining else { return false }
-            return daysRemaining <= refillLeadDays
+        /// How urgent the widget shows a medication to be; the widget picks the
+        /// colour for each.
+        enum Tone: Equatable, Sendable {
+            case unknown
+            case steady
+            case attention
+            case out
+        }
+
+        var attention: SupplyAttention {
+            SupplyAttention(
+                daysRemaining: daysRemaining,
+                onHand: onHand,
+                needsCount: needsCount,
+                refillLeadDays: refillLeadDays,
+                refillsRemaining: refillsRemaining,
+                refillInProgress: refillInProgress,
+                daysSinceRefillDate: daysSinceRefillDate
+            )
+        }
+
+        /// Low, and no refill in progress that can still answer for it.
+        var needsAttention: Bool { attention.needsAttention }
+
+        /// A count needed is never out: its zero days are where the assumed
+        /// doses ran out, and the ledger still shows medication.
+        private var isOut: Bool { !needsCount && (!onHand || (daysRemaining ?? 1) <= 0) }
+
+        /// The day count the widget may print. None while a count is needed,
+        /// for the same reason it is never out.
+        var shownDaysRemaining: Int? { needsCount ? nil : daysRemaining }
+
+        var tone: Tone {
+            if isOut { return .out }
+            if needsAttention { return .attention }
+            if courseCovered { return .steady }
+            return daysRemaining == nil ? .unknown : .steady
+        }
+
+        /// A refill on its way is said only while it can still answer for the
+        /// supply; at zero, or once it runs late, the count speaks instead.
+        var line: String {
+            if needsCount { return "Count needed" }
+            if isOut { return "Out of supply" }
+            if courseCovered { return "Enough for the course" }
+            if attention.refillPauseHolds { return "Refill on its way" }
+            guard let daysRemaining else { return "Timing unknown" }
+            return "About \(daysRemaining.dayCountText) left"
         }
     }
 
@@ -141,7 +196,7 @@ struct RunsOutSnapshot: Equatable, Sendable {
     ) -> RunsOutSnapshot {
         let items = medications
             .filter { !$0.isArchived }
-            .map { medication -> Item in
+            .compactMap { medication -> Item? in
                 let forecast = ForecastEngine.forecast(
                     medication: medication,
                     schedules: schedules,
@@ -150,14 +205,21 @@ struct RunsOutSnapshot: Equatable, Sendable {
                     now: now,
                     calendar: calendar
                 )
+                guard !forecast.courseFinished else { return nil }
+                let attention = SupplyAttention(medication: medication, forecast: forecast, now: now, calendar: calendar)
                 return Item(
                     medicationID: medication.id,
                     displayName: medication.displayName,
                     daysRemaining: forecast.daysRemaining,
                     depletionDate: forecast.depletionDate,
                     refillLeadDays: medication.refillLeadDays,
-                    refillInProgress: medication.refillStatus != .none,
-                    accentIndex: medication.accentIndex
+                    refillsRemaining: medication.refillsRemaining,
+                    refillInProgress: attention.refillInProgress,
+                    daysSinceRefillDate: attention.daysSinceRefillDate,
+                    onHand: attention.onHand,
+                    needsCount: attention.needsCount,
+                    accentIndex: medication.accentIndex,
+                    courseCovered: forecast.courseCovered
                 )
             }
             .sorted { lhs, rhs in
@@ -165,6 +227,7 @@ struct RunsOutSnapshot: Equatable, Sendable {
                 case let (.some(a), .some(b)) where a != b: return a < b
                 case (.some, .none): return true
                 case (.none, .some): return false
+                case (.none, .none) where lhs.courseCovered != rhs.courseCovered: return lhs.courseCovered
                 default: return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
                 }
             }

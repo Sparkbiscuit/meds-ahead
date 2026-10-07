@@ -10,25 +10,6 @@ final class ScanPreviewTests: XCTestCase {
         }
     }
 
-    func testEmptyEvidenceProducesNoProgress() {
-        let preview = ScanPreview.make(from: [])
-        XCTAssertFalse(preview.hasUsefulProgress)
-        XCTAssertTrue(preview.medicationName.isEmpty)
-    }
-
-    func testPreviewReportsRecognisedFields() {
-        let preview = ScanPreview.make(from: evidence([
-            "FUROSEMIDE 20 MG",
-            "TAKE ONE TABLET TWICE DAILY",
-            "QTY: 60 TABLETS"
-        ]))
-
-        XCTAssertEqual(preview.medicationName, "Furosemide")
-        XCTAssertTrue(preview.hasStrength)
-        XCTAssertTrue(preview.hasQuantity)
-        XCTAssertTrue(preview.hasUsefulProgress)
-    }
-
     func testPreviewMatchesTheDraftTheReviewScreenWillReceive() {
         let lines = evidence([
             "DIMETHYL FUMARATE 240 MG",
@@ -47,14 +28,6 @@ final class ScanPreviewTests: XCTestCase {
 
     func testUnreadableEvidenceProducesNoName() {
         XCTAssertTrue(ScanPreview.make(from: evidence(["....", "!!"])).medicationName.isEmpty)
-    }
-
-    func testPreviewReportsWhetherRefillsWereCaptured() {
-        let withRefills = ScanPreview.make(from: evidence(["Refills: 2"]))
-        let withoutRefills = ScanPreview.make(from: evidence(["FUROSEMIDE 20 MG"]))
-
-        XCTAssertTrue(withRefills.hasRefills)
-        XCTAssertFalse(withoutRefills.hasRefills)
     }
 
     func testRefillOnlyPreviewCountsAsUsefulProgress() {

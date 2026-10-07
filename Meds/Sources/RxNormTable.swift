@@ -65,6 +65,15 @@ struct RxNormTable: Sendable {
     }
 
     private var brandToClinicalDrug: [String: String] { products.brandToClinicalDrug }
+
+    /// The FDA products a code names, as their nine-digit keys: those listed
+    /// under it, and for a clinical drug the brands of it too. The question is
+    /// asked the other way round from the table's order, so it reads the whole
+    /// file; it is for a Health entry, whose code is all that says which
+    /// release it is when its name does not.
+    func productKeys(for rxcui: String, limit: Int = 25) -> [String] {
+        products.keys(whereSecondOrThirdFieldIs: rxcui, limit: limit)
+    }
 }
 
 /// Lines of tab-separated fields that begin with a fixed-width, strictly
@@ -131,6 +140,26 @@ private struct SortedKeyTable: Sendable {
 
     var isEmpty: Bool { keys.isEmpty }
     var count: Int { keys.count }
+
+    func keys(whereSecondOrThirdFieldIs value: String, limit: Int) -> [String] {
+        let target = Array(value.utf8)
+        guard !target.isEmpty else { return [] }
+        var found: [String] = []
+        for (index, offset) in offsets.enumerated() where found.count < limit {
+            var start = offset + keyWidth + 1
+            for _ in 0..<2 {
+                var end = start
+                while end < bytes.count, bytes[end] != 0x09, bytes[end] != 0x0A { end += 1 }
+                if bytes[start..<end].elementsEqual(target) {
+                    found.append(String(format: "%0\(keyWidth)u", keys[index]))
+                    break
+                }
+                guard end < bytes.count, bytes[end] == 0x09 else { break }
+                start = end + 1
+            }
+        }
+        return found
+    }
 
     func fields(forKey key: String) -> [String]? {
         guard key.count == keyWidth, let numeric = UInt32(key) else { return nil }
