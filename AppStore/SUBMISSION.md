@@ -46,13 +46,16 @@ I built Meds Ahead because my mother was managing more than a dozen medications 
 
 Meds Ahead is an organization tool. It does not provide medical advice, recommend dose changes, or determine prescription refill eligibility. Always follow your prescription label and clinician's instructions.
 
+Terms of Use (EULA):
+https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
+
 ## Keywords
 
 medication,medicine,refill,pill,reminder,schedule,tracker,inventory,dose,health,caregiver,ndc
 
-## 1.2 What's New (draft for Nick)
+## What's New in 1.2
 
-For version 1.2, build 8, which also carries every 1.1.1 fix: on September 25, 2026 Nick chose to ship the two as one update rather than release 1.1.1 first. Read it against the build before pasting into App Store Connect > Version > What's New in This Version (4,000-character limit; this is about 2,300). It says what the app does, not what it does for anyone's health. The review notes below are 1.2's and cover both.
+Entered in App Store Connect for version 1.2, build 8, on October 7, 2026, after a check of each claim against the build. 1.2 also carries every 1.1.1 fix: on September 25, 2026 Nick chose to ship the two as one update rather than release 1.1.1 first. It says what the app does, not what it does for anyone's health. The review notes below are 1.2's and cover both.
 
 ```
 Made for the first days home, when a lot of new bottles arrive at once, with a round of fixes to the counts, dates and warnings.
@@ -113,7 +116,9 @@ Before pasting, make item 2 true: it describes the hands-on pass on the iPhone
 16 Pro that the 1.1, 1.1.1 and 1.2 gates in the release checklist require (live
 scanning, the torch, the Health import and dose sync, the widgets, locked-device
 reminder actions, a course's reminders, a follow-up and the count check, a
-sandbox tip), and it must not be submitted ahead of that pass.
+sandbox tip), and it must not be submitted ahead of that pass. For 1.2 it was
+entered unchanged on October 7, 2026, after Nick confirmed item 2 as written
+against his September 27 phone pass.
 
 `AppStore/REVIEW_REPLY.md` holds the 1.0 Resolution Center reply and the
 screen-recording shot list; add the Health picker to the shot list if a

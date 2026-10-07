@@ -1,5 +1,87 @@
 # Verification record
 
+## October 7, 2026 — 1.2 archived, uploaded and submitted
+
+1.2, build 8, was archived from `89123a8` on `feature/first-days-home`, the
+code recorded on September 28 with Nick's September 27 phone pass behind it,
+uploaded to App Store Connect and submitted for review. No code changed: the
+check below found nothing to fix, and a change after the phone pass would have
+shipped untested on a phone. Pull request #2 is merged into `main` with this
+entry, at Nick's direction, without waiting for approval.
+
+### Checked before the archive
+
+- Both suites, whole, on both runtimes (Results).
+- Dates across a clock change, since 1.2's first month includes November 1 in
+  the United States: dated reminders and follow-ups are triggered by calendar
+  components (`NotificationService`), and `followUpMoment` builds its clock
+  time from the day's components, so neither is a fixed number of seconds
+  after a moment that a clock change moves.
+- Since 1.1, no new force unwrap, `try!`, `fatalError` or precondition in the
+  app, the shared code or the widget.
+- The new writes to the ledger append: Add This Bottle records a refill event,
+  a count records a correction, and both roll back a save that fails.
+- The archived binaries: no seed, simulate, force or UI-testing argument in
+  either, as on September 28; the two onboarding arguments remain only as
+  strings compared against an empty list. Info.plist carries 1.2 (8), iOS 18.0,
+  `ITSAppUsesNonExemptEncryption` false, and the camera and Health purpose
+  strings unchanged; the entitlements, the privacy manifest and every
+  `INFOPLIST_KEY_` setting are unchanged since 1.1.
+- Every claim in What's New and the review notes, against the build: the two
+  Settings switches, the follow-up's thirty minutes (`ScheduleEngine.dueWindow`),
+  "Why this date?" on a Supply row's menu, the course wording, the four bundled
+  files (12,865 names, 267 brand pairs), and the tip names.
+
+### The archive and the upload
+
+- `xcodebuild archive`, Release, generic iOS device, automatic signing, from a
+  clean tree at `89123a8`. It is in Xcode's Archives folder as "Meds 10-7-26,
+  6.47 PM", so Organizer lists it.
+- A local App Store export first proved the signing: the store provisioning
+  profiles for `com.christoforakis.Meds` and `com.christoforakis.Meds.MedsWidgets`,
+  with HealthKit, Time Sensitive notifications and the App Group intact.
+- Uploaded with `xcodebuild -exportArchive` and `AppStore/ExportOptions-AppStore.plist`
+  with its destination set to `upload`, rather than Organizer; App Store
+  Connect accepted it at 18:58 EDT and processed it as 1.2 (8).
+
+### App Store Connect
+
+- Version 1.2 created; it carried over 1.1's description, keywords, URLs,
+  review contact and notes, and started with empty promotional text and What's
+  New.
+- Entered from `AppStore/SUBMISSION.md`, each field compared afterwards with
+  its source text by SHA-256: the promotional text (137 characters), What's
+  New (2,350), the description (2,931) and the review notes (3,941, item 2
+  confirmed by Nick as written).
+- The live description ends with a Terms of Use (EULA) link that
+  `SUBMISSION.md` did not have; 1.2 keeps it, and `SUBMISSION.md` now does too.
+- Release: automatically after approval, to all users at once (Nick's choice
+  on October 7); the existing rating is kept.
+- App Privacy is still `Data Not Collected`.
+
+### Not changed, for Nick
+
+- The age rating App Store Connect shows is 9+ in 172 countries or regions
+  (12+ Vietnam, 10+ Brazil, All Korea), published with 1.1, where
+  `CONNECT_ANSWERS.md` expects 4+. It does not stand in the way of a
+  submission; which answer moved it is for Nick to look at.
+- The accessibility declarations are two unpublished drafts, for iPhone and
+  iPad, each listing six features; nothing was published.
+- The decisions listed under September 25 stay open.
+
+### Results
+
+All on the code at `89123a8` (this entry's documentation commit changes no
+code), Xcode 27.0 (27A266a), the test command in `AGENTS.md`:
+
+- **iOS 26.5 (23F77), iPhone 17 Pro:** unit tests 646/646, UI tests 29/29.
+- **iOS 27.0 (24A434), iPhone 18 Pro:** unit tests 646/646, UI tests 29/29.
+- **Archive:** succeeded. Its one note is Xcode's "not stripping binary
+  because it is signed" for the widget extension, which the unsigned Release
+  builds of September 28 could not print.
+- **Submission:** App Store Connect lists iOS 1.2, submitted October 7 at
+  19:06 EDT, Waiting for Review, to be released automatically on approval.
+
 ## September 28, 2026 — 1.2: a store read that fails is not an empty store
 
 A September 25 review of 1.2 reported one high-severity path, written up

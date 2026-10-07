@@ -190,10 +190,10 @@ About three hours across three days, on the spare iPhone on iOS 26, plus twenty 
 
 ### Release
 
-- [ ] Every step above passes, or its failure is written down and decided
-- [ ] The 1.1.1 device script above has also passed on this build, since 1.2 ships its fixes
-- [ ] Merge `feature/first-days-home` into `main` (pull request #2) and push
-- [ ] Archive build 8 from that commit with automatic signing, validate in Organizer, and upload
-- [ ] In App Store Connect, create version 1.2 with build 8; paste the 1.2 What's New (new features and the 1.1.1 fixes), the promotional text, the description and the review notes from `AppStore/SUBMISSION.md`, with item 2 true of the passes above
-- [ ] Confirm App Privacy stays `Data Not Collected`: 1.2 adds no collection, no network request and no new Health access; the new settings and cards remember their state in the app's own `UserDefaults`, which the privacy manifest already declares
-- [ ] Publish only the accessibility declarations a phone pass verified, as for 1.1.1, with step 12 added to VoiceOver's
+- [x] Every step above passes, or its failure is written down and decided: Nick reported the phone pass complete on September 27, and on October 7 confirmed the review notes' item 2 against it; its step-by-step results are not in this repository
+- [x] The 1.1.1 device script above has also passed on this build, since 1.2 ships its fixes: part of the same September 27 pass, per Nick
+- [x] Merge `feature/first-days-home` into `main` (pull request #2) and push: on October 7, after the submission, at Nick's direction; `main` was an ancestor of the branch, so the merge brings the archived code over unchanged
+- [x] Archive build 8 from that commit with automatic signing, validate in Organizer, and upload: archived from `89123a8` on October 7 and uploaded with `xcodebuild -exportArchive` rather than through Organizer; App Store Connect accepted and processed it (`VERIFICATION.md`, October 7)
+- [x] In App Store Connect, create version 1.2 with build 8; paste the 1.2 What's New (new features and the 1.1.1 fixes), the promotional text, the description and the review notes from `AppStore/SUBMISSION.md`, with item 2 true of the passes above: entered and checked against the source text on October 7, the description keeping its Terms of Use link; submitted at 19:06 EDT, to be released automatically on approval, to all users at once
+- [x] Confirm App Privacy stays `Data Not Collected`: 1.2 adds no collection, no network request and no new Health access; the new settings and cards remember their state in the app's own `UserDefaults`, which the privacy manifest already declares (confirmed October 7)
+- [ ] Publish only the accessibility declarations a phone pass verified, as for 1.1.1, with step 12 added to VoiceOver's (still two unpublished drafts on October 7; nothing was published)
